@@ -404,3 +404,19 @@ seen with a mouse**. "The same node object" does not prove React keeps the termi
 terminal and note its process id; after the drag the marker must still be on the screen and the process id must be the same
 (`devdata/proof/drag-check.ps1` in the private test folder does the marker and the pid part with `wsh send` and `wsh screen`);
 (3) drop a tab on the middle of another tile, on another tab of the same strip, and on a tab of another strip.
+
+## 25. Keyboard: next and previous tab inside a tile
+
+The design: `Ctrl+Shift+PageDown` shows and focuses the next tab of the stack that holds the focused tile, `Ctrl+Shift+PageUp`
+the previous one; both wrap around. **This is unproven until the window check** (see the last point). Nothing happens (the key is not taken) when the focused tile is not a stack or has only one tab. The
+chords were chosen because neither is bound in Wave's key map (checked against `keymodel.ts`); Wave's own `Alt+[` and `Alt+]`
+still switch the tabs of the workspace (the T1, T2 row). The rule is a pure function (`adjacentStackMember`) with tests (order, wrap,
+non-stack, stack of one, unknown id, focus lands on the shown tab).
+- **Proven by tests:** the rule, and the dispatch (`stackkeys.test.ts`: both chords are registered through one function, next steps
+  forward and previous back, the key is taken only when something was switched and passes on when the tile is not a stack or has
+  one tab, and no chord collides with one the app binds). Showing the target: `focusNode` makes the member the active tab of its stack
+  (tested), so the target is revealed.
+- **Not checked, and what is expected:** a focused text field of the app (for example renaming a tab) would let the chord switch tabs
+  too, which does no harm; a web tile keeps its own keys inside its page, so the chord reaches the app only when the app, not the
+  page, has the keyboard focus; the onboarding screens switch all global keys off. **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
+  `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.

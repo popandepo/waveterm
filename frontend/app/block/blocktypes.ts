@@ -8,6 +8,7 @@ export interface BlockNodeModel {
     blockId: string;
     isFocused: Atom<boolean>;
     isMagnified: Atom<boolean>;
+    isHidden?: Atom<boolean>;
     onClose: () => void;
     focusNode: () => void;
     toggleMagnify: () => void;

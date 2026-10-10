@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { makeCloseTabHandler } from "./closetabhandler";
+import { makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
 import { wshCloseRefusal } from "./closetabprompt";
 
 function setup(opts: { blockCount?: number | null; dialogResponse?: number | "pending"; confirmSetting?: boolean }) {
@@ -254,5 +254,44 @@ describe("the close itself carries the approved count (second review of PR 21)",
         const t = closeSetup([null, null], [1], true);
         expect(await t.handler("tab1", false, undefined)).toBe(true);
         expect(t.closes[0].maxBlocks).toBe(-1);
+    });
+});
+
+describe("close requests that are left in a queue are settled (third review of PR 21)", () => {
+    test("every pending close resolves false and the queue is emptied", () => {
+        const results: boolean[] = [];
+        const queue = [
+            { op: "closetab", result: (b: boolean) => results.push(b) },
+            { op: "switchtab" },
+            { op: "closetab", result: (b: boolean) => results.push(b) },
+            { op: "closetab" },
+        ];
+        settlePendingCloses(queue);
+        expect(results).toEqual([false, false]);
+        expect(queue.length).toBe(0);
+    });
+
+    test("an empty queue is fine and settling twice does not resolve twice", () => {
+        const results: boolean[] = [];
+        const queue = [{ op: "closetab", result: (b: boolean) => results.push(b) }];
+        settlePendingCloses(queue);
+        settlePendingCloses(queue);
+        settlePendingCloses([]);
+        expect(results).toEqual([false]);
+    });
+
+    test("the window calls it on every way out of the queue loop", () => {
+        const src = readFileSync(path.join(__dirname, "emain-window.ts"), "utf8");
+        expect(src).toContain("settlePendingCloses(this.actionQueue)");
+        expect(src).toMatch(
+            /try \{\s*await this\.processActionQueueInner\(\);\s*\} finally \{\s*settlePendingCloses\(this\.actionQueue\);/
+        );
+    });
+
+    test("the unchecked CloseTab is only reached when no limit applies", () => {
+        const src = readFileSync(path.join(__dirname, "emain-window.ts"), "utf8");
+        expect(src).toContain("maxBlocks >= 0");
+        expect((src.match(/WorkspaceService\.CloseTab\(/g) ?? []).length).toBe(1);
+        expect((src.match(/WorkspaceService\.CloseTabChecked\(/g) ?? []).length).toBe(1);
     });
 });

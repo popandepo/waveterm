@@ -345,3 +345,8 @@ one **in the same Go function that starts the close** (only synchronous database
 window); a tab that gained blocks is not closed, and the caller is told so. It is not one database transaction: a block created in
 the same few microseconds on another goroutine would not be caught. The window's close request now resolves with whether the tab
 was really closed, and a close request that was replaced in the window's action queue resolves false.
+
+Fourth pass on section 22: whatever leaves the window's action queue (a destroyed window, an early end) first tells every close that is
+still queued "not closed" and empties the queue, so a caller (the window, or `wsh tab close`) gets an answer instead of waiting
+(tested). The unchecked back-end `CloseTab` is reached only when no limit applies: `force`, or a count that could not be read and
+that the owner confirmed anyway (a test pins that the window file calls the unchecked one once and the checked one once).

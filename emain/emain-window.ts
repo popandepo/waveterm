@@ -20,7 +20,7 @@ import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
 import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
-import { makeCloseTabHandler } from "./closetabhandler";
+import { makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
@@ -626,6 +626,14 @@ export class WaveBrowserWindow extends BaseWindow {
     // we don't mess with [0] because it is "in process"
     // we replace [1] because there is no point to run an action that is going to be overwritten
     private async processActionQueue() {
+        try {
+            await this.processActionQueueInner();
+        } finally {
+            settlePendingCloses(this.actionQueue);
+        }
+    }
+
+    private async processActionQueueInner() {
         let closedOk = false;
         while (this.actionQueue.length > 0) {
             try {

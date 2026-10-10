@@ -60,3 +60,14 @@ export function makeCloseTabHandler<C>(deps: CloseTabDeps<C>) {
         }
     };
 }
+
+// A window that is destroyed, or a loop that ends early, must not leave a caller waiting for a close that will never run:
+// every close that is still queued is told "not closed", and the queue is emptied.
+export function settlePendingCloses(queue: { op: string; result?: (closed: boolean) => void }[]) {
+    const pending = queue.splice(0, queue.length);
+    for (const entry of pending) {
+        if (entry.op === "closetab") {
+            entry.result?.(false);
+        }
+    }
+}

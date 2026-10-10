@@ -189,3 +189,28 @@ tabs switches the colour. Order, first valid colour wins:
 Blocks on a connection with `display:accent` are also framed in that colour (and their header tinted) whether focused or
 not (`frontend/app/block/conn-accent.scss`). Colours are validated before use; an invalid value is skipped. The palette
 steps are derived with CSS `color-mix`, so no colour maths runs in script.
+
+
+## 13. Slots and --no-focus (fork feature)
+
+`wsh slot open <slot> <view> [key=value ...]`, `wsh slot close <slot>`, `wsh slot list` give blocks a fixed place
+by name. The slot is stored as block meta `slot`, so a closed block frees its slot with no other bookkeeping.
+Opening a slot that is filled replaces its block; opening an empty one splits next to the first filled neighbour
+listed in the slot layout (data, `--layout-file`; default left, middle, right-top, right-bottom). It uses the
+existing backend placement (`TargetBlockId` and `TargetAction`: splitright, splitleft, splitup, splitdown,
+replace), so no RPC, frontend or backend change.
+
+`--no-focus` on `wsh createblock`, `run`, `term`, `web open` and `slot open` sends `Focused: false`.
+
+- **RAN:** `go test ./cmd/wsh/cmd` (planning, replace, close and reopen, unknown slot, bad layout data, custom
+  names, no-focus passed through). Changing one default anchor turns two tests red.
+- **READ:** the backend splits and replaces as the layout action says; closing removes the node from its parent (`deleteNode`);
+  whether the siblings then fill the freed space (size weights) is NOT verified; `webview.tsx` loads a new `url` meta into the open web view
+  (`metaUrl` effect). Not yet seen in a window: where the blocks really land, whether the right column keeps its
+  shape when middle opens and closes, focus staying put.
+- **Limit:** opening a slot never splits one block of a two-block column (refused with a message); with a single right block it nests one
+  level deeper than a flat row.
+- **Concurrent opens are NOT safe.** The backend has no lock, so two callers opening the same empty slot at the
+  same instant can both keep a block. `wsh slot open` re-checks after creating (smallest block id wins, the other
+  call removes its own block), but a rival that appears after that check is missed. `wsh slot repair` removes the
+  duplicates (keeps the smallest id). The real fix is an atomic slot-owner key in the backend (not done).

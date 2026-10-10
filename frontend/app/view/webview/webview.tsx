@@ -22,7 +22,7 @@ import clsx from "clsx";
 import type { WebviewTag } from "electron";
 import { Atom, PrimitiveAtom, atom, useAtomValue, useSetAtom } from "jotai";
 import { Fragment, createRef, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { audioMuteChange, effectiveAudioMuted } from "./hiddenmute";
+import { applyGuestMute } from "./hiddenmute";
 import "./webview.scss";
 import type { WebViewEnv } from "./webviewenv";
 
@@ -270,6 +270,17 @@ export class WebViewModel implements ViewModel {
         globalStore.set(this.mediaPlaying, isPlaying);
     }
 
+    // Called whenever a guest page becomes ready and whenever the owner's choice or the hidden flag changes: it reads all three at the
+    // moment it runs, so a reloaded, navigated or replaced guest gets the right state too.
+    applyAudioMute() {
+        try {
+            const hidden = this.nodeModel.isHidden ? globalStore.get(this.nodeModel.isHidden) : false;
+            applyGuestMute(this.webviewRef.current, globalStore.get(this.mediaMuted), hidden);
+        } catch (e) {
+            console.error("Failed to set the audio mute of a web tile", e);
+        }
+    }
+
     handleMuteChange(e: React.ChangeEvent<HTMLInputElement>) {
         if (e) {
             e.preventDefault();
@@ -278,8 +289,7 @@ export class WebViewModel implements ViewModel {
         try {
             const newMutedVal = !globalStore.get(this.mediaMuted);
             globalStore.set(this.mediaMuted, newMutedVal);
-            const hidden = this.nodeModel.isHidden ? globalStore.get(this.nodeModel.isHidden) : false;
-            this.webviewRef.current?.setAudioMuted(effectiveAudioMuted(newMutedVal, hidden));
+            this.applyAudioMute();
         } catch (e) {
             console.error("Failed to change mute value", e);
         }
@@ -932,18 +942,10 @@ const WebView = memo(({ model, onFailLoad, blockRef, initialSrc }: WebViewProps)
     const mutedByOwner = useAtomValue(model.mediaMuted);
 
     useEffect(() => {
-        const webview = model.webviewRef.current;
-        if (webview == null || !domReady) {
+        if (!domReady) {
             return;
         }
-        try {
-            const change = audioMuteChange(webview.isAudioMuted(), mutedByOwner, hiddenInStack);
-            if (change != null) {
-                webview.setAudioMuted(change);
-            }
-        } catch (e) {
-            console.error("Failed to set the audio mute of a hidden or shown web tile", e);
-        }
+        model.applyAudioMute();
     }, [domReady, hiddenInStack, mutedByOwner]);
 
     const [errorText, setErrorText] = useState("");
@@ -1060,6 +1062,7 @@ const WebView = memo(({ model, onFailLoad, blockRef, initialSrc }: WebViewProps)
         const stopLoadingHandler = () => {
             model.setRefreshIcon("rotate-right");
             model.setIsLoading(false);
+            model.applyAudioMute();
             setBgColor();
         };
         const failLoadHandler = (e: any) => {
@@ -1084,6 +1087,7 @@ const WebView = memo(({ model, onFailLoad, blockRef, initialSrc }: WebViewProps)
         };
         const handleDomReady = () => {
             globalStore.set(model.domReady, true);
+            model.applyAudioMute();
             setBgColor();
         };
         const handleMediaPlaying = () => {

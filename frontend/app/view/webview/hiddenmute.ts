@@ -18,3 +18,27 @@ export function audioMuteChange(
     const wanted = effectiveAudioMuted(mutedByOwner, hiddenInStack);
     return wanted === currentlyMuted ? undefined : wanted;
 }
+
+export interface MutableGuest {
+    isAudioMuted(): boolean;
+    setAudioMuted(muted: boolean): void;
+}
+
+// Brings the guest page in line with (owner choice, hidden). It reads the guest at the moment it runs, so it can be called again
+// whenever a guest page becomes ready (first load, reload, navigation, a replaced guest) and for any change of the two inputs;
+// a guest that is already right is not touched. Returns whether it changed anything.
+export function applyGuestMute(
+    guest: MutableGuest | null | undefined,
+    mutedByOwner: boolean,
+    hiddenInStack: boolean
+): boolean {
+    if (guest == null) {
+        return false;
+    }
+    const change = audioMuteChange(guest.isAudioMuted(), mutedByOwner, hiddenInStack);
+    if (change == null) {
+        return false;
+    }
+    guest.setAudioMuted(change);
+    return true;
+}

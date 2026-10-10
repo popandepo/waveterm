@@ -35,7 +35,7 @@ func fixture(t *testing.T) Snapshot {
 			"tab2": {OID: "tab2", Name: "T2", BlockIds: []string{"b5"}, LayoutState: "lay2"},
 		},
 		Blocks: map[string]*waveobj.Block{
-			"b1": {OID: "b1", Meta: waveobj.MetaMapType{"view": "term", "controller": "cmd", "cmd": `C:\Program Files\PowerShell\7\pwsh.exe`, "cmd:cwd": `C:\work\one`, "frame:title": "one",
+			"b1": {OID: "b1", Meta: waveobj.MetaMapType{"view": "term", "controller": "cmd", "cmd": `"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile`, "cmd:cwd": `C:\work\one`, "frame:title": "one",
 				"session:name": "tether", "session:id": "11111111-2222-3333-4444-555555555555", "session:model": "claude-sonnet-5-5", "session:effort": "low"}},
 			"b2": {OID: "b2", Meta: waveobj.MetaMapType{"view": "term", "controller": "shell", "cmd:cwd": `C:\work\two`}},
 			"b3": {OID: "b3", Meta: waveobj.MetaMapType{"view": "web", "url": "http://127.0.0.1:18766/?token=SECRET", "frame:title": "status"}},
@@ -176,15 +176,21 @@ func TestSameStateGivesTheSameContent(t *testing.T) {
 
 func TestProgramNameIsOnlyTheExecutable(t *testing.T) {
 	cases := map[string]string{
-		"pwsh -File x.ps1 --token abc":                                    "pwsh",
-		`"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -Token abc`:  "pwsh.exe",
-		`C:\Program Files\PowerShell\7\pwsh.exe -File x --api-key=SECRET`: "pwsh.exe",
-		`C:\Windows\System32\cmd.exe /c claude --resume SECRET`:           "cmd.exe",
-		"/usr/bin/bash -c 'curl http://x/?token=SECRET'":                  "bash",
-		"claude":                      "claude",
-		"":                            "",
-		`'C:\a b\tool.exe' --x`:       "tool.exe",
-		`C:\tools\my app\run.cmd arg`: "run.cmd",
+		"pwsh -File x.ps1 --token abc":                                   "pwsh",
+		`"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -Token abc`: "pwsh.exe",
+		`C:\Windows\System32\cmd.exe /c claude --resume SECRET`:          "cmd.exe",
+		"/usr/bin/bash -c 'curl http://x/?token=SECRET'":                 "bash",
+		"claude":                "claude",
+		"":                      "",
+		`'C:\a b\tool.exe' --x`: "tool.exe",
+		"/usr/bin/python script.exe --token SECRET":                       "python",
+		"python script.exe --token SECRET":                                "python",
+		`"unmatched C:\x\tool.exe --token SECRET`:                         "",
+		`'unmatched --token SECRET`:                                       "",
+		`C:\Program Files\PowerShell\7\pwsh.exe -File x --api-key=SECRET`: "",
+		`C:\tools\my app\run.cmd arg`:                                     "",
+		"cmd;rm -rf x":                                                    "",
+		`"a;b" arg`:                                                       "",
 	}
 	for in, want := range cases {
 		if got := programName(in); got != want {
@@ -261,5 +267,30 @@ func TestOnlyBlocksOfTheTabAreRecordedAndEachOnce(t *testing.T) {
 				t.Fatalf("b5 is not a block of tab 1")
 			}
 		}
+	}
+}
+
+func TestABlockListedTwiceAndMissingFromTheLayoutIsOneTile(t *testing.T) {
+	snap := fixture(t)
+	snap.Tabs["tab2"].BlockIds = []string{"b5", "b2", "b2"}
+	snap.Layouts["lay2"] = &waveobj.LayoutState{OID: "lay2", RootNode: decode(t, `{"id":"r2","data":{"blockId":"b5"}}`)}
+	rec := BuildRecord(snap)
+	seen := map[string]int{}
+	for _, tile := range rec.Workspaces[0].Tabs[1].Tiles {
+		for _, g := range tile.Group {
+			seen[g.BlockId]++
+		}
+	}
+	if seen["b2"] != 1 || seen["b5"] != 1 {
+		t.Fatalf("each block is shown once, got %v", seen)
+	}
+}
+
+func TestAMissingWorkspaceObjectIsLeftOut(t *testing.T) {
+	snap := fixture(t)
+	snap.Workspaces = append([]WorkspaceSource{{WindowId: "gone", Workspace: nil}}, snap.Workspaces...)
+	rec := BuildRecord(snap)
+	if len(rec.Workspaces) != 1 || rec.Workspaces[0].WorkspaceId != "ws1" {
+		t.Fatalf("a workspace that is gone is left out: %+v", rec.Workspaces)
 	}
 }

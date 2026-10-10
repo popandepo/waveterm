@@ -47,6 +47,9 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 		if err != nil {
 			return snap, fmt.Errorf("workspace %s: %w", entry.WorkspaceId, err)
 		}
+		if ws == nil {
+			continue
+		}
 		snap.Workspaces = append(snap.Workspaces, staterecord.WorkspaceSource{WindowId: entry.WindowId, Workspace: ws})
 		for _, tabId := range ws.TabIds {
 			tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)

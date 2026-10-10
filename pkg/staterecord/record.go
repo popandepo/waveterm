@@ -113,57 +113,64 @@ func metaString(meta waveobj.MetaMapType, key string) string {
 }
 
 // Only the program name is kept, not its path or arguments, and no url, environment or other meta: the file is for
-// restoring places, and command lines and addresses can hold secrets. The executable is read first (the quoted part, or the
-// first word, or for a path with spaces the part up to its extension) and only its base name is kept.
-var executableExtensions = []string{".exe", ".cmd", ".bat", ".com", ".ps1"}
-
+// restoring places, and command lines and addresses can hold secrets. Only the first token of the command is read (a leading
+// quoted part counts as one token), then only its base name. Nothing past the first token is ever looked at, so an argument
+// cannot end up in the name. When the first token cannot be identified safely (an unmatched quote, a Windows path with
+// spaces that is not quoted, a name with characters a program name does not have) the program is left out.
 func executableOf(cmd string) string {
 	s := strings.TrimSpace(cmd)
 	if s == "" {
 		return ""
 	}
 	if s[0] == 39 || s[0] == 34 {
-		rest := s[1:]
-		if end := strings.IndexByte(rest, s[0]); end >= 0 {
-			return rest[:end]
+		end := strings.IndexByte(s[1:], s[0])
+		if end < 0 {
+			return ""
 		}
-		return rest
+		return s[1 : 1+end]
 	}
 	first := s
 	if i := strings.IndexAny(s, " \t"); i >= 0 {
 		first = s[:i]
-	}
-	if !strings.ContainsAny(first, `/\`) {
-		return first
-	}
-	lower := strings.ToLower(s)
-	best := -1
-	for _, ext := range executableExtensions {
-		for from := 0; ; {
-			idx := strings.Index(lower[from:], ext)
-			if idx < 0 {
-				break
-			}
-			end := from + idx + len(ext)
-			if end == len(lower) || lower[end] == 32 || lower[end] == 9 {
-				if best < 0 || end < best {
-					best = end
-				}
-				break
-			}
-			from = end
+		if len(first) >= 3 && first[1] == ':' && (first[2] == '\\' || first[2] == '/') && !hasExecutableExtension(first) {
+			return ""
 		}
 	}
-	if best >= 0 {
-		return s[:best]
-	}
 	return first
+}
+
+func hasExecutableExtension(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{".exe", ".cmd", ".bat", ".com", ".ps1"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+const maxProgramNameLen = 64
+
+func plainProgramName(name string) bool {
+	if name == "" || len(name) > maxProgramNameLen {
+		return false
+	}
+	for _, c := range name {
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-' || c == '+'
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func programName(cmd string) string {
 	exe := executableOf(cmd)
 	if i := strings.LastIndexAny(exe, `/\`); i >= 0 {
-		return exe[i+1:]
+		exe = exe[i+1:]
+	}
+	if !plainProgramName(exe) {
+		return ""
 	}
 	return exe
 }
@@ -313,6 +320,7 @@ func BuildRecord(snap Snapshot) Record {
 			tiles = filtered
 			for _, id := range tab.BlockIds {
 				if !shown[id] {
+					shown[id] = true
 					tiles = append(tiles, tileSrc{kind: KindTile, blockIds: []string{id}, activeId: id})
 				}
 			}

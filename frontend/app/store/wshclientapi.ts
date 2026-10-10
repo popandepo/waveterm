@@ -180,6 +180,12 @@ export class RpcApiType {
         return client.wshRpcCall("controllerresync", data, opts);
     }
 
+    // command "controllerstatus" [call]
+    ControllerStatusCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<CommandControllerStatusRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "controllerstatus", data, opts);
+        return client.wshRpcCall("controllerstatus", data, opts);
+    }
+
     // command "createblock" [call]
     CreateBlockCommand(client: WshClient, data: CommandCreateBlockData, opts?: RpcOpts): Promise<ORef> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createblock", data, opts);
@@ -280,6 +286,12 @@ export class RpcApiType {
     ElectronSystemBellCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electronsystembell", null, opts);
         return client.wshRpcCall("electronsystembell", null, opts);
+    }
+
+    // command "electrontabclosed" [call]
+    ElectronTabClosedCommand(client: WshClient, data: CommandElectronTabClosedData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electrontabclosed", data, opts);
+        return client.wshRpcCall("electrontabclosed", data, opts);
     }
 
     // command "eventpublish" [call]
@@ -856,6 +868,12 @@ export class RpcApiType {
     SendTelemetryCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sendtelemetry", null, opts);
         return client.wshRpcCall("sendtelemetry", null, opts);
+    }
+
+    // command "sessionclosetab" [call]
+    SessionCloseTabCommand(client: WshClient, data: CommandSessionCloseTabData, opts?: RpcOpts): Promise<CommandSessionCloseTabRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sessionclosetab", data, opts);
+        return client.wshRpcCall("sessionclosetab", data, opts);
     }
 
     // command "setblockfocus" [call]

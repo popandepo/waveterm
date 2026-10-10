@@ -572,6 +572,18 @@ export class WaveBrowserWindow extends BaseWindow {
         }
     }
 
+    // The backend has already deleted the tab (SessionCloseTab); this tidies the window the way a close from the tab bar would.
+    async tabClosedInBackend(tabId: string, newActiveTabId: string, closeWindow: boolean) {
+        this.removeTabViewLater(tabId, 1000);
+        if (closeWindow) {
+            this.close();
+            return;
+        }
+        if (newActiveTabId && this.activeTabView?.waveTabId == tabId) {
+            await this.setActiveTab(newActiveTabId, false);
+        }
+    }
+
     async queueCreateTab() {
         await this._queueActionInternal({ op: "createtab" });
     }

@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/skratchdot/open-golang/open"
@@ -163,6 +164,77 @@ func (ws *WshServer) UpdateTabNameCommand(ctx context.Context, tabId string, new
 	}
 	wcore.SendWaveObjUpdate(oref)
 	return nil
+}
+
+var sessionCloseLock sync.Mutex
+
+// tabHasUnfinishedBlock reports the first terminal block of the tab whose program is not known to be finished.
+// A block with no controller yet (starting, restarting, or never started since the app launched) counts as unfinished:
+// absence of status is not evidence that nothing is running.
+func tabHasUnfinishedBlock(ctx context.Context, tab *waveobj.Tab) (string, string, error) {
+	for _, blockId := range tab.BlockIds {
+		block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+		if err != nil {
+			return "", "", fmt.Errorf("reading block %s: %w", blockId, err)
+		}
+		if block == nil {
+			continue
+		}
+		if view, _ := block.Meta[waveobj.MetaKey_View].(string); view != "term" {
+			continue
+		}
+		status := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+		if status == nil {
+			return blockId, "none", nil
+		}
+		if status.ShellProcStatus != blockcontroller.Status_Done {
+			return blockId, status.ShellProcStatus, nil
+		}
+	}
+	return "", "", nil
+}
+
+// SessionCloseTabCommand decides and closes in one step under one lock: unless Force is set it refuses when any terminal
+// block in the tab is not known to be finished, and otherwise deletes the tab and its controllers. The window is told
+// afterwards with ElectronTabClosed. A start request from a page can still race this call by milliseconds; starts do not
+// go through this lock.
+func (ws *WshServer) SessionCloseTabCommand(ctx context.Context, data wshrpc.CommandSessionCloseTabData) (*wshrpc.CommandSessionCloseTabRtnData, error) {
+	sessionCloseLock.Lock()
+	defer sessionCloseLock.Unlock()
+	ctx = waveobj.ContextWithUpdates(ctx)
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, data.TabId)
+	if err != nil || tab == nil {
+		return nil, fmt.Errorf("tab %s not found: %v", data.TabId, err)
+	}
+	if !data.Force {
+		blockId, status, err := tabHasUnfinishedBlock(ctx, tab)
+		if err != nil {
+			return nil, err
+		}
+		if blockId != "" {
+			return nil, fmt.Errorf("block %s in tab %s is not known to be finished (status %s); use force to close anyway", blockId, data.TabId, status)
+		}
+	}
+	for _, blockId := range tab.BlockIds {
+		blockcontroller.DestroyBlockController(blockId)
+	}
+	newActiveTabId, err := wcore.DeleteTab(ctx, data.WorkspaceId, data.TabId, true)
+	if err != nil {
+		return nil, fmt.Errorf("error closing tab: %w", err)
+	}
+	wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx))
+	return &wshrpc.CommandSessionCloseTabRtnData{CloseWindow: newActiveTabId == "", NewActiveTabId: newActiveTabId}, nil
+}
+
+func (ws *WshServer) ControllerStatusCommand(ctx context.Context, blockId string) (*wshrpc.CommandControllerStatusRtnData, error) {
+	rtn := &wshrpc.CommandControllerStatusRtnData{BlockId: blockId, ShellProcStatus: "none"}
+	status := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+	if status == nil {
+		return rtn, nil
+	}
+	rtn.ShellProcStatus = status.ShellProcStatus
+	rtn.ShellProcExitCode = status.ShellProcExitCode
+	return rtn, nil
 }
 
 // CreateTabCommand creates a tab in the backend only. It does not activate it and it does not load a view for it;

@@ -52,7 +52,7 @@ $seams = @(
     @('tab-flagcolor-read', 'frontend/app/tab/tab.tsx', 'tabData?.meta?.["tab:flagcolor"]', 'tab bar reads the colour from tab meta'),
     @('tab-flagcolor-validate', 'frontend/app/tab/tab.tsx', 'validateCssColor(rawFlagColor)', 'colour is validated before drawing'),
     @('tab-badges-component', 'frontend/app/tab/tabbadges.tsx', 'export function TabBadges(', 'where a tab symbol is drawn'),
-    @('tab-badges-flag', 'frontend/app/tab/tabbadges.tsx', 'icon: "flag"', 'flag glyph for tab colour'),
+    @('tab-badges-flag', 'frontend/app/tab/tabbadges.tsx', ': "flag"', 'flag glyph for tab colour (our tab symbol replaces it when set)'),
     @('tab-badge-atom', 'frontend/app/tab/tab.tsx', 'useAtomValue(getTabBadgeAtom(id, env))', 'per-tab badge source'),
     @('tab-context-menu', 'frontend/app/tab/tabcontextmenu.ts', 'export function buildTabContextMenu( id: string, renameRef: React.RefObject<(() => void) | null>, onClose: (event: React.MouseEvent<HTMLButtonElement, MouseEvent> | null) => void, env: TabEnv ): ContextMenuItem[]', 'where colour and symbol menu entries go'),
     @('tab-update-name-rpc', 'pkg/wshrpc/wshrpctypes.go', 'UpdateTabNameCommand(ctx context.Context, tabId string, newName string) error', 'tab rename'),

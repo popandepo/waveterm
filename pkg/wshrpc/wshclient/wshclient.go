@@ -179,6 +179,12 @@ func ControllerResyncCommand(w *wshutil.WshRpc, data wshrpc.CommandControllerRes
 	return err
 }
 
+// command "controllerstatus", wshserver.ControllerStatusCommand
+func ControllerStatusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*wshrpc.CommandControllerStatusRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandControllerStatusRtnData](w, "controllerstatus", data, opts)
+	return resp, err
+}
+
 // command "createblock", wshserver.CreateBlockCommand
 func CreateBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateBlockData, opts *wshrpc.RpcOpts) (waveobj.ORef, error) {
 	resp, err := sendRpcRequestCallHelper[waveobj.ORef](w, "createblock", data, opts)
@@ -278,6 +284,12 @@ func ElectronSetActiveTabCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronT
 // command "electronsystembell", wshserver.ElectronSystemBellCommand
 func ElectronSystemBellCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "electronsystembell", nil, opts)
+	return err
+}
+
+// command "electrontabclosed", wshserver.ElectronTabClosedCommand
+func ElectronTabClosedCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronTabClosedData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "electrontabclosed", data, opts)
 	return err
 }
 
@@ -852,6 +864,12 @@ func RouteUnannounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 func SendTelemetryCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "sendtelemetry", nil, opts)
 	return err
+}
+
+// command "sessionclosetab", wshserver.SessionCloseTabCommand
+func SessionCloseTabCommand(w *wshutil.WshRpc, data wshrpc.CommandSessionCloseTabData, opts *wshrpc.RpcOpts) (*wshrpc.CommandSessionCloseTabRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandSessionCloseTabRtnData](w, "sessionclosetab", data, opts)
+	return resp, err
 }
 
 // command "setblockfocus", wshserver.SetBlockFocusCommand

@@ -297,6 +297,13 @@ declare global {
         rtopts?: RuntimeOpts;
     };
 
+    // wshrpc.CommandControllerStatusRtnData
+    type CommandControllerStatusRtnData = {
+        blockid: string;
+        shellprocstatus: string;
+        shellprocexitcode: number;
+    };
+
     // wshrpc.CommandCreateBlockData
     type CommandCreateBlockData = {
         tabid: string;
@@ -376,6 +383,14 @@ declare global {
     type CommandElectronEncryptRtnData = {
         ciphertext: string;
         storagebackend: string;
+    };
+
+    // wshrpc.CommandElectronTabClosedData
+    type CommandElectronTabClosedData = {
+        workspaceid: string;
+        tabid: string;
+        newactivetabid?: string;
+        closewindow?: boolean;
     };
 
     // wshrpc.CommandElectronTabData
@@ -646,6 +661,19 @@ declare global {
     // wshrpc.CommandRestartBuilderAndWaitData
     type CommandRestartBuilderAndWaitData = {
         builderid: string;
+    };
+
+    // wshrpc.CommandSessionCloseTabData
+    type CommandSessionCloseTabData = {
+        workspaceid: string;
+        tabid: string;
+        force?: boolean;
+    };
+
+    // wshrpc.CommandSessionCloseTabRtnData
+    type CommandSessionCloseTabRtnData = {
+        closewindow?: boolean;
+        newactivetabid?: string;
     };
 
     // wshrpc.CommandSetMetaData

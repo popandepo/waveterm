@@ -77,3 +77,13 @@
         }
     }
 }
+
+.tile-layout .stack-strip .stack-tab {
+    &.dragging {
+        opacity: 0.4;
+    }
+
+    &.drop-over {
+        box-shadow: inset 2px 0 0 var(--accent-color);
+    }
+}

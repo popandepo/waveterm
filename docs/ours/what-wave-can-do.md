@@ -215,6 +215,45 @@ replace), so no RPC, frontend or backend change.
   call removes its own block), but a rival that appears after that check is missed. `wsh slot repair` removes the
   duplicates (keeps the smallest id). The real fix is an atomic slot-owner key in the backend (not done).
 
+## 14. Local API: list, focus, goto (fork feature, slice 1)
+
+A small API inside wavesrv for callers that are not wsh inside a block (later: a broker bridge, a dashboard).
+Design and the later slices (send, read, move, events) are written up outside this repository; this section is
+only what exists.
+
+- **Transport.** A unix socket `wave-api.sock` in the folder `api` of the Wave data directory. No TCP listener, so
+  nothing on the LAN. wavesrv writes a new random token (32 bytes, hex) to `api/api-token` at every start; every
+  call needs `Authorization: Bearer <token>`. Token compare is constant time.
+- **Folder access.** No child process is started. On Windows the `api` folder is created with its final security
+  descriptor in one call (owner = current user, protected DACL with exactly one allow entry for that user, full
+  control, inherited by children); an existing folder is only taken over when it is a plain folder (no junction)
+  owned by the current user, and its DACL is replaced. The owner and DACL of the folder, the socket and the token
+  file are then read back, and the server refuses to start unless each is exactly that. Order: lock and verify the
+  folder, check no live server owns the socket, listen, verify the socket, then write the token (temp file, verify,
+  rename, verify). A second start on a live socket is refused. The socket path must be at most 100 characters.
+  On other systems the folder is mode 0700 and owned by the user. Not covered: another process of the SAME user can
+  read the token (that is the model; the next slice needs a per-caller grant before `send` exists); a folder owned
+  by another user was only tested through the descriptor check, since no second account exists here.
+- **Calls** (POST only; the body is one JSON object with known, exactly spelled, non-repeated keys inside 1 MiB, `list` takes none or `{}`; `/v1/...`): `list` (workspaces > tabs > blocks, ids, names, view, slot, controller,
+  connection, title, url cut to scheme and host), `focus` (a block in the active tab, or make a tab active; never changes
+  workspace or window), `goto` (workspace + tab [+ block]; the whole address is checked before the first change;
+  the OS window is raised only with `window=true`). Ids must be lowercase full uuids. Block meta is allow-listed:
+  no command lines, environments or working directories leave the process.
+- **wsh.** `wsh api list [--json]`, `wsh api focus --block|--tab`, `wsh api goto --tab [--workspace] [--block]
+  [--window]`; the workspace defaults to `WAVETERM_WORKSPACEID`; the folder is found with the `path` RPC or `--dir`.
+- **RAN** (`go test ./pkg/waveapi/... ./cmd/wsh/cmd/`): service rules with a fake backend, handler and token checks,
+  strict JSON, the security descriptor of the folder, token file and a pre-existing folder with broad entries, the
+  refusal to serve when the lock, the socket check or the token write fails, and a round trip over a real unix
+  socket. Mutation checks: `tools\Mutate-WaveApi.ps1` (private, not in this repository) changes one production line
+  at a time; all but one go red (run it to count), the exception (`DisallowUnknownFields` removed) is an equivalent mutant because the key list
+  already refuses unknown keys. Timing of the token compare cannot be unit tested; a test only pins that
+  `subtle.ConstantTimeCompare` and `crypto/rand` are used.
+- **READ, not run:** the wavesrv backend (`pkg/waveapi/wavesrvapi`): it reads the object store and sends
+  FocusWindow, ElectronSetActiveTab and SetBlockFocus, the same calls wsh already uses. It has not been run in a
+  live app, so whether `goto` leaves the OS foreground window alone is unverified until a window test.
+- **Upstream files touched:** one line in `cmd/server/main-server.go` (`wavesrvapi.Start()`); seam rows
+  `api-*` in `tools/ours/Check-Seams.ps1`.
+
 ## 15. Nothing goes to the network before the user opts in (fork rule)
 
 Found when a fresh test profile showed the first-run screen with telemetry switched on. In the fork the shipped
@@ -305,3 +344,161 @@ confirmed; keyboard focus moves only with `--focus`.
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
+
+## 21. A session block that comes back after Wave restarts (`wsh session start --restart --meta`)
+
+`wsh session start --restart` marks the block so that Wave starts its program again at every start of the app (the
+controller runs a block whose `cmd:runonstart` is true and which is not marked run once) and keeps the earlier output.
+`--meta session:KEY=VALUE` (repeatable, only `session:*` keys, no line breaks) writes facts on the block for outside
+tools, for example `session:id`, `session:model`, `session:effort`; Wave itself never reads them. A running process always
+dies with the app: "coming back" means the same command is started again in the same block, so the command must resume
+its own work. For a Claude session that is: first start `--session-id <guid>`, every later start `--resume <guid>`.
+- **RAN:** Go tests for the meta rules (only `session:*`, no duplicates, no line breaks) and for restart mode (run once off,
+  start with Wave on, output kept; a mutation of the run-once line turned the test red); a real throwaway check outside Wave
+  with a cheap model: a session created with `--session-id <guid>` and resumed with `--resume <guid>` answered with the
+  word it had been given in the first start.
+- **READ, not run:** Wave actually starting the block at its next start (needs the restart in a window); the claude TUI
+  (the check used print mode).
+
+Review notes on section 21: `--restart` is refused for a command line that contains a bare `--session-id`: Wave starts the
+same command again, so the second start must resume instead of create. The supported way is a starter that decides:
+`tools/ours/Start-ResumableSession.ps1` (first start `--session-id <guid>`, later starts `--resume <guid>`; self test
+`tools/ours/Test-ResumableSession.ps1`). All `--meta` input (keys and values, plain `session:` keys only) and this rule are
+checked before the first tab is created. The controller's start decision is a small function with its own test
+(`shouldRunCommand`), but **the restart is not proven until it has been seen in a real window**: whether Wave starts the block
+at its next start, what the kept output looks like, and what happens to a program that crashes at once are READ, not run.
+
+Second review pass on section 21, what the `--restart` check can and cannot see: it looks at literal text only. It refuses any
+argument that contains `--session-id` and any inline shell command (`pwsh -Command`, `-c`, `cmd /c`, `-EncodedCommand`),
+because the flag could sit inside it. It cannot see what a variable expands to inside a script, so a starter script must make
+the choice itself (`tools/ours/Start-ResumableSession.ps1` does, and passes the config folder it searched to Claude). Values of
+`--meta` may not contain control characters (line breaks, tabs, escape sequences, NUL). The controller start decision has a
+test through the controller's own meta reader plus a pin on its call site; the full start path (database and process) is still
+only seen in a real window.
+
+Third review pass on section 21: the `--restart` check also refuses the common inline-code forms of other interpreters
+(`node -e/--eval/-p`, `python -c`, `ruby -e`, `perl -e`, `pwsh -CommandWithArgs`) and `wsl` in any form; this is **best effort**,
+not every interpreter is covered and what a script file does cannot be checked. Values of `--meta` refuse all Unicode
+control characters (C0 and C1, DEL, line and paragraph separators). The starter's self test now launches a stub that records
+its arguments and environment: it proves that the searched config folder is the one the program receives, that the inherited
+`CLAUDE*` markers and `NO_COLOR` are gone, and that the resume arguments arrive (this test found that the arguments were
+passed as one array instead of splatted: fixed). The source pin on the controller's call site can be bypassed by a rewrite;
+the window restart check is what proves the restart.
+
+## 22. Closing a tab asks first when it holds blocks
+
+Closing a tab (tab bar x, the close key, the vertical tab bar) deletes it and stops every program in it; upstream has no
+reopen and, with the default setting, no question. In this fork a tab that holds blocks always asks first ("This tab holds
+N blocks. Closing it stops the programs running in them, and it cannot be undone."), whatever `tab:confirmclose` says; an
+empty tab asks only when the setting does. If the block count cannot be read the question is asked anyway.
+- **RAN:** vitest for the rule (`closeTabPrompt`: blocks always ask, singular, empty tab, unknown count). tsc stays at 17.
+- **READ, not run:** the dialog in the main process (`close-tab` handler) in a window. `wsh tab close` and
+  `wsh session close` are not questions: they are commands with their own rules.
+- **Not done:** reopening a closed tab (about 2 working days).
+
+Review notes on section 22. **Which routes ask, which refuse, which do nothing:**
+- Tab bar x, vertical tab bar, the close key: all go through the one `close-tab` handler: they ask (asynchronous dialog, the rest
+  of the app keeps running). Only the explicit "Close Tab" answer closes; Escape, a dismissed dialog or any other result keeps the
+  tab. A second close request for the same tab while its dialog is open is ignored. The count is the tab's block list, which
+  includes the members of a stack, hidden ones too. Tested through the handler (`closetabhandler.test.ts`).
+- `wsh tab close <tab>`: **refuses** when the tab holds blocks (the error says how many) unless `--force`; no dialog, because the
+  callers are scripts and agents. The check is in the wsh command: a direct RPC call of `electronclosetab` is not checked.
+- `wsh session close`: has its own rule (a tab whose program is still running needs `--force`).
+- Closing a whole window, deleting a workspace and quitting the app are separate flows with their own settings
+  (`window:confirmclose`); they are NOT covered here.
+
+Second review pass on section 22: the guard against a second close request is set before the first await; the block count is read
+again before the close, so an empty tab that gained a block, or a confirmed tab that grew, asks again, and a tab that keeps
+changing is not closed (`closetabhandler.test.ts` has deferred, overlapping reads). The `wsh tab close` check now also happens in the
+main process right before the close (new `force` field of the electronclosetab call), so a direct RPC call of it is covered too;
+`force` is the deliberate bypass (next paragraph). A source-level route test checks that the UI routes go through the one handler.
+
+Third review pass on section 22: `force` of the electronclosetab call is the **deliberate bypass for every local RPC caller**, not
+only for `wsh tab close --force`. A local caller that can reach the call can already delete blocks, so the refusal guards against
+mistakes; it is not a security boundary. No UI route can pass it: the IPC close route has no such parameter and no front end file
+sets it (both are tests in `closetabhandler.test.ts`). The handler's window argument is now required.
+
+Final pass on section 22: the count that was approved travels with the close. The close from the window (and the `wsh` route when the
+tab was empty or had a count) calls a back-end service, `CloseTabChecked`, that compares the tab's block count with the approved
+one **in the same Go function that starts the close** (only synchronous database reads in between, no round trip through the
+window); a tab that gained blocks is not closed, and the caller is told so. It is not one database transaction: a block created in
+the same few microseconds on another goroutine would not be caught. The window's close request now resolves with whether the tab
+was really closed, and a close request that was replaced in the window's action queue resolves false.
+
+Fourth pass on section 22: whatever leaves the window's action queue (a destroyed window, an early end) first tells every close that is
+still queued "not closed" and empties the queue, so a caller (the window, or `wsh tab close`) gets an answer instead of waiting
+(tested). The unchecked back-end `CloseTab` is reached only for `force` (no limit). A close that the owner confirmed without a count (both reads failed, and the dialog said so) goes through the checked call as "count unknown" (-2): the back end reads the tab itself and refuses if it cannot (tested on the window side, and a test pins that the Go constant is the same -2). The check and the delete are not one database transaction, because the delete is upstream code spanning many store calls; a block created in the same few microseconds is the one case not caught.
+
+## 23. Drag a tab out of its stack, reorder tabs (step E)
+
+Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of
+its own (the existing move takes it out of the stack; the neighbour becomes active; the node is the same, so a terminal keeps
+its process and scrollback); dropped on the **middle** of another tile it joins that tile's stack; dropped on **another tab** of
+the same strip it takes that tab's place; dropped on a tab of another strip it joins that stack after the tab. A tab dropped
+on itself does nothing. A stack of one that loses its only tab leaves no empty stack behind.
+- **RAN:** vitest for the rules (`reorderStackMember`, `tabDropAction`, an edge drop out of a stack of three and out of a stack of one
+  with the same node object kept); tsc stays at 17; Check-Seams 0 red.
+- **READ, not run:** the react-dnd wiring on the tab (drag source, drop target, outline style `drop-over`): the real drag needs a
+  mouse, so it is part of the window check. **Seen in a window after this PR:** drag a tab off the strip onto the edge of another tile.
+
+Review notes on section 23: the drag itself cannot be driven in the unit tests (react-dnd needs a test backend and a DOM that this
+project does not have), so what the tests prove is the tree rules; the wiring of the tab as a drag source is **unproven until it is
+seen with a mouse**. "The same node object" does not prove React keeps the terminal mounted either. Window check list for this PR:
+(1) drag a tab off the strip onto the edge of a tile and check that it becomes a tile; (2) before the drag type a marker in that tab's
+terminal and note its process id; after the drag the marker must still be on the screen and the process id must be the same
+(`devdata/proof/drag-check.ps1` in the private test folder does the marker and the pid part with `wsh send` and `wsh screen`);
+(3) drop a tab on the middle of another tile, on another tab of the same strip, and on a tab of another strip.
+
+## 24. The live state record (what runs where, readable from outside)
+
+Wave writes `<data dir>/state/wave-state.json` after every change to a workspace, tab, block, layout or window (a 300 ms
+coalescing delay, no polling and no timer), by writing a temp file in the same folder, flushing it and renaming it over the
+old one: a reader sees the old record or the new one, never half of one. An unchanged state is not rewritten; `sequence` counts
+the writes; a failed write leaves the old file in place and is retried at the next change.
+Words: a **workspace** has **tabs** (the T1, T2 row), a tab has **tiles**, a tile of kind `stack` has a **group** of block tabs
+(in order, one active), a plain tile has a group of one. Per block: view, title, working folder, the program name only (never
+its path, arguments, address or environment: those can hold secrets), the controller, and every `session:*` meta value
+(`session:name`, `session:id`, `session:model`, `session:effort`, `session:permissionmode` ...: the starter writes them with
+`wsh session start --meta`, see section 21). `sessions` is an index of the blocks that carry a session id: workspace, tab,
+tile position, stack and position in its group, so that an outside tool can put things back.
+A block that the saved layout does not show yet (the page saves its layout 100 ms after a change) is still listed, as a plain
+tile at the end of its tab.
+- **RAN:** Go tests for the builder (names, order, active tab of a group, secrets never in the file, sessions index, missing
+  layout or block), the writer (atomic replacement, a failed rename keeps the old file and leaves no temp file, no rewrite of an
+  unchanged state, a burst gives one build, no write without a change, retry after a failure) and the event filter; two
+  mutations (skip-unchanged, sequence) turned tests red.
+- **READ, not run:** the loader that reads the object store and the hook in wavesrv startup (needs the database), and the
+  file as the app really writes it.
+- **Private reader:** `Read-WaveState.ps1` (outside the repository) prints the record and the command lines to resume each session.
+
+Review notes on section 24 (the state record), asked by the reviewer:
+- **Where:** `<data dir>/state/wave-state.json`; the folder is created for the current user (mode 0700 on systems that have modes; on
+  Windows it inherits the access of the data folder, which sits in the user's own profile or test folder). It is not locked down further
+  the way the local API folder is: it holds no token.
+- **What could be private:** block **titles** (set by the user or by the program running in the block, so they can contain anything a
+  program prints into its title) and **working folders** (paths with the user's name and project names) are in the file on purpose,
+  because the folder is what puts a session back. Never in the file: urls, environments, command lines or arguments (only the
+  program's base name), and any `session:*` value except name, id, model, effort, permissionmode, status-session and status-tab
+  (each at most 200 characters).
+- Only blocks that belong to a tab are recorded in it, each once; a block that the saved layout still names but the tab no longer holds,
+  or names twice, is not shown as a ghost or a duplicate.
+- A failed database read keeps the last good file (the record is never published incomplete). A replace that fails because a reader
+  holds the file open is retried for about two seconds before it is given up and tried again at the next change. A test with a real
+  open reader on Windows fails if the retry is removed.
+- A test changes an object through the event stream and checks that the file changes (it fails if the observer is never registered).
+
+## 25. Keyboard: next and previous tab inside a tile
+
+The design: `Ctrl+Shift+PageDown` shows and focuses the next tab of the stack that holds the focused tile, `Ctrl+Shift+PageUp`
+the previous one; both wrap around. **This is unproven until the window check** (see the last point). Nothing happens (the key is not taken) when the focused tile is not a stack or has only one tab. The
+chords were chosen because neither is bound in Wave's key map (checked against `keymodel.ts`); Wave's own `Alt+[` and `Alt+]`
+still switch the tabs of the workspace (the T1, T2 row). The rule is a pure function (`adjacentStackMember`) with tests (order, wrap,
+non-stack, stack of one, unknown id, focus lands on the shown tab).
+- **Proven by tests:** the rule, and the dispatch (`stackkeys.test.ts`: both chords are registered through one function, next steps
+  forward and previous back, the key is taken only when something was switched and passes on when the tile is not a stack or has
+  one tab, and no chord collides with one the app binds). Showing the target: `focusNode` makes the member the active tab of its stack
+  (tested), so the target is revealed.
+- **Not checked, and what is expected:** a focused text field of the app (for example renaming a tab) would let the chord switch tabs
+  too, which does no harm; a web tile keeps its own keys inside its page, so the chord reaches the app only when the app, not the
+  page, has the keyboard focus; the onboarding screens switch all global keys off. **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
+  `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.

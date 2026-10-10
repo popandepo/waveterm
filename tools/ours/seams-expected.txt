@@ -1,10 +1,19 @@
 # One seam id per line. The ids Check-Seams.ps1 must still have: a row that is dropped from the list there is RED here.
 # A new row adds its id here in the same commit (a row that is in the script and not here is only a NOTE, it is not protected).
+api-focus-window-rpc
+api-list-all-workspaces
+api-main-rpc-client
+api-path-rpc
+api-set-active-tab-rpc
+api-set-block-focus-rpc
+api-startup-hook
 autoupdate-default-off
 badge-store-memory
 blocks-list-rpc
+close-tab-handler
 conn-config-atom
 conn-keywords
+controller-run-decision
 create-block-focused
 create-block-target
 delete-block-rpc
@@ -23,14 +32,19 @@ server-resolve-simple-id
 stack-add-hook
 stack-create-block-hook
 stack-create-in-stack-helper
+stack-dnd-type-shared
+stack-keys-hook
 stack-layout-queue
 stack-menu-hook
 stack-move-layout-action
+stack-reorder-reducer
 stack-rpc-interface
 stack-ui-backend-actions
 stack-ui-geometry-hook
 stack-ui-label-hook
 stack-ui-strip-hook
+state-record-event-hook
+state-record-start-hook
 svc-closetab
 svc-createtab
 svc-setactivetab

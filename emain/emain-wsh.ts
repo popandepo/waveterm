@@ -6,6 +6,7 @@ import { RpcResponseHelper, WshClient } from "@/app/store/wshclient";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { Notification, net, safeStorage, shell } from "electron";
 import { getResolvedUpdateChannel } from "emain/updater";
+import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
@@ -123,7 +124,28 @@ export class ElectronWshClientType extends WshClient {
         if (ww == null) {
             throw new Error(`no window found with workspace ${data.workspaceid}`);
         }
-        await ww.queueCloseTab(data.tabid);
+        // force is the deliberate bypass for every local RPC caller, not only for `wsh tab close --force`: any local caller
+        // that can reach this call can already delete blocks, so the check is a guard against mistakes, not a security
+        // boundary. No UI route can pass it (the IPC close route has no such parameter; see closetabhandler.test.ts).
+        let approvedCount = -1;
+        if (!data.force) {
+            let count: number | null = null;
+            try {
+                const tab = await RpcApi.GetTabCommand(ElectronWshClient, data.tabid, { timeout: 3000 });
+                count = tab?.blockids?.length ?? null;
+            } catch (e) {
+                console.log("electronclosetab: could not read the tab", e);
+            }
+            const refusal = wshCloseRefusal(count, false);
+            if (refusal) {
+                throw new Error(refusal);
+            }
+            approvedCount = count ?? -1;
+        }
+        const closed = await ww.queueCloseTab(data.tabid, data.force ? -1 : approvedCount);
+        if (!closed) {
+            throw new Error("the tab was not closed (it gained blocks since it was checked, or the window refused)");
+        }
     }
 
     async handle_electrontabclosed(rh: RpcResponseHelper, data: CommandElectronTabClosedData): Promise<void> {

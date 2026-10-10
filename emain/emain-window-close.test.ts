@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, test, vi } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 
 vi.mock("electron", () => {
     class BaseWindow {
@@ -47,7 +47,11 @@ vi.mock("./emain-util", () => ({ delay: () => {}, ensureBoundsAreVisible: () => 
 vi.mock("./emain-wsh", () => ({ ElectronWshClient: {} }));
 vi.mock("./updater", () => ({ updater: null }));
 
-const { WaveBrowserWindow } = await import("./emain-window");
+let WaveBrowserWindow: any;
+
+beforeAll(async () => {
+    ({ WaveBrowserWindow } = await import("./emain-window"));
+});
 
 // A window whose action in front of the queue is stuck in a service call that never returns. Only the members that the close
 // path uses exist on it; the methods are the real ones from the class.

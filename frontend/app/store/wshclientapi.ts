@@ -924,6 +924,12 @@ export class RpcApiType {
         return client.wshRpcCall("setvar", data, opts);
     }
 
+    // command "stackblock" [call]
+    StackBlockCommand(client: WshClient, data: CommandStackBlockData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "stackblock", data, opts);
+        return client.wshRpcCall("stackblock", data, opts);
+    }
+
     // command "startbuilder" [call]
     StartBuilderCommand(client: WshClient, data: CommandStartBuilderData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startbuilder", data, opts);

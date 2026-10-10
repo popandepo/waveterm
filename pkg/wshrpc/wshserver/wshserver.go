@@ -362,6 +362,11 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 				Position:      "after",
 				Focused:       data.Focused,
 			}
+		case wshrpc.CreateBlockAction_Stack:
+			layoutAction, err = planCreateInStack(blockData.OID, data.TargetBlockId, data.Focused)
+			if err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("invalid target action: %s", data.TargetAction)
 		}

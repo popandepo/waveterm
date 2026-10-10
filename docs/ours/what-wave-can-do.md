@@ -333,3 +333,8 @@ again before the close, so an empty tab that gained a block, or a confirmed tab 
 changing is not closed (`closetabhandler.test.ts` has deferred, overlapping reads). The `wsh tab close` check now also happens in the
 main process right before the close (new `force` field of the electronclosetab call), so a direct RPC call of it is covered too;
 `wsh tab close --force` is the only way past it. A source-level route test checks that the UI routes go through the one handler.
+
+Third review pass on section 22: `force` of the electronclosetab call is the **deliberate bypass for every local RPC caller**, not
+only for `wsh tab close --force`. A local caller that can reach the call can already delete blocks, so the refusal guards against
+mistakes; it is not a security boundary. No UI route can pass it: the IPC close route has no such parameter and no front end file
+sets it (both are tests in `closetabhandler.test.ts`). The handler's window argument is now required.

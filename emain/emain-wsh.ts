@@ -124,6 +124,9 @@ export class ElectronWshClientType extends WshClient {
         if (ww == null) {
             throw new Error(`no window found with workspace ${data.workspaceid}`);
         }
+        // force is the deliberate bypass for every local RPC caller, not only for `wsh tab close --force`: any local caller
+        // that can reach this call can already delete blocks, so the check is a guard against mistakes, not a security
+        // boundary. No UI route can pass it (the IPC close route has no such parameter; see closetabhandler.test.ts).
         if (!data.force) {
             let count: number | null = null;
             try {

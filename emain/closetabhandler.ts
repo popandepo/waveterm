@@ -22,7 +22,7 @@ export interface CloseTabDeps<C> {
 // was read as empty) asks again, and a tab that keeps changing is not closed.
 export function makeCloseTabHandler<C>(deps: CloseTabDeps<C>) {
     const handling = new Set<string>();
-    return async function handleCloseTab(tabId: string, confirmSetting: boolean, ctx?: C): Promise<boolean> {
+    return async function handleCloseTab(tabId: string, confirmSetting: boolean, ctx: C): Promise<boolean> {
         if (handling.has(tabId)) {
             return false;
         }

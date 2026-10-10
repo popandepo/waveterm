@@ -30,41 +30,41 @@ function setup(opts: { blockCount?: number | null; dialogResponse?: number | "pe
 describe("the close-tab handler", () => {
     test("a populated tab stays after Cancel", async () => {
         const t = setup({ blockCount: 3, dialogResponse: 0 });
-        expect(await t.handler("tab1", false)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
         expect(t.closed).toEqual([]);
         expect(t.dialogs[0]).toContain("3 blocks");
     });
 
     test("only the explicit Close Tab answer closes the tab", async () => {
         const yes = setup({ blockCount: 3, dialogResponse: 1 });
-        expect(await yes.handler("tab1", false)).toBe(true);
+        expect(await yes.handler("tab1", false, undefined)).toBe(true);
         expect(yes.closed).toEqual(["tab1"]);
         for (const odd of [-1, 2, 7, NaN, undefined as unknown as number]) {
             const t = setup({ blockCount: 3, dialogResponse: odd });
-            expect(await t.handler("tab1", false)).toBe(false);
+            expect(await t.handler("tab1", false, undefined)).toBe(false);
             expect(t.closed).toEqual([]);
         }
     });
 
     test("an empty tab closes without a dialog", async () => {
         const t = setup({ blockCount: 0 });
-        expect(await t.handler("tab1", false)).toBe(true);
+        expect(await t.handler("tab1", false, undefined)).toBe(true);
         expect(t.dialogs).toEqual([]);
         expect(t.closed).toEqual(["tab1"]);
     });
 
     test("an unreadable tab asks instead of closing", async () => {
         const t = setup({ blockCount: null, dialogResponse: 0 });
-        expect(await t.handler("tab1", false)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
         expect(t.dialogs.length).toBe(1);
     });
 
     test("a second close request for the same tab while the dialog is open is ignored", async () => {
         const t = setup({ blockCount: 2, dialogResponse: "pending" });
-        const first = t.handler("tab1", false);
+        const first = t.handler("tab1", false, undefined);
         await Promise.resolve();
         await Promise.resolve();
-        expect(await t.handler("tab1", false)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
         expect(t.dialogs.length).toBe(1);
         t.release(1);
         expect(await first).toBe(true);
@@ -73,8 +73,8 @@ describe("the close-tab handler", () => {
 
     test("another tab can be asked about while one dialog is open, and the guard is released after the answer", async () => {
         const t = setup({ blockCount: 2, dialogResponse: 0 });
-        expect(await t.handler("tab1", false)).toBe(false);
-        expect(await t.handler("tab1", false)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
         expect(t.dialogs.length).toBe(2);
     });
 });
@@ -106,8 +106,8 @@ describe("races around the close request (review of PR 21)", () => {
 
     test("two requests whose count reads overlap open ONE dialog: the guard is set before the first await", async () => {
         const t = deferredSetup([undefined as unknown as number, 2], [1]);
-        const first = t.handler("tab1", false);
-        const second = await t.handler("tab1", false);
+        const first = t.handler("tab1", false, undefined);
+        const second = await t.handler("tab1", false, undefined);
         expect(second).toBe(false);
         expect(t.reads.length).toBe(1);
         t.reads[0](2);
@@ -120,7 +120,7 @@ describe("races around the close request (review of PR 21)", () => {
 
     test("an empty tab that gains a block after its count was read does not close without asking", async () => {
         const t = deferredSetup([0, 2], [0]);
-        expect(await t.handler("tab1", false)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
         expect(t.dialogs.length).toBe(1);
         expect(t.dialogs[0]).toContain("2 blocks");
         expect(t.closed).toEqual([]);
@@ -128,7 +128,7 @@ describe("races around the close request (review of PR 21)", () => {
 
     test("a tab that grows after the user confirmed asks again", async () => {
         const t = deferredSetup([3, 5], [1, 0]);
-        expect(await t.handler("tab1", false)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
         expect(t.dialogs.length).toBe(2);
         expect(t.dialogs[1]).toContain("5 blocks");
         expect(t.closed).toEqual([]);
@@ -136,22 +136,22 @@ describe("races around the close request (review of PR 21)", () => {
 
     test("a confirmed tab whose count stays or shrinks closes with one dialog", async () => {
         const t = deferredSetup([3, 3], [1]);
-        expect(await t.handler("tab1", false)).toBe(true);
+        expect(await t.handler("tab1", false, undefined)).toBe(true);
         expect(t.dialogs.length).toBe(1);
         const shrink = deferredSetup([3, 2], [1]);
-        expect(await shrink.handler("tab1", false)).toBe(true);
+        expect(await shrink.handler("tab1", false, undefined)).toBe(true);
         expect(shrink.dialogs.length).toBe(1);
     });
 
     test("an empty tab that stays empty closes without a dialog", async () => {
         const t = deferredSetup([0, 0], []);
-        expect(await t.handler("tab1", false)).toBe(true);
+        expect(await t.handler("tab1", false, undefined)).toBe(true);
         expect(t.dialogs).toEqual([]);
     });
 
     test("a tab that keeps changing is not closed", async () => {
         const t = deferredSetup([1, 2, 3, 4, 5, 6], [1, 1, 1, 1, 1]);
-        expect(await t.handler("tab1", false)).toBe(false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
         expect(t.closed).toEqual([]);
     });
 });
@@ -189,6 +189,29 @@ describe("route level: every UI way to close a tab goes through the one handler"
             const src = read(f);
             expect(src).not.toMatch(/WorkspaceService\.CloseTab\(/);
             expect(src).toMatch(/closeTab\(/);
+        }
+    });
+});
+
+describe("force is the deliberate bypass of local callers and no UI route can pass it (review of PR 21)", () => {
+    const read = (p: string) => readFileSync(path.join(__dirname, "..", p), "utf8");
+    test("the UI close route has no force parameter anywhere", () => {
+        expect(read("emain/preload.ts")).toMatch(
+            /closeTab: \(workspaceId, tabId, confirmClose\) =>\s*ipcRenderer\.invoke\("close-tab", workspaceId, tabId, confirmClose\)/
+        );
+        expect(read("frontend/types/custom.d.ts")).toContain(
+            "closeTab: (workspaceId: string, tabId: string, confirmClose: boolean) => Promise<boolean>"
+        );
+        expect(read("emain/emain-window.ts")).toContain("closeTabHandler(tabId, confirmClose, ww)");
+    });
+    test("no front end file calls the electron close command, so none can set force", () => {
+        for (const f of [
+            "frontend/app/tab/tabbar.tsx",
+            "frontend/app/tab/vtabbar.tsx",
+            "frontend/app/store/keymodel.ts",
+            "frontend/app/tab/tabbarenv.ts",
+        ]) {
+            expect(read(f)).not.toMatch(/ElectronCloseTabCommand|force\s*:/);
         }
     });
 });

@@ -21,6 +21,8 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
+    moveIntoStack,
+    placeholderTargetId,
     magnifyNodeToggle,
     moveNode,
     replaceNode,
@@ -58,6 +60,7 @@ import {
     LayoutTreeStackAction,
     LayoutTreeStackInsertAction,
     LayoutTreeStackModeAction,
+    LayoutTreeStackMoveAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
     LayoutTreeUnstackAction,
@@ -797,6 +800,14 @@ export class LayoutModel {
                     FocusManager.getInstance().requestNodeFocus();
                 }
                 break;
+            case LayoutTreeActionType.StackMove:
+                if (
+                    moveIntoStack(this.treeState, action as LayoutTreeStackMoveAction) &&
+                    ((action as LayoutTreeStackMoveAction).focused ?? false)
+                ) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
+                break;
             case LayoutTreeActionType.TurnIntoStack:
                 turnIntoStack(this.treeState, (action as LayoutTreeStackModeAction).nodeId);
                 break;
@@ -1157,11 +1168,9 @@ export class LayoutModel {
                     break;
                 }
                 case LayoutTreeActionType.Swap:
-                case LayoutTreeActionType.Stack: {
-                    const targetNodeId =
-                        pendingAction.type === LayoutTreeActionType.Stack
-                            ? (pendingAction as LayoutTreeStackAction).targetNodeId
-                            : (pendingAction as LayoutTreeSwapNodeAction).node1Id;
+                case LayoutTreeActionType.Stack:
+                case LayoutTreeActionType.StackMove: {
+                    const targetNodeId = placeholderTargetId(pendingAction);
                     const targetBoundingRect = this.getNodeRectById(targetNodeId);
                     const placeholderDimensions: Dimensions = {
                         top: targetBoundingRect.top,

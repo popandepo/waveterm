@@ -74,6 +74,8 @@ $seams = @(
     @('create-block-focused', 'pkg/wshrpc/wshrpctypes.go', 'Focused bool `json:"focused,omitempty"`', 'wsh --no-focus sets this field on create-block requests'),
     @('create-block-target', 'pkg/wshrpc/wshrpctypes.go', 'TargetAction string `json:"targetaction,omitempty"`', 'wsh slot places blocks with splitright/splitleft/splitup/splitdown/replace'),
     @('blocks-list-rpc', 'pkg/wshrpc/wshrpctypes.go', 'BlocksListCommand(ctx context.Context, data BlocksListRequest) ([]BlocksListEntry, error)', 'wsh slot finds the block of a slot by its meta'),
+    @('stack-dnd-type-shared', 'frontend/layout/lib/TileLayout.tsx', 'import { tileItemType } from "./dndtypes";', 'tabs of a stack are drag sources of the same type as tile headers'),
+    @('stack-reorder-reducer', 'frontend/layout/lib/layoutModel.ts', 'case LayoutTreeActionType.StackReorder:', 'dropping a tab on another tab of its strip'),
     @('delete-block-rpc', 'pkg/wshrpc/wshrpctypes.go', 'DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error', 'wsh slot close'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),

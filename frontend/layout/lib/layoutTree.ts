@@ -585,24 +585,24 @@ export function splitVertical(layoutState: LayoutTreeState, action: LayoutTreeSp
  * Groups leaves into a stack (tab group): `nodeId` joins the stack that contains `targetNodeId`, or the two leaves
  * become a new stack where the target was. The moved leaf becomes the active member and takes focus, unless
  * `focused` is false: then nothing the user is looking at is hidden or refocused (the focused leaf stays the visible
- * member).
+ * member). Returns false, and leaves the tree untouched, when the action is invalid.
  */
-export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStackAction) {
+export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStackAction): boolean {
     const root = layoutState.rootNode;
     const { nodeId, targetNodeId } = action;
     if (!root || !nodeId || !targetNodeId || nodeId === targetNodeId) {
         console.error("stackNodes: need two different nodes");
-        return;
+        return false;
     }
     const node = findNode(root, nodeId);
     const target = findNode(root, targetNodeId);
     if (!node || !target) {
         console.error("stackNodes: node not found", nodeId, targetNodeId);
-        return;
+        return false;
     }
     if (node.children || !node.data) {
         console.error("stackNodes: only a leaf can be put into a stack", nodeId);
-        return;
+        return false;
     }
     const targetParent = findParent(root, targetNodeId);
     let stack: LayoutNode = isStackNode(target)
@@ -612,12 +612,12 @@ export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStack
           : null;
     if (!stack && (target.children || !target.data)) {
         console.error("stackNodes: the target must be a leaf or a stack", targetNodeId);
-        return;
+        return false;
     }
     const oldParent = findParent(root, nodeId);
     if (!oldParent) {
         console.error("stackNodes: the root leaf cannot be moved into another node", nodeId);
-        return;
+        return false;
     }
     const wantFocus = action.focused ?? true;
     const nodeWasFocused = layoutState.focusedNodeId === nodeId;
@@ -626,7 +626,7 @@ export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStack
         if (wantFocus) {
             setFocusedNode(layoutState, nodeId);
         }
-        return;
+        return true;
     }
     const removedIndex = oldParent.children.indexOf(node);
     removeChild(oldParent, node);
@@ -649,18 +649,19 @@ export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStack
     if (wantFocus) {
         setFocusedNode(layoutState, nodeId);
     }
+    return true;
 }
 
 /**
  * Takes a leaf out of its stack and puts it next to the stack, focused unless `focused` is false.
  */
-export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnstackAction) {
+export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnstackAction): boolean {
     const root = layoutState.rootNode;
     const node = root ? findNode(root, action.nodeId) : undefined;
     const stack = node ? findParent(root, node.id) : undefined;
     if (!node || !stack || !isStackNode(stack)) {
         console.error("unstackNode: the node is not a member of a stack", action.nodeId);
-        return;
+        return false;
     }
     const removedIndex = stack.children.indexOf(node);
     removeChild(stack, node);
@@ -680,4 +681,5 @@ export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnst
     if (action.focused ?? true) {
         setFocusedNode(layoutState, node.id);
     }
+    return true;
 }

@@ -276,6 +276,43 @@ describe("stacking without taking focus", () => {
     });
 });
 
+describe("stack and unstack report whether they changed the tree", () => {
+    test("valid actions return true", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        assert.isTrue(stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id }));
+        assert.isTrue(unstackNode(state, { type: LayoutTreeActionType.Unstack, nodeId: b.id }));
+    });
+
+    test("invalid stack actions return false and change nothing, so the reducer requests no focus", () => {
+        const { state, a } = treeWithThreeLeaves();
+        const before = JSON.stringify(state.rootNode);
+        const focusBefore = state.focusedNodeId;
+        const bad = [
+            { targetNodeId: a.id, nodeId: a.id },
+            { targetNodeId: a.id, nodeId: "missing" },
+            { targetNodeId: "missing", nodeId: a.id },
+            { targetNodeId: a.id, nodeId: state.rootNode.id },
+            { targetNodeId: "", nodeId: a.id },
+        ];
+        for (const b of bad) {
+            assert.isFalse(stackNodes(state, { type: LayoutTreeActionType.Stack, ...b }), JSON.stringify(b));
+        }
+        assert.equal(JSON.stringify(state.rootNode), before);
+        assert.equal(state.focusedNodeId, focusBefore);
+    });
+
+    test("invalid unstack actions return false and change nothing", () => {
+        const { state, a } = treeWithThreeLeaves();
+        const before = JSON.stringify(state.rootNode);
+        assert.isFalse(
+            unstackNode(state, { type: LayoutTreeActionType.Unstack, nodeId: a.id }),
+            "a leaf in a plain row"
+        );
+        assert.isFalse(unstackNode(state, { type: LayoutTreeActionType.Unstack, nodeId: "missing" }));
+        assert.equal(JSON.stringify(state.rootNode), before);
+    });
+});
+
 describe("focus brings a hidden member to the front", () => {
     function stackedState() {
         const { state, a, b, c } = treeWithThreeLeaves();

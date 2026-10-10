@@ -691,14 +691,18 @@ export class LayoutModel {
                 splitVertical(this.treeState, action as LayoutTreeSplitVerticalAction);
                 break;
             case LayoutTreeActionType.Stack:
-                stackNodes(this.treeState, action as LayoutTreeStackAction);
-                if ((action as LayoutTreeStackAction).focused ?? true) {
+                if (
+                    stackNodes(this.treeState, action as LayoutTreeStackAction) &&
+                    ((action as LayoutTreeStackAction).focused ?? true)
+                ) {
                     FocusManager.getInstance().requestNodeFocus();
                 }
                 break;
             case LayoutTreeActionType.Unstack:
-                unstackNode(this.treeState, action as LayoutTreeUnstackAction);
-                if ((action as LayoutTreeUnstackAction).focused ?? true) {
+                if (
+                    unstackNode(this.treeState, action as LayoutTreeUnstackAction) &&
+                    ((action as LayoutTreeUnstackAction).focused ?? true)
+                ) {
                     FocusManager.getInstance().requestNodeFocus();
                 }
                 break;

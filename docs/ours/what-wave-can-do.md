@@ -320,3 +320,11 @@ its own work. For a Claude session that is: first start `--session-id <guid>`, e
   word it had been given in the first start.
 - **READ, not run:** Wave actually starting the block at its next start (needs the restart in a window); the claude TUI
   (the check used print mode).
+
+Review notes on section 21: `--restart` is refused for a command line that contains a bare `--session-id`: Wave starts the
+same command again, so the second start must resume instead of create. The supported way is a starter that decides:
+`tools/ours/Start-ResumableSession.ps1` (first start `--session-id <guid>`, later starts `--resume <guid>`; self test
+`tools/ours/Test-ResumableSession.ps1`). All `--meta` input (keys and values, plain `session:` keys only) and this rule are
+checked before the first tab is created. The controller's start decision is a small function with its own test
+(`shouldRunCommand`), but **the restart is not proven until it has been seen in a real window**: whether Wave starts the block
+at its next start, what the kept output looks like, and what happens to a program that crashes at once are READ, not run.

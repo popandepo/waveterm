@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -82,7 +83,7 @@ func init() {
 	f.StringArrayVar(&sessionEnv, "env", nil, "KEY=VALUE for the program, repeatable")
 	f.StringVar(&sessionArgsFile, "args-file", "", "JSON array of strings: the command and its arguments")
 	f.StringVar(&sessionWorkspace, "workspace", "", "workspace id (defaults to WAVETERM_WORKSPACEID)")
-	f.BoolVar(&sessionRestart, "restart", false, "start the program again every time Wave starts (use with a command that resumes its own session)")
+	f.BoolVar(&sessionRestart, "restart", false, "start the program again every time Wave starts; the command must resume its own work (a bare --session-id is refused)")
 	f.StringArrayVar(&sessionMeta, "meta", nil, "session:KEY=VALUE written on the block for outside tools (session:id, session:model ...), repeatable")
 	f.BoolVar(&sessionActivate, "activate", false, "switch to the new tab (default: leave the active tab alone)")
 	sessionCloseCmd.Flags().BoolVar(&sessionForce, "force", false, "close even if a program is still running")
@@ -127,13 +128,35 @@ func splitSessionCommand(dashArgs []string, argsFileData []byte) (string, []stri
 	return dashArgs[0], dashArgs[1:], nil
 }
 
+var sessionMetaKeyRegexp = regexp.MustCompile(`^session:[A-Za-z0-9._-]+$`)
+
+// validateSessionStart checks everything that can be checked before the first tab is created, so a refused request
+// leaves nothing behind. With --restart Wave starts the SAME command again at every start of the app, so the command
+// must be able to resume its own work: a bare "--session-id <guid>" (Claude) would fail or start an empty session
+// the second time, and is refused. Use a starter that creates the session the first time and resumes it afterwards
+// (tools/ours/Start-ResumableSession.ps1).
+func validateSessionStart(restart bool, command string, cmdArgs []string, metaPairs []string) error {
+	if _, err := parseSessionMeta(metaPairs); err != nil {
+		return err
+	}
+	if !restart {
+		return nil
+	}
+	for _, a := range append([]string{command}, cmdArgs...) {
+		if a == "--session-id" || strings.HasPrefix(a, "--session-id=") {
+			return fmt.Errorf("--restart cannot be used with a bare --session-id: the second start must resume the session (--resume), not create it again; use a starter that makes that choice, for example tools/ours/Start-ResumableSession.ps1")
+		}
+	}
+	return nil
+}
+
 // parseSessionMeta accepts only keys under "session:". The block meta also decides what program runs and where, so
 // no other key may be set from here.
 func parseSessionMeta(pairs []string) (map[string]any, error) {
 	meta := make(map[string]any)
 	for _, p := range pairs {
 		kv := strings.SplitN(p, "=", 2)
-		if len(kv) != 2 || !strings.HasPrefix(kv[0], "session:") || len(kv[0]) == len("session:") {
+		if len(kv) != 2 || !sessionMetaKeyRegexp.MatchString(kv[0]) {
 			return nil, fmt.Errorf("invalid --meta %q: want session:KEY=VALUE", p)
 		}
 		if strings.ContainsAny(kv[1], "\r\n") {
@@ -188,6 +211,9 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	cmdArgsAfterDash := args
 	command, cmdArgs, err := splitSessionCommand(cmdArgsAfterDash, fileData)
 	if err != nil {
+		return err
+	}
+	if err := validateSessionStart(sessionRestart, command, cmdArgs, sessionMeta); err != nil {
 		return err
 	}
 	styleMeta, err := buildSessionStyleMeta(sessionColor, sessionSymbol)

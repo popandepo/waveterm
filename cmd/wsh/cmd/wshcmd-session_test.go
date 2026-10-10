@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -127,5 +128,56 @@ func TestRestartModeMakesTheProgramStartAgainWithWave(t *testing.T) {
 	applySessionOptions(plain, false, nil)
 	if plain[waveobj.MetaKey_CmdRunOnce] != true || plain[waveobj.MetaKey_CmdClearOnStart] != true {
 		t.Fatalf("without --restart nothing changes: %v", plain)
+	}
+}
+
+func TestMetaKeysCannotCarryControlCharacters(t *testing.T) {
+	for _, bad := range []string{
+		"session:id\ncmd:runonce=true=x",
+		"session:a b=x",
+		"session:id\r=x",
+		"session:\x00x=x",
+		"session:id/../x=x",
+		"session:=x",
+	} {
+		if _, err := parseSessionMeta([]string{bad}); err == nil {
+			t.Fatalf("%q should be refused", bad)
+		}
+	}
+	if _, err := parseSessionMeta([]string{"session:model.name_1-x=v"}); err != nil {
+		t.Fatalf("plain keys must pass: %v", err)
+	}
+}
+
+func TestRestartRefusesAProgramThatCannotResume(t *testing.T) {
+	for _, argv := range [][]string{
+		{"claude", "--session-id", "11111111-2222-3333-4444-555555555555"},
+		{"claude-personal", "--session-id=11111111-2222-3333-4444-555555555555", "--model", "x"},
+	} {
+		err := validateSessionStart(true, argv[0], argv[1:], nil)
+		if err == nil || !strings.Contains(err.Error(), "--session-id") || !strings.Contains(err.Error(), "resume") {
+			t.Fatalf("%v: want a refusal that explains the resume rule, got %v", argv, err)
+		}
+	}
+	if err := validateSessionStart(false, "claude", []string{"--session-id", "x"}, nil); err != nil {
+		t.Fatalf("without --restart the program runs once and the flag is fine: %v", err)
+	}
+	if err := validateSessionStart(true, "pwsh", []string{"-File", "Start-ResumableSession.ps1", "-SessionId", "x"}, nil); err != nil {
+		t.Fatalf("a resumable starter is the supported way: %v", err)
+	}
+}
+
+func TestInvalidSessionOptionsAreRefusedBeforeAnyTabIsCreated(t *testing.T) {
+	t.Setenv("WAVETERM_WORKSPACEID", "11111111-1111-1111-1111-111111111111")
+	oldMeta, oldRestart, oldName := sessionMeta, sessionRestart, sessionName
+	oldFile := sessionArgsFile
+	defer func() { sessionMeta, sessionRestart, sessionName, sessionArgsFile = oldMeta, oldRestart, oldName, oldFile }()
+	sessionArgsFile = ""
+	sessionName = "t"
+	sessionMeta = []string{"cmd=evil"}
+	sessionRestart = false
+	err := sessionStartRun(sessionStartCmd, []string{"pwsh", "-NoProfile"})
+	if err == nil || !strings.Contains(err.Error(), "--meta") {
+		t.Fatalf("want the --meta error before any tab or RPC work, got %v", err)
 	}
 }

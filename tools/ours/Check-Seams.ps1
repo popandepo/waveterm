@@ -8,7 +8,7 @@
 #   so our own tab feature is never reported as upstream's. A human or the update-review agent decides.
 #
 # ASCII only (Windows PowerShell 5.1 reads BOM-less files as ANSI). Run from anywhere inside the clone.
-#   -Ref      upstream commit to scan for watch hits (default upstream/main, else HEAD)
+#   -Ref      upstream commit to scan for watch hits (default upstream/main; the run fails if the ref does not exist)
 #   -BaseRef  the previously synced upstream point (default merge-base of origin/Master and Ref)
 [CmdletBinding()]
 param([string]$Root = '', [string]$Ref = '', [string]$BaseRef = '')
@@ -18,14 +18,18 @@ if (-not $Root) { $Root = (& git rev-parse --show-toplevel).Trim() }
 
 function GitC { & git -C $Root @args 2>$null }
 
-if (-not $Ref) {
-    & git -C $Root rev-parse --verify --quiet upstream/main 2>$null | Out-Null
-    $Ref = if ($LASTEXITCODE -eq 0) { 'upstream/main' } else { 'HEAD' }
+function RequireRef([string]$name, [string]$why) {
+    & git -C $Root rev-parse --verify --quiet "$name^{commit}" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: git ref '$name' does not exist ($why)"; exit 1 }
 }
+if (-not $Ref) { $Ref = 'upstream/main' }
+RequireRef $Ref 'the upstream commit the watch list scans; fetch the upstream remote or pass -Ref'
 if (-not $BaseRef) {
-    & git -C $Root rev-parse --verify --quiet origin/Master 2>$null | Out-Null
-    $BaseRef = if ($LASTEXITCODE -eq 0) { (GitC merge-base origin/Master $Ref | Select-Object -First 1) } else { $Ref }
+    RequireRef 'origin/Master' 'needed to find the previously synced upstream point; pass -BaseRef'
+    $BaseRef = (GitC merge-base origin/Master $Ref | Select-Object -First 1)
+    if (-not $BaseRef) { Write-Host 'FATAL: no merge base between origin/Master and the upstream ref'; exit 1 }
 }
+RequireRef $BaseRef 'the base of the watch range'
 
 function Normalize([string]$file, [string]$text) {
     $ext = [IO.Path]::GetExtension($file).ToLower()
@@ -40,12 +44,14 @@ function Normalize([string]$file, [string]$text) {
 }
 
 # Each seam: id, file (relative), text that must be present in the active code, why we need it.
+# Rows for declarations upstream owns are matched in full (through the return type and the opening brace). Rows for
+# declarations we edit ourselves (TabBadges) match the name only, so our own change does not turn them red.
 $seams = @(
     @('tab-flagcolor-const', 'pkg/waveobj/metaconsts.go', 'MetaKey_TabFlagColor = "tab:flagcolor"', 'tab colour meta key'),
     @('tab-flagcolor-field', 'pkg/waveobj/wtypemeta.go', 'TabFlagColor string `json:"tab:flagcolor,omitempty"`', 'typed meta field'),
     @('tab-flagcolor-read', 'frontend/app/tab/tab.tsx', 'tabData?.meta?.["tab:flagcolor"]', 'tab bar reads the colour from tab meta'),
     @('tab-flagcolor-validate', 'frontend/app/tab/tab.tsx', 'validateCssColor(rawFlagColor)', 'colour is validated before drawing'),
-    @('tab-badges-component', 'frontend/app/tab/tabbadges.tsx', 'export function TabBadges({', 'where a tab symbol is drawn'),
+    @('tab-badges-component', 'frontend/app/tab/tabbadges.tsx', 'export function TabBadges(', 'where a tab symbol is drawn'),
     @('tab-badges-flag', 'frontend/app/tab/tabbadges.tsx', 'icon: "flag"', 'flag glyph for tab colour'),
     @('tab-badge-atom', 'frontend/app/tab/tab.tsx', 'useAtomValue(getTabBadgeAtom(id, env))', 'per-tab badge source'),
     @('tab-context-menu', 'frontend/app/tab/tabcontextmenu.ts', 'export function buildTabContextMenu( id: string, renameRef: React.RefObject<(() => void) | null>, onClose: (event: React.MouseEvent<HTMLButtonElement, MouseEvent> | null) => void, env: TabEnv ): ContextMenuItem[]', 'where colour and symbol menu entries go'),
@@ -63,22 +69,22 @@ $seams = @(
     @('wsh-swaptoken-var', 'pkg/wavebase/wavebase.go', 'WaveSwapTokenVarName = "WAVETERM_SWAPTOKEN"', 'single-use token model'),
     @('wsh-setmeta', 'cmd/wsh/cmd/wshcmd-setmeta.go', 'var setMetaCmd = &cobra.Command{', 'setmeta command on any oref'),
     @('wsh-setmeta-rpc', 'pkg/wshrpc/wshrpctypes.go', 'SetMetaCommand(ctx context.Context, data CommandSetMetaData) error', 'meta write used by tab style'),
-    @('wsh-badge', 'cmd/wsh/cmd/wshcmd-badge.go', 'oref.OType != waveobj.OType_Tab', 'badge accepts a tab oref'),
+    @('wsh-badge', 'cmd/wsh/cmd/wshcmd-badge.go', 'if oref.OType != waveobj.OType_Block && oref.OType != waveobj.OType_Tab {', 'badge accepts a tab oref'),
     @('wsh-tab-cmd', 'cmd/wsh/cmd/wshcmd-tab.go', 'var tabCommand = &cobra.Command{', 'existing tab command group we extend'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('electron-wsh-client', 'emain/emain-wsh.ts', 'async handle_electronsystembell(rh: RpcResponseHelper): Promise<void>', 'where electron-route handlers live'),
     @('window-set-active-tab', 'emain/emain-window.ts', 'async setActiveTab(tabId: string, setInBackend: boolean, primaryStartupTab = false)', 'electron tab switch'),
     @('window-queue-close-tab', 'emain/emain-window.ts', 'async queueCloseTab(tabId: string)', 'electron tab close'),
-    @('layout-rootnode-any', 'pkg/waveobj/wtype.go', 'RootNode any', 'layout tree is opaque to the back end (stack node spike)'),
-    @('layout-node-type', 'frontend/layout/lib/types.ts', 'export interface LayoutNode {', 'node shape'),
-    @('layout-focus-reducer', 'frontend/layout/lib/layoutTree.ts', 'export function focusNode(layoutState: LayoutTreeState, action: LayoutTreeFocusNodeAction)', 'single place that must activate a stack member'),
-    @('layout-update-helper', 'frontend/layout/lib/layoutModel.ts', 'private updateTreeHelper( node: LayoutNode, additionalPropsMap: Record<string, LayoutNodeAdditionalProps>, leafs: LayoutNode[], resizeHandleSizePx: number, magnifiedNodeSizePct: number, boundingRect: Dimensions, resizeAction?: LayoutTreeResizeNodeAction', 'rectangle maths for the stack node'),
-    @('layout-balance', 'frontend/layout/lib/layoutNode.ts', 'export function balanceNode( node: LayoutNode, beforeWalkCallback?: (node: LayoutNode) => void, afterWalkCallback?: (node: LayoutNode) => void ): LayoutNode', 'silently rewrites the tree; guard for stacks'),
-    @('layout-addchildat', 'frontend/layout/lib/layoutNode.ts', 'export function addChildAt(node: LayoutNode, idx: number, ...children: LayoutNode[])', 'silently rewrites the tree; guard for stacks'),
-    @('task-build-backend', 'Taskfile.yml', 'build:backend: desc: Build the wavesrv and wsh components.', 'update script builds with this task'),
-    @('task-rmrf-var', 'Taskfile.yml', 'RMRF: ''{{if eq OS "windows"}}powershell', 'update script overrides this recursive-delete variable'),
-    @('task-generate', 'Taskfile.yml', 'generate: desc: Generate Typescript bindings for the Go backend.', 'update script relies on generate being part of build'),
+    @('layout-rootnode-any', 'pkg/waveobj/wtype.go', 'RootNode any `json:"rootnode,omitempty"`', 'layout tree is opaque to the back end (stack node spike)'),
+    @('layout-node-type', 'frontend/layout/lib/types.ts', 'export interface LayoutNode { id: string; data?: TabLayoutData; children?: LayoutNode[]; flexDirection: FlexDirection; size: number; }', 'node shape'),
+    @('layout-focus-reducer', 'frontend/layout/lib/layoutTree.ts', 'export function focusNode(layoutState: LayoutTreeState, action: LayoutTreeFocusNodeAction) {', 'single place that must activate a stack member'),
+    @('layout-update-helper', 'frontend/layout/lib/layoutModel.ts', 'private updateTreeHelper( node: LayoutNode, additionalPropsMap: Record<string, LayoutNodeAdditionalProps>, leafs: LayoutNode[], resizeHandleSizePx: number, magnifiedNodeSizePct: number, boundingRect: Dimensions, resizeAction?: LayoutTreeResizeNodeAction ) {', 'rectangle maths for the stack node'),
+    @('layout-balance', 'frontend/layout/lib/layoutNode.ts', 'export function balanceNode( node: LayoutNode, beforeWalkCallback?: (node: LayoutNode) => void, afterWalkCallback?: (node: LayoutNode) => void ): LayoutNode {', 'silently rewrites the tree; guard for stacks'),
+    @('layout-addchildat', 'frontend/layout/lib/layoutNode.ts', 'export function addChildAt(node: LayoutNode, idx: number, ...children: LayoutNode[]) {', 'silently rewrites the tree; guard for stacks'),
+    @('task-build-backend', 'Taskfile.yml', 'build:backend: desc: Build the wavesrv and wsh components. cmds: - task: build:server - task: build:wsh', 'update script builds with this task'),
+    @('task-rmrf-var', 'Taskfile.yml', 'RMRF: ''{{if eq OS "windows"}}powershell -NoProfile -NonInteractive Remove-Item -Force -Recurse -ErrorAction SilentlyContinue{{else}}rm -rf{{end}}''', 'update script overrides this recursive-delete variable'),
+    @('task-generate', 'Taskfile.yml', 'generate: desc: Generate Typescript bindings for the Go backend. cmds: - go run cmd/generatets/main-generatets.go - go run cmd/generatego/main-generatego.go', 'update script relies on generate being part of build'),
     @('dev-config-home', 'emain/emain-platform.ts', 'const WaveConfigHomeVarName = "WAVETERM_CONFIG_HOME";', 'dev app isolation'),
     @('dev-data-home', 'emain/emain-platform.ts', 'const WaveDataHomeVarName = "WAVETERM_DATA_HOME";', 'dev app isolation'),
     @('telemetry-setting', 'pkg/wconfig/settingsconfig.go', 'TelemetryEnabled bool `json:"telemetry:enabled,omitempty"`', 'dev app runs with telemetry off')
@@ -110,6 +116,7 @@ foreach ($s in $seams) {
 
 function GrepSet([string]$ref, [string]$spec, [string]$rx) {
     $out = & git -C $Root grep -n -I -i -E $rx $ref -- $spec 2>$null
+    if ($LASTEXITCODE -gt 1) { Write-Host "FATAL: git grep failed (exit $LASTEXITCODE) for $ref $spec"; exit 1 }
     $set = @{}
     foreach ($l in @($out)) {
         if (-not $l) { continue }
@@ -131,6 +138,7 @@ foreach ($w in $watch) {
         $why = $w[4]
     } else {
         $added = @(& git -C $Root diff --name-only --diff-filter=A $BaseRef $Ref 2>$null)
+        if ($LASTEXITCODE -ne 0) { Write-Host 'FATAL: git diff failed for the watch range'; exit 1 }
         $hits = @($added | Where-Object { $_ -match $w[2] })
         $why = $w[3]
     }

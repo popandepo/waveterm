@@ -305,3 +305,15 @@ confirmed; keyboard focus moves only with `--focus`.
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
+
+## 23. Drag a tab out of its stack, reorder tabs (step E)
+
+Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of
+its own (the existing move takes it out of the stack; the neighbour becomes active; the node is the same, so a terminal keeps
+its process and scrollback); dropped on the **middle** of another tile it joins that tile's stack; dropped on **another tab** of
+the same strip it takes that tab's place; dropped on a tab of another strip it joins that stack after the tab. A tab dropped
+on itself does nothing. A stack of one that loses its only tab leaves no empty stack behind.
+- **RAN:** vitest for the rules (`reorderStackMember`, `tabDropAction`, an edge drop out of a stack of three and out of a stack of one
+  with the same node object kept); tsc stays at 17; Check-Seams 0 red.
+- **READ, not run:** the react-dnd wiring on the tab (drag source, drop target, outline style `drop-over`): the real drag needs a
+  mouse, so it is part of the window check. **Seen in a window after this PR:** drag a tab off the strip onto the edge of another tile.

@@ -138,7 +138,7 @@ export class LayoutModel {
     /**
      * Callback for the + on the tab strip of a stack.
      */
-    onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>) => void;
+    onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
     /**
      * Callback that is invoked when a node is closed.
      */

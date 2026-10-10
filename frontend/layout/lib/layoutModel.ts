@@ -58,6 +58,7 @@ import {
     NavigationResult,
     NodeModel,
     PreviewRenderer,
+    StackTabLabelRenderer,
     ResizeHandleProps,
     TileLayoutContents,
 } from "./types";
@@ -119,6 +120,11 @@ export class LayoutModel {
      * Callback that is invoked to render the drag preview for a leaf node.
      */
     renderPreview?: PreviewRenderer;
+
+    /**
+     * Callback that renders the label of one member in the tab strip of a stack.
+     */
+    renderStackTabLabel?: StackTabLabelRenderer;
     /**
      * Callback that is invoked when a node is closed.
      */
@@ -605,6 +611,7 @@ export class LayoutModel {
     registerTileLayout(contents: TileLayoutContents) {
         this.renderContent = contents.renderContent;
         this.renderPreview = contents.renderPreview;
+        this.renderStackTabLabel = contents.renderStackTabLabel;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {
             this.setter(this.gapSizePx, contents.gapSizePx);

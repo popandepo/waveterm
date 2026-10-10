@@ -21,6 +21,8 @@ import { debounce, throttle } from "throttle-debounce";
 import { useDevicePixelRatio } from "use-device-pixel-ratio";
 import { LayoutModel } from "./layoutModel";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
+import "./stackstrip.scss";
+import { StackStrips } from "./stacktabstrip";
 import "./tilelayout.scss";
 import {
     LayoutNode,
@@ -126,6 +128,7 @@ function TileLayoutComponent({ tabAtom, contents, getCursorPoint }: TileLayoutPr
                 <div key="display" ref={layoutModel.displayContainerRef} className="display-container">
                     <ResizeHandleWrapper layoutModel={layoutModel} />
                     <DisplayNodesWrapper layoutModel={layoutModel} />
+                    <StackStrips layoutModel={layoutModel} />
                     <NodeBackdrops layoutModel={layoutModel} />
                 </div>
                 <Placeholder key="placeholder" layoutModel={layoutModel} style={{ top: 10000, ...overlayTransform }} />

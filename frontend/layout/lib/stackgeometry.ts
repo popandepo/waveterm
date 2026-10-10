@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isStackNode } from "./layoutNode";
-import type { LayoutNode, LayoutNodeAdditionalProps } from "./types";
+import type { LayoutNode, LayoutNodeAdditionalProps, StackLayoutProps } from "./types";
 import { setTransform } from "./utils";
 
 export const StackStripHeightPx = 28;
@@ -73,4 +73,28 @@ export function applyStackLayout(
         resizeHandles: [],
         stack: { strip: layout.strip, activeId: layout.activeId, order: layout.order },
     };
+}
+
+export interface StripTab {
+    nodeId: string;
+    blockId: string;
+    active: boolean;
+    focused: boolean;
+}
+
+export function buildStripTabs(stack: StackLayoutProps, leafs: LayoutNode[], focusedNodeId: string): StripTab[] {
+    const tabs: StripTab[] = [];
+    for (const id of stack.order) {
+        const leaf = leafs.find((l) => l.id === id);
+        if (!leaf?.data?.blockId) {
+            continue;
+        }
+        tabs.push({
+            nodeId: id,
+            blockId: leaf.data.blockId,
+            active: id === stack.activeId,
+            focused: id === focusedNodeId,
+        });
+    }
+    return tabs;
 }

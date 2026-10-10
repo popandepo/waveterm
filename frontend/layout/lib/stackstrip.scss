@@ -1,0 +1,60 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+.tile-layout .stack-strip {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 2px;
+    padding: 2px 4px 0 4px;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    user-select: none;
+
+    .stack-tab {
+        display: flex;
+        flex: 0 1 180px;
+        min-width: 60px;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border-radius: 6px 6px 0 0;
+        font-size: 12px;
+        cursor: pointer;
+        color: var(--secondary-text-color);
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        &.active {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--main-text-color);
+        }
+
+        &.focused.active {
+            box-shadow: inset 0 -2px 0 var(--accent-color);
+        }
+
+        .stack-tab-label {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .stack-tab-close {
+            flex: 0 0 auto;
+            padding: 0 2px;
+            border: none;
+            background: none;
+            color: inherit;
+            opacity: 0.6;
+
+            &:hover {
+                opacity: 1;
+            }
+        }
+    }
+}

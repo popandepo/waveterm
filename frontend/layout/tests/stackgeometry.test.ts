@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from "vitest";
 import { newLayoutNode, newStackNode } from "../lib/layoutNode";
-import { applyStackLayout, computeStackLayout, StackStripHeightPx } from "../lib/stackgeometry";
+import { applyStackLayout, buildStripTabs, computeStackLayout, StackStripHeightPx } from "../lib/stackgeometry";
 import { FlexDirection, type LayoutNodeAdditionalProps } from "../lib/types";
 
 function leaf(blockId: string) {
@@ -101,5 +101,35 @@ describe("applying a stack layout to the props map", () => {
         applyStackLayout(stack, rect, map);
         expect(map[a.id].treeKey).toBe("010");
         expect(map[b.id].treeKey).toBe("011");
+    });
+});
+
+describe("tab strip model", () => {
+    test("one tab per member in order with the block id, the active one marked", () => {
+        const [a, b, c] = [leaf("blk-a"), leaf("blk-b"), leaf("blk-c")];
+        const stack = newStackNode([a, b, c], b.id);
+        const map: Record<string, LayoutNodeAdditionalProps> = { [stack.id]: { treeKey: "0", rect } };
+        applyStackLayout(stack, rect, map);
+        const tabs = buildStripTabs(map[stack.id].stack, [c, a, b], null);
+        expect(tabs.map((t) => t.blockId)).toEqual(["blk-a", "blk-b", "blk-c"]);
+        expect(tabs.map((t) => t.active)).toEqual([false, true, false]);
+        expect(tabs.map((t) => t.nodeId)).toEqual([a.id, b.id, c.id]);
+    });
+
+    test("the focused member is marked even when it is not the active one being shown first", () => {
+        const [a, b] = [leaf("blk-a"), leaf("blk-b")];
+        const stack = newStackNode([a, b], a.id);
+        const map: Record<string, LayoutNodeAdditionalProps> = { [stack.id]: { treeKey: "0", rect } };
+        applyStackLayout(stack, rect, map);
+        const tabs = buildStripTabs(map[stack.id].stack, [a, b], b.id);
+        expect(tabs.map((t) => t.focused)).toEqual([false, true]);
+    });
+
+    test("a member that is missing from the leaf list is left out, not shown as an empty tab", () => {
+        const [a, b] = [leaf("blk-a"), leaf("blk-b")];
+        const stack = newStackNode([a, b], a.id);
+        const map: Record<string, LayoutNodeAdditionalProps> = { [stack.id]: { treeKey: "0", rect } };
+        applyStackLayout(stack, rect, map);
+        expect(buildStripTabs(map[stack.id].stack, [a], null).map((t) => t.blockId)).toEqual(["blk-a"]);
     });
 });

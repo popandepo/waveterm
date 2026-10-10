@@ -335,6 +335,7 @@ export class WaveBrowserWindow extends BaseWindow {
         });
         this.on("closed", () => {
             console.log("win 'closed' handler fired", this.waveWindowId);
+            this.settleQueuedCloses();
             if (getGlobalIsQuitting() || updater?.status == "installing") {
                 console.log("win quitting or updating", this.waveWindowId);
                 return;
@@ -748,8 +749,15 @@ export class WaveBrowserWindow extends BaseWindow {
         tabView.destroy();
     }
 
+    // Whoever waits for a close is told "not closed" the moment the window is gone, also when the action in front of it is stuck in a
+    // service call that never returns (the queue loop's own finally would not run then).
+    private settleQueuedCloses() {
+        settlePendingCloses(this.actionQueue);
+    }
+
     destroy() {
         console.log("destroy win", this.waveWindowId);
+        this.settleQueuedCloses();
         this.deleteAllowed = true;
         super.destroy();
     }

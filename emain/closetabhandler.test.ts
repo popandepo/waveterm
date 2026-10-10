@@ -301,4 +301,12 @@ describe("close requests that are left in a queue are settled (third review of P
         expect((src.match(/WorkspaceService\.CloseTab\(/g) ?? []).length).toBe(1);
         expect((src.match(/WorkspaceService\.CloseTabChecked\(/g) ?? []).length).toBe(1);
     });
+
+    test("the window settles queued closes in its own closed and destroy paths, not only in the queue loop", () => {
+        const src = readFileSync(path.join(__dirname, "emain-window.ts"), "utf8");
+        const closed = src.slice(src.indexOf('this.on("closed"'));
+        expect(closed.slice(0, closed.indexOf("getGlobalIsQuitting"))).toContain("this.settleQueuedCloses();");
+        const destroy = src.slice(src.indexOf("    destroy() {"));
+        expect(destroy.slice(0, destroy.indexOf("super.destroy()"))).toContain("this.settleQueuedCloses();");
+    });
 });

@@ -77,6 +77,8 @@ export enum LayoutTreeActionType {
     Swap = "swap",
     Stack = "stack",
     Unstack = "unstack",
+    StackInsert = "stackinsert",
+    Activate = "activate",
     SetPendingAction = "setpending",
     CommitPendingAction = "commitpending",
     ClearPendingAction = "clearpending",
@@ -265,8 +267,7 @@ export interface LayoutTreeResizeNodeAction extends LayoutTreeAction {
  * Action for focusing a node from the layout tree.
  */
 /**
- * Puts the node 
-odeId into the stack that contains 	argetNodeId, or makes a new stack of the two leaves.
+ * Puts the node nodeId into the stack that contains targetNodeId, or makes a new stack of the two leaves.
  */
 export interface LayoutTreeStackAction extends LayoutTreeAction {
     type: LayoutTreeActionType.Stack;
@@ -276,13 +277,30 @@ export interface LayoutTreeStackAction extends LayoutTreeAction {
 }
 
 /**
- * Takes the leaf 
-odeId out of its stack and places it next to the stack.
+ * Takes the leaf nodeId out of its stack and places it next to the stack.
  */
 export interface LayoutTreeUnstackAction extends LayoutTreeAction {
     type: LayoutTreeActionType.Unstack;
     nodeId: string;
     focused?: boolean;
+}
+
+/**
+ * Puts a new leaf (not in the tree yet) into the stack of targetNodeId, or makes a stack of the two.
+ */
+export interface LayoutTreeStackInsertAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.StackInsert;
+    node: LayoutNode;
+    targetNodeId: string;
+    focused?: boolean;
+}
+
+/**
+ * Shows a stack member without asking for keyboard focus.
+ */
+export interface LayoutTreeActivateAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.Activate;
+    nodeId: string;
 }
 
 export interface LayoutTreeFocusNodeAction extends LayoutTreeAction {

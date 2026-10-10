@@ -59,6 +59,7 @@ type WshRpcInterface interface {
 	CreateBlockCommand(ctx context.Context, data CommandCreateBlockData) (waveobj.ORef, error)
 	CreateSubBlockCommand(ctx context.Context, data CommandCreateSubBlockData) (waveobj.ORef, error)
 	DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error
+	StackBlockCommand(ctx context.Context, data CommandStackBlockData) error
 	DeleteSubBlockCommand(ctx context.Context, data CommandDeleteBlockData) error
 	WaitForRouteCommand(ctx context.Context, data CommandWaitForRouteData) (bool, error)
 
@@ -304,7 +305,16 @@ type CommandCreateBlockData struct {
 	Ephemeral     bool                 `json:"ephemeral,omitempty"`
 	Focused       bool                 `json:"focused,omitempty"`
 	TargetBlockId string               `json:"targetblockid,omitempty"`
-	TargetAction  string               `json:"targetaction,omitempty"` // "replace", "splitright", "splitdown", "splitleft", "splitup"
+	TargetAction  string               `json:"targetaction,omitempty"` // "replace", "splitright", "splitdown", "splitleft", "splitup", "stack"
+}
+
+// StackBlockAction_* in wshrpctypes_const.go. Focused is false unless asked for: a layout change never takes
+// keyboard focus by surprise.
+type CommandStackBlockData struct {
+	BlockId       string `json:"blockid"`
+	TargetBlockId string `json:"targetblockid,omitempty"`
+	Action        string `json:"action"`
+	Focused       bool   `json:"focused,omitempty"`
 }
 
 type CommandCreateSubBlockData struct {

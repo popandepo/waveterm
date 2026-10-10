@@ -30,6 +30,7 @@ const (
 	CreateBlockAction_SplitDown  = "splitdown"
 	CreateBlockAction_SplitLeft  = "splitleft"
 	CreateBlockAction_SplitRight = "splitright"
+	CreateBlockAction_Stack      = "stack"
 )
 
 // we only need consts for special commands handled in the router or
@@ -47,4 +48,10 @@ const (
 	Command_Message                      = "message"
 	Command_StreamData                   = "streamdata"
 	Command_StreamDataAck                = "streamdataack"
+)
+
+const (
+	StackBlockAction_Stack    = "stack"
+	StackBlockAction_Unstack  = "unstack"
+	StackBlockAction_Activate = "activate"
 )

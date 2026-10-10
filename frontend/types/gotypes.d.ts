@@ -689,6 +689,14 @@ declare global {
         delete?: boolean;
     };
 
+    // wshrpc.CommandStackBlockData
+    type CommandStackBlockData = {
+        blockid: string;
+        targetblockid?: string;
+        action: string;
+        focused?: boolean;
+    };
+
     // wshrpc.CommandStartBuilderData
     type CommandStartBuilderData = {
         builderid: string;

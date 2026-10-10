@@ -920,6 +920,12 @@ func SetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.R
 	return err
 }
 
+// command "stackblock", wshserver.StackBlockCommand
+func StackBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandStackBlockData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "stackblock", data, opts)
+	return err
+}
+
 // command "startbuilder", wshserver.StartBuilderCommand
 func StartBuilderCommand(w *wshutil.WshRpc, data wshrpc.CommandStartBuilderData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "startbuilder", data, opts)

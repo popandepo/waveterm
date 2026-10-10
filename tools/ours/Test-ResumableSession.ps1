@@ -34,22 +34,24 @@ $lines = @("ARGS: " + ($args -join ' '))
 Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR' } | ForEach-Object { $lines += "ENV: $($_.Name)=$($_.Value)" }
 Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
 '@
-$saved = @{}
-foreach ($n in 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE', 'NO_COLOR', 'RESUMABLE_TEST_RECORD') { $saved[$n] = [Environment]::GetEnvironmentVariable($n) }
-try {
-    $env:CLAUDE_CONFIG_DIR = 'C:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
-    $env:RESUMABLE_TEST_RECORD = $rec
-    & $script -SessionId $id -ConfigDir $root -Command $stub -Model m1
-    $recorded = @(Get-Content -LiteralPath $rec)
-} finally {
-    foreach ($n in $saved.Keys) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }
-}
+# The launch runs in a child PowerShell process: the starter removes CLAUDE* and colour variables from the environment of the
+# process it runs in, and this test must not leave the developer's own shell changed.
+$child = Join-Path $root 'child.ps1'
+Set-Content $child @'
+param($Script, $Id, $Root, $Stub, $Record)
+$env:CLAUDE_CONFIG_DIR = 'C:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
+$env:RESUMABLE_TEST_RECORD = $Record
+& $Script -SessionId $Id -ConfigDir $Root -Command $Stub -Model m1
+'@
+$shellBefore = @('CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE', 'NO_COLOR', 'FORCE_COLOR') | ForEach-Object { "$_=" + [Environment]::GetEnvironmentVariable($_) }
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $child -Script $script -Id $id -Root $root -Stub $stub -Record $rec | Out-Null
+$recorded = @(Get-Content -LiteralPath $rec)
+$shellAfter = @('CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE', 'NO_COLOR', 'FORCE_COLOR') | ForEach-Object { "$_=" + [Environment]::GetEnvironmentVariable($_) }
+Check 'this shell is left as it was (the launch ran in a child process)' (($shellBefore -join '|') -eq ($shellAfter -join '|')) (($shellBefore -join '|') + ' -> ' + ($shellAfter -join '|'))
 Check 'the launched program gets the searched config folder, not the inherited one' ($recorded -contains "ENV: CLAUDE_CONFIG_DIR=$root") ($recorded -join ' | ')
 Check 'the inherited child-session markers are gone' (-not ($recorded -match 'ENV: (CLAUDE_CODE_CHILD_SESSION|CLAUDECODE)=')) ($recorded -join ' | ')
 Check 'NO_COLOR is gone' (-not ($recorded -match 'ENV: NO_COLOR=')) ($recorded -join ' | ')
 Check 'the launched program gets the resume arguments' (($recorded -join ' ') -match "ARGS: --resume $id") ($recorded -join ' | ')
-Remove-Item $stub, $rec -ErrorAction SilentlyContinue
-if ($fail -gt 0) { exit 1 }
-Remove-Item $stub, $rec -ErrorAction SilentlyContinue
+Remove-Item $stub, $rec, $child -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $root "projects\some-folder\$id.jsonl"), (Join-Path $root 'projects\some-folder'), (Join-Path $root 'projects'), $root
 if ($fail -gt 0) { exit 1 }

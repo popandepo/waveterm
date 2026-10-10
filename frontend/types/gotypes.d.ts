@@ -297,6 +297,13 @@ declare global {
         rtopts?: RuntimeOpts;
     };
 
+    // wshrpc.CommandControllerStatusRtnData
+    type CommandControllerStatusRtnData = {
+        blockid: string;
+        shellprocstatus: string;
+        shellprocexitcode: number;
+    };
+
     // wshrpc.CommandCreateBlockData
     type CommandCreateBlockData = {
         tabid: string;

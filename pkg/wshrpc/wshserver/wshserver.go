@@ -165,6 +165,17 @@ func (ws *WshServer) UpdateTabNameCommand(ctx context.Context, tabId string, new
 	return nil
 }
 
+func (ws *WshServer) ControllerStatusCommand(ctx context.Context, blockId string) (*wshrpc.CommandControllerStatusRtnData, error) {
+	rtn := &wshrpc.CommandControllerStatusRtnData{BlockId: blockId, ShellProcStatus: "none"}
+	status := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+	if status == nil {
+		return rtn, nil
+	}
+	rtn.ShellProcStatus = status.ShellProcStatus
+	rtn.ShellProcExitCode = status.ShellProcExitCode
+	return rtn, nil
+}
+
 // CreateTabCommand creates a tab in the backend only. It does not activate it and it does not load a view for it;
 // the electron-route commands do that when asked, so creating a tab never changes what the user is looking at.
 func (ws *WshServer) CreateTabCommand(ctx context.Context, data wshrpc.CommandCreateTabData) (string, error) {

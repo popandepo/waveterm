@@ -180,6 +180,12 @@ export class RpcApiType {
         return client.wshRpcCall("controllerresync", data, opts);
     }
 
+    // command "controllerstatus" [call]
+    ControllerStatusCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<CommandControllerStatusRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "controllerstatus", data, opts);
+        return client.wshRpcCall("controllerstatus", data, opts);
+    }
+
     // command "createblock" [call]
     CreateBlockCommand(client: WshClient, data: CommandCreateBlockData, opts?: RpcOpts): Promise<ORef> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createblock", data, opts);

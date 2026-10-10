@@ -52,6 +52,7 @@ type WshRpcInterface interface {
 	SetMetaCommand(ctx context.Context, data CommandSetMetaData) error
 	ControllerInputCommand(ctx context.Context, data CommandBlockInputData) error
 	ControllerDestroyCommand(ctx context.Context, blockId string) error
+	ControllerStatusCommand(ctx context.Context, blockId string) (*CommandControllerStatusRtnData, error)
 	ControllerResyncCommand(ctx context.Context, data CommandControllerResyncData) error
 	ControllerAppendOutputCommand(ctx context.Context, data CommandControllerAppendOutputData) error
 	ResolveIdsCommand(ctx context.Context, data CommandResolveIdsData) (CommandResolveIdsRtnData, error)
@@ -681,6 +682,12 @@ type CommandTermGetScrollbackLinesRtnData struct {
 type CommandTermUpdateAttachedJobData struct {
 	BlockId string `json:"blockid"`
 	JobId   string `json:"jobid,omitempty"`
+}
+
+type CommandControllerStatusRtnData struct {
+	BlockId           string `json:"blockid"`
+	ShellProcStatus   string `json:"shellprocstatus"` // none (no controller), init, running or done
+	ShellProcExitCode int    `json:"shellprocexitcode"`
 }
 
 type CommandCreateTabData struct {

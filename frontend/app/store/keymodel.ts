@@ -22,6 +22,7 @@ import {
 } from "@/app/store/global";
 import { getActiveTabModel } from "@/app/store/tab-model";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
+import { registerStackKeys } from "@/app/store/stackkeys";
 import { deleteLayoutModelForTab, getLayoutModelForStaticTab, NavigateDirection } from "@/layout/index";
 import * as keyutil from "@/util/keyutil";
 import { isWindows } from "@/util/platformutil";
@@ -501,8 +502,7 @@ function countTermBlocks(): number {
 }
 
 function registerGlobalKeys() {
-    globalKeyMap.set("Ctrl:Shift:PageDown", () => getLayoutModelForStaticTab().focusAdjacentStackMember(1));
-    globalKeyMap.set("Ctrl:Shift:PageUp", () => getLayoutModelForStaticTab().focusAdjacentStackMember(-1));
+    registerStackKeys(globalKeyMap, getLayoutModelForStaticTab);
     globalKeyMap.set("Cmd:]", () => {
         switchTab(1);
         return true;

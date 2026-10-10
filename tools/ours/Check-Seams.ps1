@@ -70,6 +70,7 @@ $seams = @(
     @('wsh-setmeta', 'cmd/wsh/cmd/wshcmd-setmeta.go', 'var setMetaCmd = &cobra.Command{', 'setmeta command on any oref'),
     @('wsh-setmeta-rpc', 'pkg/wshrpc/wshrpctypes.go', 'SetMetaCommand(ctx context.Context, data CommandSetMetaData) error', 'meta write used by tab style'),
     @('wsh-badge', 'cmd/wsh/cmd/wshcmd-badge.go', 'if oref.OType != waveobj.OType_Block && oref.OType != waveobj.OType_Tab {', 'badge accepts a tab oref'),
+    @('stack-keys-hook', 'frontend/app/store/keymodel.ts', 'registerStackKeys(globalKeyMap', 'next and previous tab inside a stack tile'),
     @('wsh-tab-cmd', 'cmd/wsh/cmd/wshcmd-tab.go', 'var tabCommand = &cobra.Command{', 'existing tab command group we extend'),
     @('create-block-focused', 'pkg/wshrpc/wshrpctypes.go', 'Focused bool `json:"focused,omitempty"`', 'wsh --no-focus sets this field on create-block requests'),
     @('create-block-target', 'pkg/wshrpc/wshrpctypes.go', 'TargetAction string `json:"targetaction,omitempty"`', 'wsh slot places blocks with splitright/splitleft/splitup/splitdown/replace'),

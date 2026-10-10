@@ -501,6 +501,8 @@ function countTermBlocks(): number {
 }
 
 function registerGlobalKeys() {
+    globalKeyMap.set("Ctrl:Shift:PageDown", () => getLayoutModelForStaticTab().focusAdjacentStackMember(1));
+    globalKeyMap.set("Ctrl:Shift:PageUp", () => getLayoutModelForStaticTab().focusAdjacentStackMember(-1));
     globalKeyMap.set("Cmd:]", () => {
         switchTab(1);
         return true;

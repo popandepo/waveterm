@@ -882,3 +882,23 @@ export function moveIntoStack(layoutState: LayoutTreeState, action: LayoutTreeSt
     }
     return moved;
 }
+
+/**
+ * The id of the tab after (offset above 0) or before (offset below 0) the given one in its stack, wrapping around; only the
+ * direction of the offset counts. Nothing for a tile that is not in a stack, a stack of one, or an unknown node.
+ */
+export function adjacentStackMember(rootNode: LayoutNode, nodeId: string, offset: number): string | undefined {
+    if (!rootNode || !offset) {
+        return undefined;
+    }
+    const stack = findParent(rootNode, nodeId);
+    if (!stack || !isStackNode(stack) || stack.children.length < 2) {
+        return undefined;
+    }
+    const index = stack.children.findIndex((c) => c.id === nodeId);
+    if (index < 0) {
+        return undefined;
+    }
+    const step = offset > 0 ? 1 : -1;
+    return stack.children[(index + step + stack.children.length) % stack.children.length].id;
+}

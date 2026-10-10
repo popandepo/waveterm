@@ -16,6 +16,7 @@ import {
 } from "../lib/layoutNode";
 import {
     activateStackMember,
+    adjacentStackMember,
     computeMoveNode,
     deleteNode,
     focusNode,
@@ -894,5 +895,52 @@ describe("centre drops that cannot or should not do anything (review of PR 18)",
             })
         );
         assert.equal(JSON.stringify(state.rootNode), before);
+    });
+});
+
+describe("keyboard switching of the tabs inside a tile", () => {
+    function groupOf3() {
+        const [a, b, c, d] = [leaf("a"), leaf("b"), leaf("c"), leaf("d")];
+        const root = newLayoutNode(FlexDirection.Row, undefined, [a, b, c, d]);
+        const state = newLayoutTreeState(root);
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: b.id, nodeId: c.id });
+        return { state, a, b, c, d };
+    }
+
+    test("next and previous follow the order of the tabs and wrap around", () => {
+        const { state, a, b, c } = groupOf3();
+        const order = [a.id, b.id, c.id];
+        assert.equal(adjacentStackMember(state.rootNode, a.id, 1), order[1]);
+        assert.equal(adjacentStackMember(state.rootNode, b.id, 1), order[2]);
+        assert.equal(adjacentStackMember(state.rootNode, c.id, 1), order[0], "wraps to the first tab");
+        assert.equal(adjacentStackMember(state.rootNode, a.id, -1), order[2], "wraps to the last tab");
+        assert.equal(adjacentStackMember(state.rootNode, c.id, -1), order[1]);
+    });
+
+    test("a tile that is not a stack, a stack of one and unknown ids give nothing", () => {
+        const { state, d } = groupOf3();
+        assert.isUndefined(adjacentStackMember(state.rootNode, d.id, 1));
+        assert.isUndefined(adjacentStackMember(state.rootNode, "nope", 1));
+        const [x, y] = [leaf("x"), leaf("y")];
+        const s2 = newLayoutTreeState(newLayoutNode(FlexDirection.Row, undefined, [x, y]));
+        turnIntoStack(s2, x.id);
+        assert.isUndefined(adjacentStackMember(s2.rootNode, x.id, 1), "one tab: nothing to switch to");
+    });
+
+    test("focusing the result makes it the shown tab and keeps focus inside the stack", () => {
+        const { state, a, b } = groupOf3();
+        setFocusedNode(state, a.id);
+        const next = adjacentStackMember(state.rootNode, a.id, 1)!;
+        focusNode(state, { type: LayoutTreeActionType.FocusNode, nodeId: next });
+        assert.equal(state.focusedNodeId, b.id);
+        assert.equal(findParent(state.rootNode, b.id)!.activeChildId, b.id);
+    });
+
+    test("an offset of zero or a huge offset behaves like a step of the same direction", () => {
+        const { state, a } = groupOf3();
+        assert.isUndefined(adjacentStackMember(state.rootNode, a.id, 0));
+        assert.equal(adjacentStackMember(state.rootNode, a.id, 7), adjacentStackMember(state.rootNode, a.id, 1));
+        assert.equal(adjacentStackMember(state.rootNode, a.id, -7), adjacentStackMember(state.rootNode, a.id, -1));
     });
 });

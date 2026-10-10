@@ -305,3 +305,13 @@ confirmed; keyboard focus moves only with `--focus`.
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
+
+## 25. Keyboard: next and previous tab inside a tile
+
+`Ctrl+Shift+PageDown` shows and focuses the next tab of the stack that holds the focused tile, `Ctrl+Shift+PageUp` the previous
+one; both wrap around. Nothing happens (the key is not taken) when the focused tile is not a stack or has only one tab. The
+chords were chosen because neither is bound in Wave's key map (checked against `keymodel.ts`); Wave's own `Alt+[` and `Alt+]`
+still switch the tabs of the workspace (the T1, T2 row). The rule is a pure function (`adjacentStackMember`) with tests (order, wrap,
+non-stack, stack of one, unknown id, focus lands on the shown tab).
+- **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
+  `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.

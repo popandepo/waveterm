@@ -421,11 +421,17 @@ export class WaveBrowserWindow extends BaseWindow {
         await this._queueActionInternal({ op: "switchtab", tabId, setInBackend, primaryStartupTab });
     }
 
-    private async initializeTab(tabView: WaveTabView, primaryStartupTab: boolean) {
+    // parked: the view is placed off screen BEFORE it is added to the window, so a tab loaded in the background can
+    // never be visible or take focus, even for an instant (for example while the window is minimised).
+    private async initializeTab(tabView: WaveTabView, primaryStartupTab: boolean, parked = false) {
         const clientId = await getClientId();
         await this.awaitWithDevDiagnostics(tabView.initPromise, "initPromise", tabView);
         const winBounds = this.getContentBounds();
-        tabView.setBounds({ x: 0, y: 0, width: winBounds.width, height: winBounds.height });
+        if (parked) {
+            tabView.positionTabOffScreen(winBounds);
+        } else {
+            tabView.setBounds({ x: 0, y: 0, width: winBounds.width, height: winBounds.height });
+        }
         this.contentView.addChildView(tabView);
         const initOpts: WaveInitOpts = {
             tabId: tabView.waveTabId,
@@ -541,6 +547,28 @@ export class WaveBrowserWindow extends BaseWindow {
                 continue;
             }
             tabView?.positionTabOffScreen(curBounds);
+        }
+    }
+
+    // Loads a tab's page in the background so its blocks mount and their processes start, without showing it,
+    // changing the active tab or focusing anything. The view is parked off screen like every other inactive tab.
+    async preloadTab(tabId: string) {
+        if (this.isDestroyed()) {
+            throw new Error(`window ${this.waveWindowId} was closed before tab ${tabId} could be loaded`);
+        }
+        const [tabView, tabInitialized] = await getOrCreateWebViewForTab(this.waveWindowId, tabId);
+        if (tabInitialized) {
+            return;
+        }
+        this.allLoadedTabViews.set(tabId, tabView);
+        await this.initializeTab(tabView, false, true);
+        if (this.isDestroyed()) {
+            throw new Error(`window ${this.waveWindowId} was closed while tab ${tabId} was loading`);
+        }
+        tabView.positionTabOffScreen(this.getContentBounds());
+        if (tabView.webContents != null && !tabView.webContents.isDestroyed() && tabView.webContents.isFocused()) {
+            // Only reported: calling focus() here could itself take focus from another program.
+            console.log(`[error] preloaded tab ${tabId} reports keyboard focus while parked off screen`);
         }
     }
 

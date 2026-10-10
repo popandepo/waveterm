@@ -289,3 +289,15 @@ stack" in its menu.
 - **RAN:** vitest (centre = stack action, member target = its stack, root refused, edge zones still move).
 - **READ, not run:** the outline (the Swap placeholder case now also draws for Stack) and the drag itself.
 - **Seen in a window after this PR:** drag a tile onto the middle of another: outline, drop, a tab strip with both.
+
+## 20. Move everything into a group: wsh stack move (step C)
+
+`wsh stack move --from <block|group> --to <block|group>`: FROM is a block, or any member of a group (then the whole
+group moves, in its order); TO is a block or group; everything from FROM ends up as members of the group at TO
+(appended at the end, or a new group when TO is a plain block). Same tab only. It is queued for the page and not
+confirmed; keyboard focus moves only with `--focus`.
+- **RAN:** vitest (`moveIntoStack`: tile to tile, group to tile, group to group in order, same group is a no-op, unknown
+  nodes and the root refused, focus only when asked), Go (request planning, payloads, refusals).
+- **READ, not run:** the page applying `stackmove`. **Seen in a window after this PR:** `wsh stack move --from 2 --to 1`
+  puts block 2 (or its whole group) into the group of block 1.
+- **Not handled, for the window check:** audio or video in a web block of a hidden tab keeps playing.

@@ -183,3 +183,34 @@ func TestQueuedMessageSaysNotConfirmed(t *testing.T) {
 		t.Fatalf("a queued change must not read as applied: %q", msg)
 	}
 }
+
+func TestStackMoveSendsFromAndTo(t *testing.T) {
+	_, stacks := stubStackEnv(t)
+	stackMoveFrom, stackMoveTo = "term", "block-b"
+	defer func() { stackMoveFrom, stackMoveTo = "", "" }()
+	if err := stackMoveCmd.RunE(stackMoveCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := (*stacks)[0]
+	if got.Action != wshrpc.StackBlockAction_Move || got.BlockId != stackTargetFull || got.TargetBlockId != "block-b" || got.Focused {
+		t.Fatalf("request %+v", got)
+	}
+}
+
+func TestStackMoveNeedsBothEnds(t *testing.T) {
+	_, stacks := stubStackEnv(t)
+	for _, c := range [][2]string{{"", "x"}, {"x", ""}, {"", ""}} {
+		stackMoveFrom, stackMoveTo = c[0], c[1]
+		if err := stackMoveCmd.RunE(stackMoveCmd, nil); err == nil {
+			t.Fatalf("from=%q to=%q should be refused", c[0], c[1])
+		}
+	}
+	stackMoveFrom, stackMoveTo = "x", "x"
+	if err := stackMoveCmd.RunE(stackMoveCmd, nil); err == nil {
+		t.Fatalf("moving into itself should be refused")
+	}
+	stackMoveFrom, stackMoveTo = "", ""
+	if len(*stacks) != 0 {
+		t.Fatalf("a refused command sent a request")
+	}
+}

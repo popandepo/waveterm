@@ -161,3 +161,57 @@ func groupActivateRun(cmd *cobra.Command, args []string) error {
 	}
 	return sendStack(wshrpc.CommandStackBlockData{BlockId: blockId, Action: wshrpc.StackBlockAction_Activate})
 }
+
+var (
+	stackMoveFrom  string
+	stackMoveTo    string
+	stackMoveFocus bool
+)
+
+var stackCmd = &cobra.Command{
+	Use:   "stack",
+	Short: "Move whole tab groups: everything from one place into another",
+}
+
+var stackMoveCmd = &cobra.Command{
+	Use:   "move --from <block|group> --to <block|group>",
+	Short: "Move everything from FROM into the group at TO",
+	Long: `FROM is a block, or any member of a group (then the whole group moves, in its order). TO is a block or a
+group (or a member of one). Everything from FROM ends up as members of the group at TO, appended at the end; if TO is
+a plain block the two become a new group. Both must be in the same tab. The change is queued for the page of that tab
+and is not confirmed. Keyboard focus moves only with --focus.`,
+	Args:    cobra.NoArgs,
+	RunE:    stackMoveRun,
+	PreRunE: preRunSetupRpcClient,
+}
+
+func init() {
+	stackMoveCmd.Flags().StringVar(&stackMoveFrom, "from", "", "block or group to move (block id or number)")
+	stackMoveCmd.Flags().StringVar(&stackMoveTo, "to", "", "block or group that receives everything")
+	stackMoveCmd.Flags().BoolVar(&stackMoveFocus, "focus", false, "also move keyboard focus to the moved blocks")
+	stackCmd.AddCommand(stackMoveCmd)
+	rootCmd.AddCommand(stackCmd)
+}
+
+func stackMoveRun(cmd *cobra.Command, args []string) error {
+	if stackMoveFrom == "" || stackMoveTo == "" {
+		return fmt.Errorf("both --from and --to are required")
+	}
+	fromId, err := resolveBlockRef(stackMoveFrom)
+	if err != nil {
+		return fmt.Errorf("resolving --from: %w", err)
+	}
+	toId, err := resolveBlockRef(stackMoveTo)
+	if err != nil {
+		return fmt.Errorf("resolving --to: %w", err)
+	}
+	if fromId == toId {
+		return fmt.Errorf("--from and --to are the same block")
+	}
+	return sendStack(wshrpc.CommandStackBlockData{
+		BlockId:       fromId,
+		TargetBlockId: toId,
+		Action:        wshrpc.StackBlockAction_Move,
+		Focused:       stackMoveFocus,
+	})
+}

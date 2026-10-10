@@ -78,6 +78,7 @@ export enum LayoutTreeActionType {
     Stack = "stack",
     Unstack = "unstack",
     StackInsert = "stackinsert",
+    StackMove = "stackmove",
     TurnIntoStack = "turnintostack",
     TurnStackOff = "turnstackoff",
     Activate = "activate",
@@ -303,6 +304,16 @@ export interface LayoutTreeStackInsertAction extends LayoutTreeAction {
 export interface LayoutTreeActivateAction extends LayoutTreeAction {
     type: LayoutTreeActionType.Activate;
     nodeId: string;
+}
+
+/**
+ * Moves everything from fromNodeId (a tile, or a stack) into the stack at toNodeId.
+ */
+export interface LayoutTreeStackMoveAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.StackMove;
+    fromNodeId: string;
+    toNodeId: string;
+    focused?: boolean;
 }
 
 /**

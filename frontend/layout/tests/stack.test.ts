@@ -21,6 +21,7 @@ import {
     focusNode,
     insertNode,
     insertNodeIntoStack,
+    moveIntoStack,
     placementTargetId,
     setFocusedNode,
     splitHorizontal,
@@ -628,5 +629,128 @@ describe("dropping a tile on the middle of another makes a stack", () => {
             direction: DropDirection.Left,
         });
         assert.equal(edge?.type, LayoutTreeActionType.Move);
+    });
+});
+
+describe("moving everything from one place into a stack (from and to)", () => {
+    function fourLeaves() {
+        const [a, b, c, d] = [leaf("a"), leaf("b"), leaf("c"), leaf("d")];
+        const root = newLayoutNode(FlexDirection.Row, undefined, [a, b, c, d]);
+        return { state: newLayoutTreeState(root), a, b, c, d };
+    }
+    const ids = (n: LayoutNode) => n.children!.map((x) => x.data!.blockId);
+
+    test("from a plain tile to a plain tile makes a stack of the two, target first", () => {
+        const { state, a, c } = fourLeaves();
+        assert.isTrue(
+            moveIntoStack(state, {
+                type: LayoutTreeActionType.StackMove,
+                fromNodeId: a.id,
+                toNodeId: c.id,
+                focused: false,
+            })
+        );
+        balanceNode(state.rootNode);
+        const stack = findParent(state.rootNode, c.id)!;
+        assert.deepEqual(ids(stack), ["c", "a"]);
+    });
+
+    test("from a whole stack to a tile: every member goes, in order, after the target", () => {
+        const { state, a, b, c } = fourLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        assert.isTrue(
+            moveIntoStack(state, {
+                type: LayoutTreeActionType.StackMove,
+                fromNodeId: a.id,
+                toNodeId: c.id,
+                focused: false,
+            })
+        );
+        balanceNode(state.rootNode);
+        assert.deepEqual(ids(findParent(state.rootNode, c.id)!), ["c", "a", "b"]);
+        assert.isFalse(
+            state.rootNode.children!.some((n) => isStackNode(n) && ids(n).join() === "a,b"),
+            "the old stack is gone"
+        );
+    });
+
+    test("from a stack to a stack: all members are appended to the target stack in their order", () => {
+        const { state, a, b, c, d } = fourLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: c.id, nodeId: d.id });
+        assert.isTrue(
+            moveIntoStack(state, {
+                type: LayoutTreeActionType.StackMove,
+                fromNodeId: b.id,
+                toNodeId: d.id,
+                focused: false,
+            })
+        );
+        balanceNode(state.rootNode);
+        assert.isTrue(isStackNode(state.rootNode), "the target stack is all that is left, so it is the root");
+        assert.deepEqual(ids(state.rootNode), ["c", "d", "a", "b"]);
+    });
+
+    test("a move into the same stack changes nothing and returns false", () => {
+        const { state, a, b } = fourLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        const before = JSON.stringify(state.rootNode);
+        assert.isFalse(
+            moveIntoStack(state, {
+                type: LayoutTreeActionType.StackMove,
+                fromNodeId: a.id,
+                toNodeId: b.id,
+                focused: false,
+            })
+        );
+        assert.equal(JSON.stringify(state.rootNode), before);
+    });
+
+    test("unknown nodes and the root are refused without changes", () => {
+        const { state, a } = fourLeaves();
+        const before = JSON.stringify(state.rootNode);
+        assert.isFalse(
+            moveIntoStack(state, {
+                type: LayoutTreeActionType.StackMove,
+                fromNodeId: "nope",
+                toNodeId: a.id,
+                focused: false,
+            })
+        );
+        assert.isFalse(
+            moveIntoStack(state, {
+                type: LayoutTreeActionType.StackMove,
+                fromNodeId: a.id,
+                toNodeId: "nope",
+                focused: false,
+            })
+        );
+        assert.isFalse(
+            moveIntoStack(state, {
+                type: LayoutTreeActionType.StackMove,
+                fromNodeId: state.rootNode.id,
+                toNodeId: a.id,
+                focused: false,
+            })
+        );
+        assert.equal(JSON.stringify(state.rootNode), before);
+    });
+
+    test("the target keeps its active member unless focus is asked for", () => {
+        const { state, a, b, c } = fourLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id, focused: false });
+        const targetStack = findParent(state.rootNode, a.id)!;
+        const activeBefore = targetStack.activeChildId;
+        moveIntoStack(state, {
+            type: LayoutTreeActionType.StackMove,
+            fromNodeId: c.id,
+            toNodeId: a.id,
+            focused: false,
+        });
+        assert.equal(targetStack.activeChildId, activeBefore);
+        const { state: s2, a: a2, c: c2 } = fourLeaves();
+        moveIntoStack(s2, { type: LayoutTreeActionType.StackMove, fromNodeId: c2.id, toNodeId: a2.id, focused: true });
+        assert.equal(s2.focusedNodeId, c2.id);
+        assert.equal(findParent(s2.rootNode, c2.id)!.activeChildId, c2.id);
     });
 });

@@ -22,6 +22,7 @@ import {
     insertNodeAtIndex,
     insertNodeIntoStack,
     magnifyNodeToggle,
+    moveIntoStack,
     moveNode,
     replaceNode,
     resizeNode,
@@ -58,6 +59,7 @@ import {
     LayoutTreeStackAction,
     LayoutTreeStackInsertAction,
     LayoutTreeStackModeAction,
+    LayoutTreeStackMoveAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
     LayoutTreeUnstackAction,
@@ -608,6 +610,28 @@ export class LayoutModel {
                 );
                 break;
             }
+            case LayoutTreeActionType.StackMove: {
+                const from = this?.getNodeByBlockId(action.blockid);
+                const to = this?.getNodeByBlockId(action.targetblockid);
+                if (!from || !to) {
+                    console.error(
+                        "Cannot apply eventbus layout action StackMove, block not found",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.StackMove,
+                        fromNodeId: from.id,
+                        toNodeId: to.id,
+                        focused: action.focused,
+                    } as LayoutTreeStackMoveAction,
+                    false
+                );
+                break;
+            }
             case LayoutTreeActionType.StackInsert: {
                 const target = this?.getNodeByBlockId(action.targetblockid);
                 if (!target) {
@@ -793,6 +817,14 @@ export class LayoutModel {
                 if (
                     insertNodeIntoStack(this.treeState, action as LayoutTreeStackInsertAction) &&
                     ((action as LayoutTreeStackInsertAction).focused ?? true)
+                ) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
+                break;
+            case LayoutTreeActionType.StackMove:
+                if (
+                    moveIntoStack(this.treeState, action as LayoutTreeStackMoveAction) &&
+                    ((action as LayoutTreeStackMoveAction).focused ?? false)
                 ) {
                     FocusManager.getInstance().requestNodeFocus();
                 }

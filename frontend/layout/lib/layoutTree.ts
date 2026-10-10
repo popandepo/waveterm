@@ -38,6 +38,7 @@ import {
     LayoutTreeSplitVerticalAction,
     LayoutTreeStackAction,
     LayoutTreeStackInsertAction,
+    LayoutTreeStackMoveAction,
     LayoutTreeUnstackAction,
 } from "./types";
 
@@ -786,4 +787,53 @@ export function turnStackOff(layoutState: LayoutTreeState, nodeId: string): bool
         layoutState.rootNode = only;
     }
     return true;
+}
+
+/**
+ * Moves everything from one place into the stack at another: fromNodeId is a tile or any member of a stack (then the
+ * whole stack moves, in its order), toNodeId is a tile or a stack (or a member of one). All of it ends up as members
+ * of the target stack, appended at the end; the old stack is left empty and removed by the next balance.
+ */
+export function moveIntoStack(layoutState: LayoutTreeState, action: LayoutTreeStackMoveAction): boolean {
+    const root = layoutState.rootNode;
+    const from = root ? findNode(root, action.fromNodeId) : undefined;
+    const to = root ? findNode(root, action.toNodeId) : undefined;
+    if (!from || !to || from.id === root.id || to.id === from.id) {
+        return false;
+    }
+    const fromParent = findParent(root, from.id);
+    const fromStack = isStackNode(from) ? from : fromParent && isStackNode(fromParent) ? fromParent : null;
+    const members = fromStack ? [...fromStack.children] : [from];
+    if (members.some((m) => m.children || !m.data)) {
+        return false;
+    }
+    const toParent = findParent(root, to.id);
+    const toStack = isStackNode(to) ? to : toParent && isStackNode(toParent) ? toParent : null;
+    if (members.some((m) => m.id === to.id) || (toStack && fromStack && toStack.id === fromStack.id)) {
+        return false;
+    }
+    const activeMemberId = fromStack?.activeChildId ?? from.id;
+    let targetId = toStack ? toStack.id : to.id;
+    let moved = false;
+    for (const member of members) {
+        if (
+            !stackNodes(layoutState, {
+                type: LayoutTreeActionType.Stack,
+                nodeId: member.id,
+                targetNodeId: targetId,
+                focused: false,
+            })
+        ) {
+            break;
+        }
+        moved = true;
+        const nowParent = findParent(layoutState.rootNode, member.id);
+        if (nowParent && isStackNode(nowParent)) {
+            targetId = nowParent.id;
+        }
+    }
+    if (moved && (action.focused ?? false)) {
+        setFocusedNode(layoutState, activeMemberId);
+    }
+    return moved;
 }

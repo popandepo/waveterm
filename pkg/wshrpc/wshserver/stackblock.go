@@ -31,7 +31,7 @@ func planStackBlock(
 		return "", none, fmt.Errorf("block %s: %w", data.BlockId, err)
 	}
 	switch data.Action {
-	case wshrpc.StackBlockAction_Stack:
+	case wshrpc.StackBlockAction_Stack, wshrpc.StackBlockAction_Move:
 		if data.TargetBlockId == "" {
 			return "", none, fmt.Errorf("a target block is required to stack")
 		}
@@ -45,8 +45,12 @@ func planStackBlock(
 		if targetTab != tabId {
 			return "", none, fmt.Errorf("both blocks must be in the same tab to stack them")
 		}
+		actionType := wcore.LayoutActionDataType_Stack
+		if data.Action == wshrpc.StackBlockAction_Move {
+			actionType = wcore.LayoutActionDataType_StackMove
+		}
 		return tabId, waveobj.LayoutActionData{
-			ActionType:    wcore.LayoutActionDataType_Stack,
+			ActionType:    actionType,
 			BlockId:       data.BlockId,
 			TargetBlockId: data.TargetBlockId,
 			Focused:       data.Focused,

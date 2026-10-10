@@ -145,3 +145,22 @@ func TestCreateInStackTargetMustBeInTheSameTab(t *testing.T) {
 		t.Fatalf("empty target must be refused")
 	}
 }
+
+func TestPlanStackBlockMove(t *testing.T) {
+	tabId, action, err := planStackBlock(wshrpc.CommandStackBlockData{BlockId: "b1", TargetBlockId: "b2", Action: wshrpc.StackBlockAction_Move, Focused: true}, fakeTabLookup(twoBlocksOneTab), inStackFn(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tabId != "t1" || action.ActionType != "stackmove" || action.BlockId != "b1" || action.TargetBlockId != "b2" || !action.Focused {
+		t.Fatalf("tab %s action %+v", tabId, action)
+	}
+	for _, bad := range []wshrpc.CommandStackBlockData{
+		{BlockId: "b1", Action: wshrpc.StackBlockAction_Move},
+		{BlockId: "b1", TargetBlockId: "b1", Action: wshrpc.StackBlockAction_Move},
+		{BlockId: "b1", TargetBlockId: "b3", Action: wshrpc.StackBlockAction_Move},
+	} {
+		if _, _, err := planStackBlock(bad, fakeTabLookup(twoBlocksOneTab), inStackFn(false)); err == nil {
+			t.Fatalf("%+v should be refused", bad)
+		}
+	}
+}

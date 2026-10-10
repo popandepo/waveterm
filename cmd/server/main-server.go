@@ -32,6 +32,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/util/sigutil"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
+	"github.com/wavetermdev/waveterm/pkg/waveapi/wavesrvapi"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcloud"
@@ -611,6 +612,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "WAVESRV-ESTART ws:%s web:%s version:%s buildtime:%s\n", wsListener.Addr(), webListener.Addr(), WaveVersion, BuildTime)
 	}()
 	go wshutil.RunWshRpcOverListener(unixListener, nil)
+	wavesrvapi.Start()
 	web.RunWebServer(webListener) // blocking
 	runtime.KeepAlive(waveLock)
 }

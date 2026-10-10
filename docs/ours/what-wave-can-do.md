@@ -214,3 +214,33 @@ replace), so no RPC, frontend or backend change.
   same instant can both keep a block. `wsh slot open` re-checks after creating (smallest block id wins, the other
   call removes its own block), but a rival that appears after that check is missed. `wsh slot repair` removes the
   duplicates (keeps the smallest id). The real fix is an atomic slot-owner key in the backend (not done).
+
+## 14. Local API: list, focus, goto (fork feature, slice 1)
+
+A small API inside wavesrv for callers that are not wsh inside a block (later: a broker bridge, a dashboard).
+Design and the later slices (send, read, move, events) are written up outside this repository; this section is
+only what exists.
+
+- **Transport.** A unix socket `wave-api.sock` in the folder `api` of the Wave data directory. No TCP listener, so
+  nothing on the LAN. wavesrv writes a new random token (32 bytes, hex) to `api/api-token` at every start; every
+  call needs `Authorization: Bearer <token>`. Token compare is constant time.
+- **Folder access.** On Windows the folder gets an explicit ACL (inheritance removed, current user only) before the
+  token is written; the token file is written to a temp name and renamed. A test lists the ACL with `icacls`
+  and is red if Everyone, Users or Authenticated Users appear. Not covered: another process of the SAME user can
+  read the token; that is the model.
+- **Calls** (all POST, JSON, `/v1/...`): `list` (workspaces > tabs > blocks, ids, names, view, slot, controller,
+  connection, title, url without query), `focus` (a block in the active tab, or make a tab active; never changes
+  workspace or window), `goto` (workspace + tab [+ block]; the whole address is checked before the first change;
+  the OS window is raised only with `window=true`). Ids must be lowercase full uuids. Block meta is allow-listed:
+  no command lines, environments or working directories leave the process.
+- **wsh.** `wsh api list [--json]`, `wsh api focus --block|--tab`, `wsh api goto --tab [--workspace] [--block]
+  [--window]`; the workspace defaults to `WAVETERM_WORKSPACEID`; the folder is found with the `path` RPC or `--dir`.
+- **RAN** (`go test ./pkg/waveapi/... ./cmd/wsh/cmd/`): service rules with a fake backend, handler and token checks,
+  the Windows ACL listing, and a round trip over a real unix socket (list, goto, a refused mismatch, wrong token,
+  old token after restart). Four guards were removed one at a time and each made a test go red (token check,
+  window flag, ACL call, block-in-tab check).
+- **READ, not run:** the wavesrv backend (`pkg/waveapi/wavesrvapi`): it reads the object store and sends
+  FocusWindow, ElectronSetActiveTab and SetBlockFocus, the same calls wsh already uses. It has not been run in a
+  live app, so whether `goto` leaves the OS foreground window alone is unverified until a window test.
+- **Upstream files touched:** one line in `cmd/server/main-server.go` (`wavesrvapi.Start()`); seam rows
+  `api-*` in `tools/ours/Check-Seams.ps1`.

@@ -12,7 +12,9 @@ export interface CloseTabDeps<C> {
     getBlockCount: (tabId: string) => Promise<number | null>;
     // resolves with the index of the pressed button; 1 is "Close Tab", everything else keeps the tab
     showDialog: (message: string, ctx: C) => Promise<number>;
-    closeTab: (tabId: string, ctx: C) => Promise<void>;
+    // maxBlocks is the number of blocks that was approved (-1: no limit). The close itself must refuse a tab that holds more by
+    // then, and resolves with whether the tab was really closed.
+    closeTab: (tabId: string, ctx: C, maxBlocks: number) => Promise<boolean>;
 }
 
 // One handler for every UI route that closes a tab (tab bar, vertical tab bar, key). The dialog is asynchronous so the
@@ -50,8 +52,7 @@ export function makeCloseTabHandler<C>(deps: CloseTabDeps<C>) {
                     approved = count;
                     continue;
                 }
-                await deps.closeTab(tabId, ctx);
-                return true;
+                return await deps.closeTab(tabId, ctx, approved == null ? -1 : approved);
             }
             return false;
         } finally {

@@ -338,3 +338,10 @@ Third review pass on section 22: `force` of the electronclosetab call is the **d
 only for `wsh tab close --force`. A local caller that can reach the call can already delete blocks, so the refusal guards against
 mistakes; it is not a security boundary. No UI route can pass it: the IPC close route has no such parameter and no front end file
 sets it (both are tests in `closetabhandler.test.ts`). The handler's window argument is now required.
+
+Final pass on section 22: the count that was approved travels with the close. The close from the window (and the `wsh` route when the
+tab was empty or had a count) calls a back-end service, `CloseTabChecked`, that compares the tab's block count with the approved
+one **in the same Go function that starts the close** (only synchronous database reads in between, no round trip through the
+window); a tab that gained blocks is not closed, and the caller is told so. It is not one database transaction: a block created in
+the same few microseconds on another goroutine would not be caught. The window's close request now resolves with whether the tab
+was really closed, and a close request that was replaced in the window's action queue resolves false.

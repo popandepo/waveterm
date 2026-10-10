@@ -127,6 +127,7 @@ export class ElectronWshClientType extends WshClient {
         // force is the deliberate bypass for every local RPC caller, not only for `wsh tab close --force`: any local caller
         // that can reach this call can already delete blocks, so the check is a guard against mistakes, not a security
         // boundary. No UI route can pass it (the IPC close route has no such parameter; see closetabhandler.test.ts).
+        let approvedCount = -1;
         if (!data.force) {
             let count: number | null = null;
             try {
@@ -139,8 +140,12 @@ export class ElectronWshClientType extends WshClient {
             if (refusal) {
                 throw new Error(refusal);
             }
+            approvedCount = count ?? -1;
         }
-        await ww.queueCloseTab(data.tabid);
+        const closed = await ww.queueCloseTab(data.tabid, data.force ? -1 : approvedCount);
+        if (!closed) {
+            throw new Error("the tab was not closed (it gained blocks since it was checked, or the window refused)");
+        }
     }
 
     async handle_electrontabclosed(rh: RpcResponseHelper, data: CommandElectronTabClosedData): Promise<void> {

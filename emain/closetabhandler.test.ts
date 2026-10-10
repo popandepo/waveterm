@@ -22,6 +22,7 @@ function setup(opts: { blockCount?: number | null; dialogResponse?: number | "pe
         },
         closeTab: async (tabId) => {
             closed.push(tabId);
+            return true;
         },
     });
     return { handler, closed, dialogs, release: (n: number) => release(n) };
@@ -99,6 +100,7 @@ describe("races around the close request (review of PR 21)", () => {
             },
             closeTab: async (tabId) => {
                 closed.push(tabId);
+                return true;
             },
         });
         return { handler, closed, dialogs, reads };
@@ -213,5 +215,44 @@ describe("force is the deliberate bypass of local callers and no UI route can pa
         ]) {
             expect(read(f)).not.toMatch(/ElectronCloseTabCommand|force\s*:/);
         }
+    });
+});
+
+describe("the close itself carries the approved count (second review of PR 21)", () => {
+    function closeSetup(counts: (number | null)[], answers: number[], closeResult: boolean) {
+        const closes: { tabId: string; maxBlocks: number }[] = [];
+        let i = 0;
+        const handler = makeCloseTabHandler<void>({
+            getBlockCount: async () => counts[Math.min(i++, counts.length - 1)],
+            showDialog: async () => answers.shift() ?? 0,
+            closeTab: async (tabId, _ctx, maxBlocks) => {
+                closes.push({ tabId, maxBlocks });
+                return closeResult;
+            },
+        });
+        return { handler, closes };
+    }
+
+    test("the close is limited to the count that was approved, so a block added later stops it", async () => {
+        const t = closeSetup([3, 3], [1], true);
+        expect(await t.handler("tab1", false, undefined)).toBe(true);
+        expect(t.closes).toEqual([{ tabId: "tab1", maxBlocks: 3 }]);
+    });
+
+    test("an empty tab is closed with a limit of zero", async () => {
+        const t = closeSetup([0, 0], [], true);
+        expect(await t.handler("tab1", false, undefined)).toBe(true);
+        expect(t.closes).toEqual([{ tabId: "tab1", maxBlocks: 0 }]);
+    });
+
+    test("a close that the back end refused (the tab gained blocks) is not reported as closed", async () => {
+        const t = closeSetup([0, 0], [], false);
+        expect(await t.handler("tab1", false, undefined)).toBe(false);
+    });
+
+    test("an unreadable count that was confirmed closes without a limit", async () => {
+        const t = closeSetup([null, null], [1], true);
+        expect(await t.handler("tab1", false, undefined)).toBe(true);
+        expect(t.closes[0].maxBlocks).toBe(-1);
     });
 });

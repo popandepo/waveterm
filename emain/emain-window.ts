@@ -135,6 +135,8 @@ type WindowActionQueueEntry =
     | {
           op: "closetab";
           tabId: string;
+          maxBlocks?: number;
+          result?: (closed: boolean) => void;
       }
     | {
           op: "switchworkspace";
@@ -589,12 +591,20 @@ export class WaveBrowserWindow extends BaseWindow {
         await this._queueActionInternal({ op: "createtab" });
     }
 
-    async queueCloseTab(tabId: string) {
-        await this._queueActionInternal({ op: "closetab", tabId });
+    // Resolves with whether the tab was closed. maxBlocks (-1: no limit) is checked by the back end in the same call that closes
+    // the tab, so a block added after the owner approved the close stops it instead of being deleted unasked.
+    async queueCloseTab(tabId: string, maxBlocks: number = -1): Promise<boolean> {
+        return await new Promise<boolean>((resolve) => {
+            fireAndForget(() => this._queueActionInternal({ op: "closetab", tabId, maxBlocks, result: resolve }));
+        });
     }
 
     private async _queueActionInternal(entry: WindowActionQueueEntry) {
         if (this.actionQueue.length >= 2) {
+            const replaced = this.actionQueue[1];
+            if (replaced.op === "closetab") {
+                replaced.result?.(false);
+            }
             this.actionQueue[1] = entry;
             return;
         }
@@ -616,12 +626,14 @@ export class WaveBrowserWindow extends BaseWindow {
     // we don't mess with [0] because it is "in process"
     // we replace [1] because there is no point to run an action that is going to be overwritten
     private async processActionQueue() {
+        let closedOk = false;
         while (this.actionQueue.length > 0) {
             try {
                 if (this.isDestroyed()) {
                     break;
                 }
                 const entry = this.actionQueue[0];
+                closedOk = false;
                 let tabId: string = null;
                 // have to use "===" here to get the typechecker to work :/
                 switch (entry.op) {
@@ -639,7 +651,12 @@ export class WaveBrowserWindow extends BaseWindow {
                         break;
                     case "closetab": {
                         tabId = entry.tabId;
-                        const rtn = await WorkspaceService.CloseTab(this.workspaceId, tabId, true);
+                        const maxBlocks = entry.maxBlocks ?? -1;
+                        const rtn =
+                            maxBlocks >= 0
+                                ? await WorkspaceService.CloseTabChecked(this.workspaceId, tabId, true, maxBlocks)
+                                : await WorkspaceService.CloseTab(this.workspaceId, tabId, true);
+                        closedOk = rtn != null;
                         if (rtn == null) {
                             console.log(
                                 "[error] closeTab: no return value",
@@ -683,7 +700,10 @@ export class WaveBrowserWindow extends BaseWindow {
             } catch (e) {
                 console.log("error caught in processActionQueue", e);
             } finally {
-                this.actionQueue.shift();
+                const done = this.actionQueue.shift();
+                if (done?.op === "closetab") {
+                    done.result?.(closedOk);
+                }
             }
         }
     }
@@ -840,8 +860,8 @@ const closeTabHandler = makeCloseTabHandler<WaveBrowserWindow>({
         });
         return result.response;
     },
-    closeTab: async (tabId, ww) => {
-        await ww.queueCloseTab(tabId);
+    closeTab: async (tabId, ww, maxBlocks) => {
+        return await ww.queueCloseTab(tabId, maxBlocks);
     },
 });
 

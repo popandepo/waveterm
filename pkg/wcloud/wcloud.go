@@ -321,3 +321,9 @@ func SendDiagnosticPing(ctx context.Context, clientId string, usageTelemetry boo
 	}
 	return nil
 }
+
+// The daily diagnostic ping carries the client id, version and architecture. In this fork it is only sent
+// when the user has switched usage telemetry on.
+func DiagnosticPingAllowed(usageTelemetry bool) bool {
+	return usageTelemetry
+}

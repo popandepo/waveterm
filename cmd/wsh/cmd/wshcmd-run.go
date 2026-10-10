@@ -14,7 +14,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
 
 var runCmd = &cobra.Command{
@@ -153,7 +152,7 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		Focused:   newBlockFocused(),
 	}
 
-	oref, err := wshclient.CreateBlockCommand(RpcClient, createBlockData, nil)
+	oref, err := createBlockRPC(createBlockData)
 	if err != nil {
 		return fmt.Errorf("creating new run block: %w", err)
 	}

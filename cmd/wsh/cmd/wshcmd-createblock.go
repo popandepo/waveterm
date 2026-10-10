@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
 
 var createBlockMagnified bool
@@ -52,7 +51,7 @@ func createBlockRun(cmd *cobra.Command, args []string) error {
 		Magnified: createBlockMagnified,
 		Focused:   newBlockFocused(),
 	}
-	oref, err := wshclient.CreateBlockCommand(RpcClient, data, nil)
+	oref, err := createBlockRPC(data)
 	if err != nil {
 		return fmt.Errorf("create block failed: %v", err)
 	}

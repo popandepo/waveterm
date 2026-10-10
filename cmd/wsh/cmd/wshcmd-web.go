@@ -133,7 +133,7 @@ func webOpenRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		wshCmd.TargetBlockId = replaceBlockORef.OID
 		wshCmd.TargetAction = wshrpc.CreateBlockAction_Replace
 	}
-	oref, err := wshclient.CreateBlockCommand(RpcClient, wshCmd, nil)
+	oref, err := createBlockRPC(wshCmd)
 	if err != nil {
 		return fmt.Errorf("creating block: %w", err)
 	}

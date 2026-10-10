@@ -1,6 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { AccentController } from "@/app/accent";
+import "@/app/block/conn-accent.scss";
 import {
     clearBadgesForBlockOnFocus,
     clearBadgesForTabOnFocus,
@@ -383,6 +385,7 @@ const AppInner = () => {
             <AppFocusHandler />
             <AppSettingsUpdater />
             <BadgeAutoClearing />
+            <AccentController />
             <DndProvider backend={HTML5Backend}>
                 <Workspace />
             </DndProvider>

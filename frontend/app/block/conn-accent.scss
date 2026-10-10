@@ -1,0 +1,13 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// A block on a connection that has a display:accent colour is framed in that colour, focused or not.
+.block.block-frame-default[data-conn-accent] {
+    box-shadow: inset 0 0 0 2px var(--conn-accent);
+    border-radius: var(--block-border-radius);
+
+    .block-frame-default-header {
+        background: color-mix(in srgb, var(--conn-accent) 32%, transparent);
+        border-bottom-color: var(--conn-accent);
+    }
+}

@@ -93,6 +93,8 @@ type MetaTSType struct {
 
 	// for tabs
 	TabFlagColor        string  `json:"tab:flagcolor,omitempty"`
+	TabAccent           string  `json:"tab:accent,omitempty"`
+	WsAccent            string  `json:"ws:accent,omitempty"`
 	TabBackground       string  `json:"tab:background,omitempty"`
 	BgClear             bool    `json:"bg:*,omitempty"`
 	Bg                  string  `json:"bg,omitempty"`

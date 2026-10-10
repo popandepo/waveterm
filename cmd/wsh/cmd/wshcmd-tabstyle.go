@@ -17,6 +17,8 @@ import (
 const (
 	TabMetaFlagColor        = "tab:flagcolor"
 	TabMetaSymbol           = "tab:symbol"
+	TabMetaAccent           = "tab:accent"
+	WorkspaceMetaAccent     = "ws:accent"
 	MaxTabSymbolTextBytes   = 32
 	MaxTabSymbolGraphemes   = 2
 	MaxTabSymbolIconNameLen = 40
@@ -27,6 +29,8 @@ var tabStyleCmd = &cobra.Command{
 	Use:   "style",
 	Short: "Set the colour and symbol of a tab",
 	Long: `Set the colour and the symbol shown on a tab in the tab bar.
+
+--accent changes the colour of the whole Wave frame (buttons, highlights, focused borders) while this tab is the\nactive one; it falls back to the workspace accent (wsh workspace style) and then to the default green. It is separate\nfrom --color so that a tab can have a flag colour without recolouring the window.
 
 The colour is a CSS colour name or a hex colour (#RRGGBB or #RRGGBBAA) and is stored in the existing
 "tab:flagcolor" key. The symbol is a Font Awesome icon name (for example crown, star, rocket) or one or two
@@ -47,12 +51,14 @@ var (
 	tabStyleTab    string
 	tabStyleColor  string
 	tabStyleSymbol string
+	tabStyleAccent string
 	tabStyleClear  bool
 )
 
 func init() {
 	tabStyleCmd.Flags().StringVar(&tabStyleTab, "tab", "", "tab to change (default: the tab this command runs in)")
 	tabStyleCmd.Flags().StringVar(&tabStyleColor, "color", "", "CSS colour name or hex colour")
+	tabStyleCmd.Flags().StringVar(&tabStyleAccent, "accent", "", "colour for the whole Wave frame while this tab is active (CSS name or hex); a workspace accent and the default are the fallbacks")
 	tabStyleCmd.Flags().StringVar(&tabStyleSymbol, "symbol", "", "Font Awesome icon name, or one or two characters (emoji)")
 	tabStyleCmd.Flags().BoolVar(&tabStyleClear, "clear", false, "remove both the colour and the symbol")
 	tabCommand.AddCommand(tabStyleCmd)
@@ -60,19 +66,25 @@ func init() {
 
 // buildTabStyleMeta returns the meta update for the given options. A nil value deletes the key.
 func buildTabStyleMeta(color string, symbol string, clear bool) (map[string]any, error) {
+	return buildTabStyleMetaWithAccent(color, symbol, "", clear)
+}
+
+// buildTabStyleMetaWithAccent also handles the frame accent (tab:accent). --clear removes colour, symbol and accent.
+func buildTabStyleMetaWithAccent(color string, symbol string, accent string, clear bool) (map[string]any, error) {
 	if hasHiddenOrDirectionalRunes(symbol) {
 		return nil, fmt.Errorf("invalid symbol: control, bidirectional and invisible format characters are not allowed")
 	}
 	color = strings.TrimSpace(color)
 	symbol = strings.TrimSpace(symbol)
+	accent = strings.TrimSpace(accent)
 	if clear {
-		if color != "" || symbol != "" {
-			return nil, fmt.Errorf("--clear cannot be combined with --color or --symbol")
+		if color != "" || symbol != "" || accent != "" {
+			return nil, fmt.Errorf("--clear cannot be combined with --color, --symbol or --accent")
 		}
-		return map[string]any{TabMetaFlagColor: nil, TabMetaSymbol: nil}, nil
+		return map[string]any{TabMetaFlagColor: nil, TabMetaSymbol: nil, TabMetaAccent: nil}, nil
 	}
-	if color == "" && symbol == "" {
-		return nil, fmt.Errorf("nothing to set: give --color, --symbol or --clear")
+	if color == "" && symbol == "" && accent == "" {
+		return nil, fmt.Errorf("nothing to set: give --color, --symbol, --accent or --clear")
 	}
 	meta := make(map[string]any)
 	if color != "" {
@@ -80,6 +92,12 @@ func buildTabStyleMeta(color string, symbol string, clear bool) (map[string]any,
 			return nil, err
 		}
 		meta[TabMetaFlagColor] = color
+	}
+	if accent != "" {
+		if err := validateColor(accent); err != nil {
+			return nil, err
+		}
+		meta[TabMetaAccent] = accent
 	}
 	if symbol != "" {
 		if err := validateTabSymbol(symbol); err != nil {
@@ -190,7 +208,7 @@ func tabStyleRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	defer func() {
 		sendActivity("tabstyle", rtnErr == nil)
 	}()
-	meta, err := buildTabStyleMeta(tabStyleColor, tabStyleSymbol, tabStyleClear)
+	meta, err := buildTabStyleMetaWithAccent(tabStyleColor, tabStyleSymbol, tabStyleAccent, tabStyleClear)
 	if err != nil {
 		return err
 	}

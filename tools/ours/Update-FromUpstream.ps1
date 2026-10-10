@@ -35,7 +35,7 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
 $log = New-Object System.Collections.Generic.List[string]
 
 function Say([string]$m) { Write-Host $m; $script:log.Add($m) }
-function Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed ($LASTEXITCODE)" } }
+function GitRun { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed ($LASTEXITCODE)" } }
 function GitOut { $o = & git @args; if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed ($LASTEXITCODE)" }; return $o }
 
 function WriteReport([string]$status, [string]$branch) {
@@ -52,7 +52,7 @@ $email = (GitOut config user.email).Trim()
 if ($email -ne 'popandepo@gmail.com') { throw "git user.email is $email, expected popandepo@gmail.com" }
 
 Say '## Fetch'
-Git fetch $UpstreamRemote
+GitRun fetch $UpstreamRemote
 $target = if ($UpstreamRef) { $UpstreamRef } else { "$UpstreamRemote/$UpstreamBranch" }
 $targetSha = (GitOut rev-parse $target).Trim()
 $oursSha = (GitOut rev-parse $OursBranch).Trim()
@@ -83,7 +83,7 @@ if (-not $NoPush -and -not $UpstreamRef) {
 $short = $targetSha.Substring(0, 8)
 $branch = "ours/sync-$stamp-$short"
 Say "## Replay onto new branch $branch"
-Git checkout -q -b $branch $targetSha
+GitRun checkout -q -b $branch $targetSha
 
 $replayed = @()
 foreach ($c in $stack) {
@@ -94,7 +94,7 @@ foreach ($c in $stack) {
         Say "CONFLICT replaying $c ($subject). Files:"
         $files | ForEach-Object { Say "  $_" }
         & git cherry-pick --abort 2>&1 | Out-Null
-        Git checkout -q $startBranch
+        GitRun checkout -q $startBranch
         Say "Branch $branch was left at upstream head with $($replayed.Count) of $($stack.Count) commits. Delete it by hand when done."
         WriteReport 'conflict' $branch
         exit 2
@@ -137,7 +137,7 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Say '  BUILD FAILED'; $failed = $true }
     # generated files may drift; report, then restore so the branch stays exactly our stack
     $drift = @(GitOut status --porcelain)
-    if ($drift.Count -gt 0) { Say '  generated files changed by the build (restored):'; $drift | ForEach-Object { Say "    $_" }; Git checkout -- . }
+    if ($drift.Count -gt 0) { Say '  generated files changed by the build (restored):'; $drift | ForEach-Object { Say "    $_" }; GitRun checkout -- . }
 
     Say '## Checks'
     $vt = & npx vitest run 2>&1 | Select-Object -Last 6
@@ -172,7 +172,7 @@ if (-not $NoPush) {
     }
 }
 
-Git checkout -q $startBranch
+GitRun checkout -q $startBranch
 WriteReport $(if ($failed) { 'build or checks failed' } else { 'ok' }) $branch
 if ($failed) { exit 3 }
 exit 0

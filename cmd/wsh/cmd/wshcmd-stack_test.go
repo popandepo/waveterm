@@ -176,3 +176,10 @@ func TestGroupAddNeedsATarget(t *testing.T) {
 		t.Fatalf("a refused command sent a request")
 	}
 }
+
+func TestQueuedMessageSaysNotConfirmed(t *testing.T) {
+	msg := queuedMessage("stack", "blk")
+	if !strings.Contains(msg, "queued") || !strings.Contains(msg, "not confirmed") || strings.Contains(strings.ToLower(msg), "done") {
+		t.Fatalf("a queued change must not read as applied: %q", msg)
+	}
+}

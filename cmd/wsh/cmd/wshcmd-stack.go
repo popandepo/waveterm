@@ -101,6 +101,20 @@ func init() {
 	rootCmd.AddCommand(groupCmd)
 }
 
+// The back end only queues the change for the page of that tab, so success means "accepted and queued", not
+// "applied": if the tab is closed, or the layout changed meanwhile, the page drops it.
+func queuedMessage(action string, blockId string) string {
+	return fmt.Sprintf("queued: %s %s (applied when the tab is open; not confirmed)\n", action, blockId)
+}
+
+func sendStack(data wshrpc.CommandStackBlockData) error {
+	if err := stackBlockRPC(data); err != nil {
+		return err
+	}
+	WriteStdout("%s", queuedMessage(data.Action, data.BlockId))
+	return nil
+}
+
 func groupBlockId() (string, error) {
 	if groupBlockOverride != "" {
 		return groupBlockOverride, nil
@@ -124,7 +138,7 @@ func groupAddRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolving --to: %w", err)
 	}
-	return stackBlockRPC(wshrpc.CommandStackBlockData{
+	return sendStack(wshrpc.CommandStackBlockData{
 		BlockId:       blockId,
 		TargetBlockId: targetId,
 		Action:        wshrpc.StackBlockAction_Stack,
@@ -137,7 +151,7 @@ func groupRemoveRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return stackBlockRPC(wshrpc.CommandStackBlockData{BlockId: blockId, Action: wshrpc.StackBlockAction_Unstack, Focused: groupFocus})
+	return sendStack(wshrpc.CommandStackBlockData{BlockId: blockId, Action: wshrpc.StackBlockAction_Unstack, Focused: groupFocus})
 }
 
 func groupActivateRun(cmd *cobra.Command, args []string) error {
@@ -145,5 +159,5 @@ func groupActivateRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return stackBlockRPC(wshrpc.CommandStackBlockData{BlockId: blockId, Action: wshrpc.StackBlockAction_Activate})
+	return sendStack(wshrpc.CommandStackBlockData{BlockId: blockId, Action: wshrpc.StackBlockAction_Activate})
 }

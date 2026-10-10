@@ -40,6 +40,8 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 	if err != nil {
 		return snap, fmt.Errorf("listing workspaces: %w", err)
 	}
+	// A read that fails is an error, so that the writer keeps the last good record: an incomplete record would look like closed
+	// sessions. An object that is simply not there (deleted) is left out.
 	for _, entry := range entries {
 		ws, err := wcore.GetWorkspace(ctx, entry.WorkspaceId)
 		if err != nil {
@@ -48,17 +50,28 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 		snap.Workspaces = append(snap.Workspaces, staterecord.WorkspaceSource{WindowId: entry.WindowId, Workspace: ws})
 		for _, tabId := range ws.TabIds {
 			tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
-			if err != nil || tab == nil {
+			if err != nil {
+				return snap, fmt.Errorf("tab %s: %w", tabId, err)
+			}
+			if tab == nil {
 				continue
 			}
 			snap.Tabs[tabId] = tab
 			if tab.LayoutState != "" {
-				if layout, err := wstore.DBGet[*waveobj.LayoutState](ctx, tab.LayoutState); err == nil && layout != nil {
+				layout, err := wstore.DBGet[*waveobj.LayoutState](ctx, tab.LayoutState)
+				if err != nil {
+					return snap, fmt.Errorf("layout %s: %w", tab.LayoutState, err)
+				}
+				if layout != nil {
 					snap.Layouts[tab.LayoutState] = layout
 				}
 			}
 			for _, blockId := range tab.BlockIds {
-				if block, err := wstore.DBGet[*waveobj.Block](ctx, blockId); err == nil && block != nil {
+				block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+				if err != nil {
+					return snap, fmt.Errorf("block %s: %w", blockId, err)
+				}
+				if block != nil {
 					snap.Blocks[blockId] = block
 				}
 			}
@@ -67,23 +80,28 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 	return snap, nil
 }
 
-// Start writes the record once and then again after every change to the objects it is built from. A failure is logged and
-// never stops wavesrv.
-func Start() *staterecord.Writer {
-	path := filepath.Join(wavebase.GetWaveDataDir(), StateDirName, StateFileName)
-	w := staterecord.MakeWriter(path, func() (staterecord.Record, error) {
-		snap, err := loadSnapshot()
-		if err != nil {
-			return staterecord.Record{}, err
-		}
-		return staterecord.BuildRecord(snap), nil
-	}, debounce)
+// StartWith writes the record once and then again after every change to the objects it is built from.
+func StartWith(path string, build func() (staterecord.Record, error), debounceFor time.Duration) *staterecord.Writer {
+	w := staterecord.MakeWriter(path, build, debounceFor)
 	wps.AddObserver(func(event wps.WaveEvent) {
 		if staterecord.IsRelevantUpdate(event.Event, event.Scopes) {
 			w.Notify()
 		}
 	})
 	w.Notify()
+	return w
+}
+
+// Start uses the object store. A failure is logged and never stops wavesrv.
+func Start() *staterecord.Writer {
+	path := filepath.Join(wavebase.GetWaveDataDir(), StateDirName, StateFileName)
+	w := StartWith(path, func() (staterecord.Record, error) {
+		snap, err := loadSnapshot()
+		if err != nil {
+			return staterecord.Record{}, err
+		}
+		return staterecord.BuildRecord(snap), nil
+	}, debounce)
 	log.Printf("state record: %s\n", path)
 	return w
 }

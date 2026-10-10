@@ -19,11 +19,16 @@ import (
 // content goes to a temp file in the same folder, is flushed to disk, and is renamed over the old file, so a reader sees the
 // old record or the new one, never half of one. A write that fails leaves the old file in place and is retried at the
 // next change or flush.
+const maxRenameAttempts = 20
+
 type Writer struct {
 	path     string
 	build    func() (Record, error)
 	debounce time.Duration
 	renameFn func(oldPath string, newPath string) error
+	// On Windows a reader that has the file open makes the replace fail until it lets go: the rename is tried again a bounded
+	// number of times before the write is given up (the old file stays and the next change tries again).
+	retryDelay time.Duration
 
 	lock     sync.Mutex
 	timer    *time.Timer
@@ -33,7 +38,7 @@ type Writer struct {
 }
 
 func MakeWriter(path string, build func() (Record, error), debounce time.Duration) *Writer {
-	return &Writer{path: path, build: build, debounce: debounce, renameFn: os.Rename}
+	return &Writer{path: path, build: build, debounce: debounce, renameFn: os.Rename, retryDelay: 100 * time.Millisecond}
 }
 
 // Notify says that something may have changed. It returns at once.
@@ -106,11 +111,15 @@ func (w *Writer) writeAtomic(data []byte) error {
 		os.Remove(tmpName)
 		return err
 	}
-	if err := w.renameFn(tmpName, w.path); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("replacing %s: %w", w.path, err)
+	var renameErr error
+	for attempt := 0; attempt < maxRenameAttempts; attempt++ {
+		if renameErr = w.renameFn(tmpName, w.path); renameErr == nil {
+			return nil
+		}
+		time.Sleep(w.retryDelay)
 	}
-	return nil
+	os.Remove(tmpName)
+	return fmt.Errorf("replacing %s: %w", w.path, renameErr)
 }
 
 // IsRelevantUpdate says whether an event is a change to an object that the record is built from.

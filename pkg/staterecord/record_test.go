@@ -173,3 +173,93 @@ func TestSameStateGivesTheSameContent(t *testing.T) {
 		t.Fatalf("the record must be deterministic so that an unchanged state is not rewritten")
 	}
 }
+
+func TestProgramNameIsOnlyTheExecutable(t *testing.T) {
+	cases := map[string]string{
+		"pwsh -File x.ps1 --token abc":                                    "pwsh",
+		`"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -Token abc`:  "pwsh.exe",
+		`C:\Program Files\PowerShell\7\pwsh.exe -File x --api-key=SECRET`: "pwsh.exe",
+		`C:\Windows\System32\cmd.exe /c claude --resume SECRET`:           "cmd.exe",
+		"/usr/bin/bash -c 'curl http://x/?token=SECRET'":                  "bash",
+		"claude":                      "claude",
+		"":                            "",
+		`'C:\a b\tool.exe' --x`:       "tool.exe",
+		`C:\tools\my app\run.cmd arg`: "run.cmd",
+	}
+	for in, want := range cases {
+		if got := programName(in); got != want {
+			t.Errorf("%q: want %q, got %q", in, want, got)
+		}
+		if contains(programName(in), "SECRET") || contains(programName(in), " ") {
+			t.Errorf("%q leaked arguments: %q", in, programName(in))
+		}
+	}
+}
+
+func TestOnlyTheFieldsThatPutASessionBackAreRecorded(t *testing.T) {
+	snap := fixture(t)
+	snap.Blocks["b1"].Meta["session:token"] = "TOP-SECRET"
+	snap.Blocks["b1"].Meta["session:api-key"] = "KEY"
+	snap.Blocks["b1"].Meta["session:permissionmode"] = "auto"
+	snap.Blocks["b1"].Meta["session:status-session"] = "tether-1a2b"
+	snap.Blocks["b1"].Meta["session:status-tab"] = "tether"
+	snap.Blocks["b1"].Meta["session:name"] = string(make([]byte, 400))
+	rec := BuildRecord(snap)
+	s := rec.Workspaces[0].Tabs[0].Tiles[0].Group[0].Session
+	for _, key := range []string{"id", "model", "effort", "permissionmode", "status-session", "status-tab"} {
+		if s[key] == "" {
+			t.Fatalf("%s must be recorded: %v", key, s)
+		}
+	}
+	if _, bad := s["token"]; bad {
+		t.Fatalf("a session:token must never reach the file: %v", s)
+	}
+	if _, bad := s["api-key"]; bad {
+		t.Fatalf("an unknown session key must not reach the file: %v", s)
+	}
+	if _, long := s["name"]; long {
+		t.Fatalf("an over-long value is dropped, not truncated into something misleading")
+	}
+	data, _ := json.Marshal(rec)
+	if contains(string(data), "TOP-SECRET") || contains(string(data), "KEY\"") {
+		t.Fatalf("secret in the file")
+	}
+}
+
+func TestOnlyBlocksOfTheTabAreRecordedAndEachOnce(t *testing.T) {
+	snap := fixture(t)
+	snap.Blocks["ghost"] = &waveobj.Block{OID: "ghost", Meta: waveobj.MetaMapType{"view": "term"}}
+	snap.Layouts["lay1"].RootNode = decode(t, `{"id":"root","children":[
+ {"id":"stk1","kind":"stack","activeChildId":"n2","children":[
+   {"id":"n1","data":{"blockId":"b1"}},{"id":"n2","data":{"blockId":"b2"}},{"id":"ng","data":{"blockId":"ghost"}},{"id":"n3","data":{"blockId":"b3"}}]},
+ {"id":"n4","data":{"blockId":"b4"}},
+ {"id":"n4b","data":{"blockId":"b4"}},
+ {"id":"n5","data":{"blockId":"b5"}}]}`)
+	rec := BuildRecord(snap)
+	seen := map[string]int{}
+	for _, tab := range rec.Workspaces[0].Tabs {
+		for _, tile := range tab.Tiles {
+			for _, g := range tile.Group {
+				seen[g.BlockId]++
+			}
+		}
+	}
+	if seen["ghost"] != 0 {
+		t.Fatalf("a block that the layout names but the tab does not hold is a ghost: %v", seen)
+	}
+	if seen["b5"] != 1 || seen["b5"] > 1 {
+		t.Fatalf("b5 belongs to the other tab and is recorded there only: %v", seen)
+	}
+	for id, n := range seen {
+		if n != 1 {
+			t.Fatalf("block %s is recorded %d times", id, n)
+		}
+	}
+	for _, tile := range rec.Workspaces[0].Tabs[0].Tiles {
+		for _, g := range tile.Group {
+			if g.BlockId == "b5" {
+				t.Fatalf("b5 is not a block of tab 1")
+			}
+		}
+	}
+}

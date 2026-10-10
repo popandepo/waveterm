@@ -195,3 +195,69 @@ func TestOnlyChangesToTheObjectsOfTheRecordTriggerAWrite(t *testing.T) {
 		}
 	}
 }
+
+func TestABuildErrorKeepsThePreviousFile(t *testing.T) {
+	fail := false
+	w, path := makeTestWriter(t, func() (Record, error) {
+		if fail {
+			return Record{}, errors.New("database read failed")
+		}
+		return BuildRecord(fixture(t)), nil
+	})
+	if err := w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	fail = true
+	if err := w.Flush(); err == nil {
+		t.Fatalf("the failure must be reported")
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatalf("an incomplete read must not replace the last good record")
+	}
+}
+
+func TestAReaderHoldingTheFileOpenOnlyDelaysTheReplace(t *testing.T) {
+	snap := fixture(t)
+	w, path := makeTestWriter(t, func() (Record, error) { return BuildRecord(snap), nil })
+	w.retryDelay = 20 * time.Millisecond
+	if err := w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.Tabs["tab1"].Name = "changed while read"
+	go func() {
+		time.Sleep(120 * time.Millisecond)
+		reader.Close()
+	}()
+	if err := w.Flush(); err != nil {
+		t.Fatalf("the write must succeed once the reader lets go: %v", err)
+	}
+	if readRecord(t, path).Workspaces[0].Tabs[0].Name != "changed while read" {
+		t.Fatalf("the change was not written")
+	}
+	if names := listDir(t, path); len(names) != 1 {
+		t.Fatalf("files left behind: %v", names)
+	}
+}
+
+func TestARenameThatKeepsFailingGivesUpAfterTheBoundedRetries(t *testing.T) {
+	snap := fixture(t)
+	var tries int32
+	w, _ := makeTestWriter(t, func() (Record, error) { return BuildRecord(snap), nil })
+	w.retryDelay = time.Millisecond
+	w.renameFn = func(oldPath string, newPath string) error {
+		atomic.AddInt32(&tries, 1)
+		return errors.New("locked")
+	}
+	if err := w.Flush(); err == nil {
+		t.Fatalf("a rename that never works must be reported")
+	}
+	if n := atomic.LoadInt32(&tries); n < 2 || n > 30 {
+		t.Fatalf("expected a bounded number of tries, got %d", n)
+	}
+}

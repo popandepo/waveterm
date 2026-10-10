@@ -327,3 +327,19 @@ tile at the end of its tab.
 - **READ, not run:** the loader that reads the object store and the hook in wavesrv startup (needs the database), and the
   file as the app really writes it.
 - **Private reader:** `Read-WaveState.ps1` (outside the repository) prints the record and the command lines to resume each session.
+
+Review notes on section 24 (the state record), asked by the reviewer:
+- **Where:** `<data dir>/state/wave-state.json`; the folder is created for the current user (mode 0700 on systems that have modes; on
+  Windows it inherits the access of the data folder, which sits in the user's own profile or test folder). It is not locked down further
+  the way the local API folder is: it holds no token.
+- **What could be private:** block **titles** (set by the user or by the program running in the block, so they can contain anything a
+  program prints into its title) and **working folders** (paths with the user's name and project names) are in the file on purpose,
+  because the folder is what puts a session back. Never in the file: urls, environments, command lines or arguments (only the
+  program's base name), and any `session:*` value except name, id, model, effort, permissionmode, status-session and status-tab
+  (each at most 200 characters).
+- Only blocks that belong to a tab are recorded in it, each once; a block that the saved layout still names but the tab no longer holds,
+  or names twice, is not shown as a ghost or a duplicate.
+- A failed database read keeps the last good file (the record is never published incomplete). A replace that fails because a reader
+  holds the file open is retried for about two seconds before it is given up and tried again at the next change. A test with a real
+  open reader on Windows fails if the retry is removed.
+- A test changes an object through the event stream and checks that the file changes (it fails if the observer is never registered).

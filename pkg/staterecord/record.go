@@ -113,28 +113,86 @@ func metaString(meta waveobj.MetaMapType, key string) string {
 }
 
 // Only the program name is kept, not its path or arguments, and no url, environment or other meta: the file is for
-// restoring places, and command lines and addresses can hold secrets.
-func programName(cmd string) string {
-	if i := strings.LastIndexAny(cmd, `/\`); i >= 0 {
-		return cmd[i+1:]
+// restoring places, and command lines and addresses can hold secrets. The executable is read first (the quoted part, or the
+// first word, or for a path with spaces the part up to its extension) and only its base name is kept.
+var executableExtensions = []string{".exe", ".cmd", ".bat", ".com", ".ps1"}
+
+func executableOf(cmd string) string {
+	s := strings.TrimSpace(cmd)
+	if s == "" {
+		return ""
 	}
-	return cmd
+	if s[0] == 39 || s[0] == 34 {
+		rest := s[1:]
+		if end := strings.IndexByte(rest, s[0]); end >= 0 {
+			return rest[:end]
+		}
+		return rest
+	}
+	first := s
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		first = s[:i]
+	}
+	if !strings.ContainsAny(first, `/\`) {
+		return first
+	}
+	lower := strings.ToLower(s)
+	best := -1
+	for _, ext := range executableExtensions {
+		for from := 0; ; {
+			idx := strings.Index(lower[from:], ext)
+			if idx < 0 {
+				break
+			}
+			end := from + idx + len(ext)
+			if end == len(lower) || lower[end] == 32 || lower[end] == 9 {
+				if best < 0 || end < best {
+					best = end
+				}
+				break
+			}
+			from = end
+		}
+	}
+	if best >= 0 {
+		return s[:best]
+	}
+	return first
 }
+
+func programName(cmd string) string {
+	exe := executableOf(cmd)
+	if i := strings.LastIndexAny(exe, `/\`); i >= 0 {
+		return exe[i+1:]
+	}
+	return exe
+}
+
+// Only these session values reach the file: what is needed to put a session back, and the two status values that the
+// manager's starter sets. Any other key (a token, a key, a note) is dropped, and so is a value that is not a plain short
+// string.
+var recordedSessionKeys = map[string]bool{
+	"name": true, "id": true, "model": true, "effort": true, "permissionmode": true,
+	"status-session": true, "status-tab": true,
+}
+
+const maxSessionValueLength = 200
 
 func sessionMeta(meta waveobj.MetaMapType) map[string]string {
 	var out map[string]string
 	for k, v := range meta {
-		if !strings.HasPrefix(k, sessionPrefix) || len(k) == len(sessionPrefix) {
+		if !strings.HasPrefix(k, sessionPrefix) {
 			continue
 		}
+		key := strings.TrimPrefix(k, sessionPrefix)
 		s, ok := v.(string)
-		if !ok {
+		if !ok || !recordedSessionKeys[key] || len(s) > maxSessionValueLength {
 			continue
 		}
 		if out == nil {
 			out = map[string]string{}
 		}
-		out[strings.TrimPrefix(k, sessionPrefix)] = s
+		out[key] = s
 	}
 	return out
 }
@@ -228,12 +286,31 @@ func BuildRecord(snap Snapshot) Record {
 			if layout := snap.Layouts[tab.LayoutState]; layout != nil {
 				walkLayout(layout.RootNode, &tiles)
 			}
-			shown := map[string]bool{}
-			for _, t := range tiles {
-				for _, id := range t.blockIds {
-					shown[id] = true
-				}
+			// Only blocks that belong to the tab, each once: a layout can still name a block that was removed, or name one twice.
+			inTab := map[string]bool{}
+			for _, id := range tab.BlockIds {
+				inTab[id] = true
 			}
+			shown := map[string]bool{}
+			filtered := tiles[:0]
+			for _, t := range tiles {
+				var keep []string
+				for _, id := range t.blockIds {
+					if inTab[id] && !shown[id] {
+						shown[id] = true
+						keep = append(keep, id)
+					}
+				}
+				if len(keep) == 0 {
+					continue
+				}
+				t.blockIds = keep
+				if !containsID(keep, t.activeId) {
+					t.activeId = keep[0]
+				}
+				filtered = append(filtered, t)
+			}
+			tiles = filtered
 			for _, id := range tab.BlockIds {
 				if !shown[id] {
 					tiles = append(tiles, tileSrc{kind: KindTile, blockIds: []string{id}, activeId: id})
@@ -276,4 +353,13 @@ func BuildRecord(snap Snapshot) Record {
 		rec.Workspaces = append(rec.Workspaces, wsRec)
 	}
 	return rec
+}
+
+func containsID(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

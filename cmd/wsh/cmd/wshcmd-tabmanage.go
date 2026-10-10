@@ -119,20 +119,40 @@ func resolveTabAndWorkspace(ref string) (string, string, error) {
 	return tabId, wsId, nil
 }
 
-func createBackgroundTab(wsId string, name string, empty bool, activate bool) (string, error) {
-	data := wshrpc.CommandCreateTabData{WorkspaceId: wsId, Name: name, Empty: empty}
-	tabId, err := wshclient.CreateTabCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 15000})
+// tabCreator is the part of the RPC client that creating a tab needs; tests replace it.
+type tabCreator interface {
+	CreateTab(data wshrpc.CommandCreateTabData) (string, error)
+	PreloadTab(data wshrpc.CommandElectronTabData) error
+	SetActiveTab(data wshrpc.CommandElectronTabData) error
+}
+
+type rpcTabCreator struct{}
+
+func (rpcTabCreator) CreateTab(data wshrpc.CommandCreateTabData) (string, error) {
+	return wshclient.CreateTabCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 15000})
+}
+
+func (rpcTabCreator) PreloadTab(data wshrpc.CommandElectronTabData) error {
+	return wshclient.ElectronPreloadTabCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 30000, Route: wshutil.ElectronRoute})
+}
+
+func (rpcTabCreator) SetActiveTab(data wshrpc.CommandElectronTabData) error {
+	return wshclient.ElectronSetActiveTabCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 15000, Route: wshutil.ElectronRoute})
+}
+
+// createBackgroundTab creates the tab, loads its page hidden, and switches to it only when activate is set. When a
+// step after the creation fails it still returns the tab id, so the caller can print it and manage or close the tab.
+func createBackgroundTab(c tabCreator, wsId string, name string, empty bool, activate bool) (string, error) {
+	tabId, err := c.CreateTab(wshrpc.CommandCreateTabData{WorkspaceId: wsId, Name: name, Empty: empty})
 	if err != nil {
 		return "", fmt.Errorf("creating tab: %w", err)
 	}
 	tabData := wshrpc.CommandElectronTabData{WorkspaceId: wsId, TabId: tabId}
-	err = wshclient.ElectronPreloadTabCommand(RpcClient, tabData, &wshrpc.RpcOpts{Timeout: 30000, Route: wshutil.ElectronRoute})
-	if err != nil {
+	if err := c.PreloadTab(tabData); err != nil {
 		return tabId, fmt.Errorf("tab %s was created but its page could not be loaded in the background: %w", tabId, err)
 	}
 	if activate {
-		err = wshclient.ElectronSetActiveTabCommand(RpcClient, tabData, &wshrpc.RpcOpts{Timeout: 15000, Route: wshutil.ElectronRoute})
-		if err != nil {
+		if err := c.SetActiveTab(tabData); err != nil {
 			return tabId, fmt.Errorf("tab %s was created but could not be activated: %w", tabId, err)
 		}
 	}
@@ -162,12 +182,11 @@ func tabNewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if len(args) > 0 {
 		name = args[0]
 	}
-	tabId, err := createBackgroundTab(wsId, name, tabNewEmpty, tabNewActivate)
-	if err != nil {
-		return err
+	tabId, err := createBackgroundTab(rpcTabCreator{}, wsId, name, tabNewEmpty, tabNewActivate)
+	if tabId != "" {
+		WriteStdout("%s\n", tabId)
 	}
-	WriteStdout("%s\n", tabId)
-	return nil
+	return err
 }
 
 func tabRenameRun(cmd *cobra.Command, args []string) (rtnErr error) {

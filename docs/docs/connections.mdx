@@ -131,6 +131,7 @@ In addition to the regular ssh config file, wave also has its own config file to
 | conn:shellpath | A string indicating the path to the shell executable on the connection. If not set, the output of `$SHELL` on the connection will be used.|
 | conn:ignoresshconfig | This boolean allows wave to ignore the `~/.ssh/config` file for resolving keywords for this connection. The regular defaults will be used, but all changes to those must be specified in the `connections.json` file instead. This defaults to false.|
 | display:hidden | This boolean hides the connection from the dropdown list. It defaults to `false` |
+| display:accent | A CSS colour name or hex colour. Blocks on this connection are framed in it (focused or not), and while such a block has focus the accent of the whole Wave frame (buttons, highlights, borders) is this colour. It does not depend on the session setting anything. Fork feature. |
 | display:order | This float determines the order of connections in the connection dropdown. It defaults to `0`.|
 | term:fontsize | This int can be used to override the terminal font size for blocks using this connection. The block metadata takes priority over this setting. It defaults to null which means the global setting will be used instead. |
 | term:fontfamily | This string can be used to specify a terminal font family for blocks using this connection. The block metadata takes priority over this setting. It defaults to null which means the global setting will be used instead. |

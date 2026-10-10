@@ -867,6 +867,7 @@ declare global {
         "conn:ignoresshconfig"?: boolean;
         "display:hidden"?: boolean;
         "display:order"?: number;
+        "display:accent"?: string;
         "term:*"?: boolean;
         "term:fontsize"?: number;
         "term:fontfamily"?: string;
@@ -1196,6 +1197,8 @@ declare global {
         "graph:metrics"?: string[];
         "sysinfo:type"?: string;
         "tab:flagcolor"?: string;
+        "tab:accent"?: string;
+        "ws:accent"?: string;
         "tab:background"?: string;
         "bg:*"?: boolean;
         bg?: string;

@@ -1,12 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { isValidAccent } from "@/app/accent";
 import { BlockModel } from "@/app/block/block-model";
 import { BlockFrame_Header } from "@/app/block/blockframe-header";
 import { blockViewToIcon, getViewIconElem, useTabBackground } from "@/app/block/blockutil";
 import { ConnStatusOverlay } from "@/app/block/connstatusoverlay";
 import { ChangeConnectionBlockModal } from "@/app/modals/conntypeahead";
-import { getBlockComponentModel, globalStore, useBlockAtom } from "@/app/store/global";
+import { getBlockComponentModel, getConnConfigKeyAtom, globalStore, useBlockAtom } from "@/app/store/global";
 import { useTabModel } from "@/app/store/tab-model";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useWaveEnv } from "@/app/waveenv/waveenv";
@@ -117,6 +118,8 @@ const BlockFrame_Default_Component = (props: BlockFrameProps) => {
     const connBtnRef = React.useRef<HTMLDivElement>(null);
     const connName = jotai.useAtomValue(waveEnv.getBlockMetaKeyAtom(nodeModel.blockId, "connection"));
     const iconColor = jotai.useAtomValue(waveEnv.getBlockMetaKeyAtom(nodeModel.blockId, "icon:color"));
+    const rawConnAccent = jotai.useAtomValue(getConnConfigKeyAtom(connName ?? "", "display:accent"));
+    const connAccent = connName && isValidAccent(rawConnAccent) ? rawConnAccent.trim() : null;
     const noHeader = util.useAtomValueSafe(viewModel?.noHeader);
 
     React.useEffect(() => {
@@ -175,6 +178,7 @@ const BlockFrame_Default_Component = (props: BlockFrameProps) => {
                 magnified: isMagnified,
             })}
             data-blockid={nodeModel.blockId}
+            data-conn-accent={connAccent ?? undefined}
             onClick={blockModel?.onClick}
             onPointerEnter={blockModel?.onPointerEnter}
             onFocusCapture={blockModel?.onFocusCapture}
@@ -183,6 +187,7 @@ const BlockFrame_Default_Component = (props: BlockFrameProps) => {
                 {
                     "--magnified-block-opacity": magnifiedBlockOpacity,
                     "--magnified-block-blur": `${magnifiedBlockBlur}px`,
+                    "--conn-accent": connAccent ?? undefined,
                 } as React.CSSProperties
             }
             inert={preview || undefined}

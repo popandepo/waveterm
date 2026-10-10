@@ -23,7 +23,7 @@ func TestBuildTabStyleMeta(t *testing.T) {
 		{name: "hex colour with alpha", color: "#ff880080", want: map[string]any{"tab:flagcolor": "#ff880080"}},
 		{name: "emoji symbol", symbol: "\U0001F451", want: map[string]any{"tab:symbol": "\U0001F451"}},
 		{name: "prefixed icon", symbol: "solid@star", want: map[string]any{"tab:symbol": "solid@star"}},
-		{name: "clear removes both", clear: true, want: map[string]any{"tab:flagcolor": nil, "tab:symbol": nil}},
+		{name: "clear removes colour, symbol and accent", clear: true, want: map[string]any{"tab:flagcolor": nil, "tab:symbol": nil, "tab:accent": nil}},
 		{name: "nothing given", wantErr: true},
 		{name: "clear with colour", color: "red", clear: true, wantErr: true},
 		{name: "bad colour name", color: "notacolour", wantErr: true},
@@ -58,5 +58,23 @@ func TestBuildTabStyleMeta(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildTabStyleMetaWithAccent(t *testing.T) {
+	got, err := buildTabStyleMetaWithAccent("", "", "crimson", false)
+	if err != nil || !reflect.DeepEqual(got, map[string]any{"tab:accent": "crimson"}) {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if _, err := buildTabStyleMetaWithAccent("", "", "notacolour", false); err == nil {
+		t.Fatal("a bad accent must be refused")
+	}
+	if _, err := buildTabStyleMetaWithAccent("", "", "red", true); err == nil {
+		t.Fatal("--clear cannot be combined with --accent")
+	}
+	got, _ = buildTabStyleMetaWithAccent("gold", "crown", "#112233", false)
+	want := map[string]any{"tab:flagcolor": "gold", "tab:symbol": "crown", "tab:accent": "#112233"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
 	}
 }

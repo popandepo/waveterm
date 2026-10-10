@@ -91,6 +91,11 @@ $seams = @(
     @('task-generate', 'Taskfile.yml', 'generate: desc: Generate Typescript bindings for the Go backend. cmds: - go run cmd/generatets/main-generatets.go - go run cmd/generatego/main-generatego.go', 'update script relies on generate being part of build'),
     @('dev-config-home', 'emain/emain-platform.ts', 'const WaveConfigHomeVarName = "WAVETERM_CONFIG_HOME";', 'dev app isolation'),
     @('dev-data-home', 'emain/emain-platform.ts', 'const WaveDataHomeVarName = "WAVETERM_DATA_HOME";', 'dev app isolation'),
+    @('theme-accent-scss', 'frontend/app/theme.scss', '--accent-color: rgb(88, 193, 66);', 'the default accent our accent colour overrides at runtime'),
+    @('theme-accent-tailwind', 'frontend/tailwindsetup.css', '--color-accent: rgb(88, 193, 66);', 'the tailwind accent variable our accent colour overrides'),
+    @('conn-config-atom', 'frontend/app/store/global.ts', 'function getConnConfigKeyAtom<T extends keyof ConnKeywords>(connName: string, key: T): Atom<ConnKeywords[T]> {', 'reads per-connection config such as display:accent'),
+    @('workspace-atom', 'frontend/app/store/global-atoms.ts', 'const workspaceAtom: Atom<Workspace> = atom((get) => {', 'workspace object for the accent fallback'),
+    @('conn-keywords', 'pkg/wconfig/settingsconfig.go', 'type ConnKeywords struct {', 'where display:accent is declared'),
     @('telemetry-setting', 'pkg/wconfig/settingsconfig.go', 'TelemetryEnabled bool `json:"telemetry:enabled,omitempty"`', 'dev app runs with telemetry off')
 )
 

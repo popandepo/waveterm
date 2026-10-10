@@ -127,6 +127,16 @@ $watch = @(
 )
 
 $red = 0
+Write-Host '== expected ids (tools/ours/seams-expected.txt, kept apart from the list below)'
+$expectedFile = Join-Path $PSScriptRoot 'seams-expected.txt'
+if (-not (Test-Path -LiteralPath $expectedFile)) { Write-Host "RED   expected-ids : file missing: $expectedFile"; $red++ }
+else {
+    $expected = @(Get-Content -LiteralPath $expectedFile | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() })
+    $have = @($seams | ForEach-Object { $_[0] })
+    foreach ($e in $expected) { if ($have -notcontains $e) { Write-Host "RED   $e : in seams-expected.txt but missing from the seam list (row dropped?)"; $red++ } }
+    foreach ($h in $have) { if ($expected -notcontains $h) { Write-Host "NOTE  $h : in the seam list but not in seams-expected.txt (not protected against being dropped)" } }
+    Write-Host "expected ids: $($expected.Count)"
+}
 Write-Host '== seams (must all be present, comments ignored)'
 foreach ($s in $seams) {
     $id, $file, $text, $why = $s

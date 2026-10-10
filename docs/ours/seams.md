@@ -7,6 +7,8 @@ and whitespace collapsed before matching, and most rows are full signatures, so 
 name in a comment, or a changed argument list or return type, turns it red. The list in that script is the source
 of truth, this file explains it. Add a row here and in the script in the same commit as any change that starts depending on something new.
 
+The ids that must stay in the list are also kept in `tools/ours/seams-expected.txt`, apart from the list: a row that is dropped from the script goes red. A new row adds its id to that file in the same commit (a row that is only in the script prints a NOTE).
+
 Check: `tools\ours\Check-Seams.ps1` (exit 0 ok, exit 1 a seam moved; WATCH lines never fail the run).
 What would have made it red: a rename, removal or signature change of the declaration in the listed file (tested by
 renaming one function while leaving the old declaration in a comment, and by adding an argument to another).
@@ -65,6 +67,30 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | focus reducer | `frontend/layout/lib/layoutTree.ts` | `focusNode` | the one place that must activate a stack member |
 | rectangle maths | `frontend/layout/lib/layoutModel.ts` | `updateTreeHelper` | stack members share one rectangle |
 | silent rewriters | `frontend/layout/lib/layoutNode.ts` | `balanceNode`, `addChildAt` | rewrite the tree on every update; need guards |
+
+## Stacks (tabs inside a tile)
+
+| Seam | File | Symbol or text | We use it for |
+|---|---|---|---|
+| geometry hook | `frontend/layout/lib/layoutModel.ts` | `applyStackLayout(node, stackRect, additionalPropsMap);` | stack members are laid out by our geometry, not the row and column maths |
+| strip hook | `frontend/layout/lib/TileLayout.tsx` | `<StackStrips layoutModel={layoutModel} />` | the tab strip of each stack is drawn next to the tiles |
+| label hook | `frontend/app/tab/tabcontent.tsx` | `renderStackTabLabel,` | strip labels come from block meta |
+| add hook | `frontend/app/tab/tabcontent.tsx` | `onStackAdd,` | the + on a strip opens the widget-bar type menu |
+| back-end actions | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackInsert: {` | the page applies stack actions queued by the back end |
+| create-block target | `pkg/wshrpc/wshserver/wshserver.go` | `case wshrpc.CreateBlockAction_Stack:` | create-block with a stack target queues a stack insert |
+| stack RPC | `pkg/wshrpc/wshrpctypes.go` | `StackBlockCommand` | wsh group add, remove, activate and stack move |
+| layout actions | `pkg/wcore/layout.go` | `LayoutActionDataType_StackInsert`, `LayoutActionDataType_StackMove` | back-end layout actions for stacks |
+| block menu | `frontend/app/block/blockframe-header.tsx` | `label: "Turn into a stack"` | the block menu offers stack mode |
+| create into stack | `frontend/app/store/global.ts` | `async function createBlockInStack(` | creates a new block straight into a stack |
+
+## Fork rules: telemetry and updates
+
+| Seam | File | Symbol or text | Why it matters |
+|---|---|---|---|
+| telemetry default | `pkg/wconfig/defaultconfig/settings.json` | `"telemetry:enabled": false,` | telemetry is opt-in; red if an upstream merge flips it back |
+| autoupdate default | same | `"autoupdate:enabled": false,` | no update check against upstream releases unless the user turns it on |
+| daily ping | `cmd/server/main-server.go` | `if !wcloud.DiagnosticPingAllowed(usageTelemetry) {` | the ping is only sent after the user opted in |
+| updater fallback | `emain/updater.ts` | `settings["autoupdate:enabled"] ?? false` | an absent setting reads as off |
 
 ## Accent colour
 

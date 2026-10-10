@@ -138,7 +138,7 @@ try {
     }
     if ($meaningChanged -eq 0) { Say '  all replayed commits have identical patch ids' }
     Say '### range-diff summary (= same, ! changed; run git range-diff without -s on a ! line for the hunks)'
-    if ($stack.Count -gt 0) {
+    if ($replayed.Count -gt 0) {
         & git range-diff -s "$base..$OursBranch" "$targetSha..$branch" 2>&1 | ForEach-Object { Say "    $_" }
     }
 

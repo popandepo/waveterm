@@ -173,3 +173,23 @@ The stored symbol is validated twice: by the command before writing, and by `par
 because any block can write tab meta directly. Both refuse control, bidirectional and invisible format
 characters (the zero width joiner is allowed for emoji sequences) and bound the value (icon names 40 characters,
 text 32 bytes and two graphemes, in the command as well as the parser; a zero width joiner must sit inside an emoji sequence). The command counts graphemes with a small approximation (combining marks, variation selectors, emoji modifiers, flags, joined sequences) instead of the full Unicode segmentation the browser has.
+
+## 13. Slots and --no-focus (fork feature)
+
+`wsh slot open <slot> <view> [key=value ...]`, `wsh slot close <slot>`, `wsh slot list` give blocks a fixed place
+by name. The slot is stored as block meta `slot`, so a closed block frees its slot with no other bookkeeping.
+Opening a slot that is filled replaces its block; opening an empty one splits next to the first filled neighbour
+listed in the slot layout (data, `--layout-file`; default left, middle, right-top, right-bottom). It uses the
+existing backend placement (`TargetBlockId` and `TargetAction`: splitright, splitleft, splitup, splitdown,
+replace), so no RPC, frontend or backend change.
+
+`--no-focus` on `wsh createblock`, `run`, `term`, `web open` and `slot open` sends `Focused: false`.
+
+- **RAN:** `go test ./cmd/wsh/cmd` (planning, replace, close and reopen, unknown slot, bad layout data, custom
+  names, no-focus passed through). Changing one default anchor turns two tests red.
+- **READ:** the backend splits and replaces as the layout action says; closing removes the node from its parent (`deleteNode`);
+  whether the siblings then fill the freed space (size weights) is NOT verified; `webview.tsx` loads a new `url` meta into the open web view
+  (`metaUrl` effect). Not yet seen in a window: where the blocks really land, whether the right column keeps its
+  shape when middle opens and closes, focus staying put.
+- **Limit:** opening `middle` while only the right column exists splits the column's top block, which nests one
+  level deeper than a flat row.

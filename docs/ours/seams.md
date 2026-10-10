@@ -36,6 +36,8 @@ Not covered: a seam whose declaration is unchanged but whose behaviour changed. 
 | tab command group | `cmd/wsh/cmd/wshcmd-tab.go` | `tabCommand` | rename, new, switch, close join it |
 | create-block focus | `pkg/wshrpc/wshrpctypes.go` | `CommandCreateBlockData.Focused` | `--no-focus` on createblock, run, term, web open |
 | create-block target | `pkg/wshrpc/wshrpctypes.go` | `TargetBlockId`, `TargetAction` | `wsh slot` placement (splitright, splitleft, splitup, splitdown, replace) |
+| block list | `pkg/wshrpc/wshrpctypes.go` | `BlocksListCommand` | `wsh slot` reads each block meta `slot` |
+| block delete | `pkg/wshrpc/wshrpctypes.go` | `DeleteBlockCommand` | `wsh slot close` |
 
 ## RPC and services under tab management (feature b)
 

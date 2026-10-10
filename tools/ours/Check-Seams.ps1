@@ -75,6 +75,8 @@ $seams = @(
     @('controller-run-decision', 'pkg/blockcontroller/shellcontroller.go', 'if shouldRunCommand(runOnce, runOnStart, curStatus.ShellProcStatus, force) {', 'wsh session start --restart depends on the controller starting runonstart blocks at init'),
     @('create-block-target', 'pkg/wshrpc/wshrpctypes.go', 'TargetAction string `json:"targetaction,omitempty"`', 'wsh slot places blocks with splitright/splitleft/splitup/splitdown/replace'),
     @('blocks-list-rpc', 'pkg/wshrpc/wshrpctypes.go', 'BlocksListCommand(ctx context.Context, data BlocksListRequest) ([]BlocksListEntry, error)', 'wsh slot finds the block of a slot by its meta'),
+    @('stack-dnd-type-shared', 'frontend/layout/lib/TileLayout.tsx', 'import { tileItemType } from "./dndtypes";', 'tabs of a stack are drag sources of the same type as tile headers'),
+    @('stack-reorder-reducer', 'frontend/layout/lib/layoutModel.ts', 'case LayoutTreeActionType.StackReorder:', 'dropping a tab on another tab of its strip'),
     @('delete-block-rpc', 'pkg/wshrpc/wshrpctypes.go', 'DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error', 'wsh slot close'),
     @('api-focus-window-rpc', 'pkg/wshrpc/wshrpctypes.go', 'FocusWindowCommand(ctx context.Context, windowId string) error', 'local API goto with window=true'),
     @('api-set-active-tab-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSetActiveTabCommand(ctx context.Context, data CommandElectronTabData) error', 'local API focus tab and goto'),

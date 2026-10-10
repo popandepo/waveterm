@@ -22,11 +22,14 @@ import {
     insertNode,
     insertNodeIntoStack,
     moveIntoStack,
+    moveNode,
     placeholderTargetId,
     placementTargetId,
+    reorderStackMember,
     setFocusedNode,
     splitHorizontal,
     stackNodes,
+    tabDropAction,
     turnIntoStack,
     turnStackOff,
     unstackNode,
@@ -756,8 +759,8 @@ describe("moving everything from one place into a stack (from and to)", () => {
     });
 });
 
-describe("leaving and entering stack mode never replaces the tile object", () => {
-    test("take out, turn into a stack and turn off keep the same node (so the view is not remounted)", () => {
+describe("leaving and entering stack mode keeps the tile object", () => {
+    test("take out, turn into a stack and turn off keep the same node object", () => {
         const { state, a, b } = treeWithThreeLeaves();
         const keep = (id: string) => findNode(state.rootNode, id);
         stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
@@ -894,5 +897,118 @@ describe("centre drops that cannot or should not do anything (review of PR 18)",
             })
         );
         assert.equal(JSON.stringify(state.rootNode), before);
+    });
+});
+
+describe("reordering and dropping on the tabs of a strip", () => {
+    function stackOf3() {
+        const [a, b, c, d] = [leaf("a"), leaf("b"), leaf("c"), leaf("d")];
+        const root = newLayoutNode(FlexDirection.Row, undefined, [a, b, c, d]);
+        const state = newLayoutTreeState(root);
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: c.id });
+        const stack = findParent(state.rootNode, a.id)!;
+        return { state, a, b, c, d, stack };
+    }
+    const order = (n: LayoutNode) => n.children!.map((x) => x.data!.blockId).join("");
+
+    test("a member dropped on another tab of its own strip takes that place and stays active", () => {
+        const { state, a, c, stack } = stackOf3();
+        const before = order(stack);
+        assert.equal(before, "acb");
+        assert.isTrue(
+            reorderStackMember(state, { type: LayoutTreeActionType.StackReorder, nodeId: c.id, targetNodeId: a.id })
+        );
+        assert.equal(order(stack), "cab");
+        assert.equal(stack.children!.length, 3);
+        assert.isTrue(
+            stack.children!.some((m) => m.id === stack.activeChildId),
+            "the active member is still a member"
+        );
+    });
+
+    test("moving to the end and keeping the same node objects", () => {
+        const { state, a, b, stack } = stackOf3();
+        const nodeA = stack.children!.find((m) => m.id === a.id);
+        assert.isTrue(
+            reorderStackMember(state, { type: LayoutTreeActionType.StackReorder, nodeId: a.id, targetNodeId: b.id })
+        );
+        assert.equal(order(stack), "cba");
+        assert.strictEqual(
+            stack.children!.find((m) => m.id === a.id),
+            nodeA
+        );
+    });
+
+    test("itself, a node outside the stack and unknown ids change nothing", () => {
+        const { state, a, d, stack } = stackOf3();
+        const before = JSON.stringify(state.rootNode);
+        assert.isFalse(
+            reorderStackMember(state, { type: LayoutTreeActionType.StackReorder, nodeId: a.id, targetNodeId: a.id })
+        );
+        assert.isFalse(
+            reorderStackMember(state, { type: LayoutTreeActionType.StackReorder, nodeId: d.id, targetNodeId: a.id })
+        );
+        assert.isFalse(
+            reorderStackMember(state, { type: LayoutTreeActionType.StackReorder, nodeId: "nope", targetNodeId: a.id })
+        );
+        assert.isFalse(
+            reorderStackMember(state, { type: LayoutTreeActionType.StackReorder, nodeId: a.id, targetNodeId: "nope" })
+        );
+        assert.equal(JSON.stringify(state.rootNode), before);
+        assert.equal(order(stack), "acb");
+    });
+
+    test("what a drop on a tab does: reorder inside the stack, join from outside, nothing on itself", () => {
+        const { state, a, b, d } = stackOf3();
+        assert.equal(tabDropAction(state.rootNode, b.id, a.id)?.type, LayoutTreeActionType.StackReorder);
+        const join = tabDropAction(state.rootNode, d.id, a.id);
+        assert.equal(join?.type, LayoutTreeActionType.Stack);
+        assert.equal((join as any).targetNodeId, a.id);
+        assert.equal((join as any).nodeId, d.id);
+        assert.isUndefined(tabDropAction(state.rootNode, a.id, a.id));
+        assert.isUndefined(tabDropAction(state.rootNode, "nope", a.id));
+    });
+
+    test("dragging a tab out: an edge drop takes it out of the stack as a tile of its own, same node", () => {
+        const { state, a, b, d, stack } = stackOf3();
+        const nodeB = stack.children!.find((m) => m.id === b.id)!;
+        const action = computeMoveNode(state, {
+            type: LayoutTreeActionType.ComputeMove,
+            nodeId: d.id,
+            nodeToMoveId: b.id,
+            direction: DropDirection.Right,
+        });
+        assert.equal(action?.type, LayoutTreeActionType.Move);
+        moveNode(state, action as any);
+        balanceNode(state.rootNode);
+        assert.isFalse(
+            findParent(state.rootNode, b.id) != null && isStackNode(findParent(state.rootNode, b.id)!),
+            "b is a tile of its own"
+        );
+        assert.strictEqual(findNode(state.rootNode, b.id), nodeB, "the same node object");
+        const rest = findParent(state.rootNode, a.id)!;
+        assert.isTrue(isStackNode(rest));
+        assert.equal(order(rest), "ac");
+        assert.isTrue(rest.children!.some((m) => m.id === rest.activeChildId));
+    });
+
+    test("dragging the only tab of a one-member stack out leaves no empty stack behind", () => {
+        const [a, b] = [leaf("a"), leaf("b")];
+        const root = newLayoutNode(FlexDirection.Row, undefined, [a, b]);
+        const state = newLayoutTreeState(root);
+        turnIntoStack(state, a.id);
+        const action = computeMoveNode(state, {
+            type: LayoutTreeActionType.ComputeMove,
+            nodeId: b.id,
+            nodeToMoveId: a.id,
+            direction: DropDirection.Left,
+        });
+        moveNode(state, action as any);
+        balanceNode(state.rootNode);
+        const hasEmptyStack = (n: LayoutNode): boolean =>
+            (isStackNode(n) && !n.children?.length) || !!n.children?.some(hasEmptyStack);
+        assert.isFalse(hasEmptyStack(state.rootNode));
+        assert.isNotNull(findNode(state.rootNode, a.id) ?? null);
     });
 });

@@ -384,3 +384,23 @@ its arguments and environment: it proves that the searched config folder is the 
 `CLAUDE*` markers and `NO_COLOR` are gone, and that the resume arguments arrive (this test found that the arguments were
 passed as one array instead of splatted: fixed). The source pin on the controller's call site can be bypassed by a rewrite;
 the window restart check is what proves the restart.
+
+## 23. Drag a tab out of its stack, reorder tabs (step E)
+
+Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of
+its own (the existing move takes it out of the stack; the neighbour becomes active; the node is the same, so a terminal keeps
+its process and scrollback); dropped on the **middle** of another tile it joins that tile's stack; dropped on **another tab** of
+the same strip it takes that tab's place; dropped on a tab of another strip it joins that stack after the tab. A tab dropped
+on itself does nothing. A stack of one that loses its only tab leaves no empty stack behind.
+- **RAN:** vitest for the rules (`reorderStackMember`, `tabDropAction`, an edge drop out of a stack of three and out of a stack of one
+  with the same node object kept); tsc stays at 17; Check-Seams 0 red.
+- **READ, not run:** the react-dnd wiring on the tab (drag source, drop target, outline style `drop-over`): the real drag needs a
+  mouse, so it is part of the window check. **Seen in a window after this PR:** drag a tab off the strip onto the edge of another tile.
+
+Review notes on section 23: the drag itself cannot be driven in the unit tests (react-dnd needs a test backend and a DOM that this
+project does not have), so what the tests prove is the tree rules; the wiring of the tab as a drag source is **unproven until it is
+seen with a mouse**. "The same node object" does not prove React keeps the terminal mounted either. Window check list for this PR:
+(1) drag a tab off the strip onto the edge of a tile and check that it becomes a tile; (2) before the drag type a marker in that tab's
+terminal and note its process id; after the drag the marker must still be on the screen and the process id must be the same
+(`devdata/proof/drag-check.ps1` in the private test folder does the marker and the pid part with `wsh send` and `wsh screen`);
+(3) drop a tab on the middle of another tile, on another tab of the same strip, and on a tab of another strip.

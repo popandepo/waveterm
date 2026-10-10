@@ -249,3 +249,18 @@ its terminal. Hidden members are not drop targets and are skipped by directional
 - **READ, not run:** the React strip and the wiring in `layoutModel.updateTreeHelper` and `TileLayout`: nothing in
   a window yet, because nothing can create a stack from outside until step 3 (`wsh group`, the `stack` layout
   action). Whether hidden terminals keep their size and process in the live app is the step 4 window check.
+
+## 17. Stack from the command line (step 3)
+
+`wsh group add --to <block>` (the block is `-b`, default the calling block) puts a block into the tab group of another
+block or makes a group of the two; `wsh group remove` takes it out and places it next to the group; `wsh group
+activate` shows its tab without taking focus. `wsh createblock|term|run|web open --stack <block>` creates a new block
+straight into a group (never as a tile first). Blocks must be in the same tab. Nothing takes keyboard focus unless
+`--focus` (group) or no `--no-focus` (create), as before. Every member keeps its own block id.
+- **RAN** (`go test ./cmd/wsh/cmd ./pkg/wshrpc/...`, `npx vitest run`, tsc at 17): the planning of each request
+  (same tab, no self-stack, no unknown action), the payload of each command, the tree functions `insertNodeIntoStack` and
+  `activateStackMember` (including "focus follows the tab when the focused member would be hidden").
+- **READ, not run:** the back end queueing the layout actions and the page applying them in `handleBackendAction`;
+  `pkg/wcore` has two failing tests (`TestListWorkspaces_*`) that fail the same way on Master without this PR.
+- **Seen in a window:** this is the first change after which a stack can be made without touching the code: run
+  `wsh group add --to` on two terminals in one tab and the tile shows a tab strip. The window check is step 4.

@@ -15,6 +15,7 @@ export interface VTabItem {
     badge?: Badge | null;
     badges?: Badge[] | null;
     flagColor?: string | null;
+    symbol?: string | null;
 }
 
 interface VTabProps {
@@ -183,6 +184,7 @@ export function VTab({
             <TabBadges
                 badges={badges}
                 flagColor={flagColor}
+                symbol={tab.symbol}
                 className="mr-1 min-w-[16px] shrink-0 static top-auto left-auto z-auto h-[16px] w-auto translate-y-0 justify-start px-[2px] py-[1px] [&_i]:text-[10px]"
             />
             <div

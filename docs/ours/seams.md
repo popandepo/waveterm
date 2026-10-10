@@ -7,7 +7,7 @@ and whitespace collapsed before matching, and most rows are full signatures, so 
 name in a comment, or a changed argument list or return type, turns it red. The list in that script is the source
 of truth, this file explains it. Add a row here and in the script in the same commit as any change that starts depending on something new.
 
-The ids that must stay in the list are also kept in `tools/ours/seams-expected.txt`, apart from the list: a row that is dropped from the script goes red. A new row adds its id to that file in the same commit (a row that is only in the script prints a NOTE).
+The ids that must stay in the list are also kept in `tools/ours/seams-expected.txt`, apart from the list: a row that is dropped from the script goes red. A new row adds its id to that file in the same commit (a row that is only in the script prints a NOTE). A file that cannot be read, or that holds no ids, stops the run with exit 1 (`tools\ours\Test-CheckSeams.ps1` tests that).
 
 Check: `tools\ours\Check-Seams.ps1` (exit 0 ok, exit 1 a seam moved; WATCH lines never fail the run).
 What would have made it red: a rename, removal or signature change of the declaration in the listed file (tested by

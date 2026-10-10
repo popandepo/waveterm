@@ -11,7 +11,7 @@
 #   -Ref      upstream commit to scan for watch hits (default upstream/main; the run fails if the ref does not exist)
 #   -BaseRef  the previously synced upstream point (default merge-base of origin/Master and Ref)
 [CmdletBinding()]
-param([string]$Root = '', [string]$Ref = '', [string]$BaseRef = '')
+param([string]$Root = '', [string]$Ref = '', [string]$BaseRef = '', [string]$ExpectedFile = '')
 
 $ErrorActionPreference = 'Stop'
 if (-not $Root) { $Root = (& git rev-parse --show-toplevel).Trim() }
@@ -128,10 +128,13 @@ $watch = @(
 
 $red = 0
 Write-Host '== expected ids (tools/ours/seams-expected.txt, kept apart from the list below)'
-$expectedFile = Join-Path $PSScriptRoot 'seams-expected.txt'
+$expectedFile = if ($ExpectedFile) { $ExpectedFile } else { Join-Path $PSScriptRoot 'seams-expected.txt' }
 if (-not (Test-Path -LiteralPath $expectedFile)) { Write-Host "RED   expected-ids : file missing: $expectedFile"; $red++ }
 else {
-    $expected = @(Get-Content -LiteralPath $expectedFile | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() })
+    try { $lines = @(Get-Content -LiteralPath $expectedFile -ErrorAction Stop) }
+    catch { Write-Host "FATAL: the expected ids could not be read ($expectedFile): $($_.Exception.Message)"; exit 1 }
+    $expected = @($lines | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() })
+    if ($expected.Count -eq 0) { Write-Host "FATAL: $expectedFile holds no ids, so it protects nothing"; exit 1 }
     $have = @($seams | ForEach-Object { $_[0] })
     foreach ($e in $expected) { if ($have -notcontains $e) { Write-Host "RED   $e : in seams-expected.txt but missing from the seam list (row dropped?)"; $red++ } }
     foreach ($h in $have) { if ($expected -notcontains $h) { Write-Host "NOTE  $h : in the seam list but not in seams-expected.txt (not protected against being dropped)" } }

@@ -214,3 +214,25 @@ replace), so no RPC, frontend or backend change.
   same instant can both keep a block. `wsh slot open` re-checks after creating (smallest block id wins, the other
   call removes its own block), but a rival that appears after that check is missed. `wsh slot repair` removes the
   duplicates (keeps the smallest id). The real fix is an atomic slot-owner key in the backend (not done).
+
+## 15. Nothing goes to the network before the user opts in (fork rule)
+
+Found when a fresh test profile showed the first-run screen with telemetry switched on. In the fork the shipped
+defaults are `telemetry:enabled: false` and `autoupdate:enabled: false`, and the daily diagnostic ping is only sent
+when telemetry is on. The onboarding toggle follows the setting, so it starts off.
+
+| What | When | Where | Default in the fork |
+|---|---|---|---|
+| Usage events (`tevents`) | 10 s after start, then every 4 h | `<endpoint>/tevents` | off (setting) |
+| Old-style activity upload | same loop | `<endpoint>/telemetry` | off (setting) |
+| "no-telemetry" notice | when the user switches telemetry off | `<endpoint>/no-telemetry` | sent only on that change |
+| Diagnostic ping (client id, version, arch, date) | 5 min after start, then daily | ping endpoint | off unless telemetry is on |
+| Auto-update check | at start and every `autoupdate:intervalms` | update feed of the build | off; the menu item "Check for updates" still works |
+| Wave AI cloud mode | on use | Wave's AI proxy | needs telemetry on, so off |
+
+Dev builds need `WCLOUD_*` endpoint variables to start; those point at the upstream dev hosts, which is why test
+runs of a build with telemetry on reach `api-dev.waveterm.dev`. Setting `WAVETERM_NOPING` also stops the ping.
+Checks: `ours_defaults_test.go` (shipped defaults), `ours_ping_test.go`, and three `Check-Seams.ps1` rows
+(`telemetry-default-off`, `autoupdate-default-off`, `ping-gated-on-telemetry`).
+**READ, not run:** the update check and Wave AI rows come from reading `emain/updater.ts` and the AI panel code, not
+from a network capture.

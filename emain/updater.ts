@@ -47,7 +47,7 @@ export class Updater {
     constructor(settings: SettingsType) {
         this.intervalms = settings["autoupdate:intervalms"];
         console.log("Update check interval in milliseconds:", this.intervalms);
-        this.autoCheckEnabled = settings["autoupdate:enabled"];
+        this.autoCheckEnabled = settings["autoupdate:enabled"] ?? false;
         console.log("Update check enabled:", this.autoCheckEnabled);
 
         this._status = "up-to-date";

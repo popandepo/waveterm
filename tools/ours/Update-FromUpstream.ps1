@@ -87,7 +87,7 @@ try {
     if (-not $NoPush -and -not $UpstreamRef) {
         Say '## Mirror upstream main to origin/main (fast-forward only)'
         & git push origin "${targetSha}:refs/heads/$UpstreamBranch" 2>&1 | ForEach-Object { Say "  $_" }
-        if ($LASTEXITCODE -ne 0) { Say '  mirror push failed (not fast-forward?); continuing, check by hand' }
+        if ($LASTEXITCODE -ne 0) { Fail 'mirror push of upstream main to origin/main (not a fast-forward?)' }
     }
 
     $short = $targetSha.Substring(0, 8)
@@ -104,14 +104,19 @@ try {
         & git cherry-pick $c 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             $files = @(GitOut diff --name-only --diff-filter=U)
-            if ($files.Count -eq 0) {
-                # Nothing conflicted and nothing to commit: upstream already has this change.
+            $cpHead = (& git rev-parse -q --verify CHERRY_PICK_HEAD 2>$null)
+            $dirty = @(GitOut status --porcelain)
+            if ($files.Count -eq 0 -and $cpHead -and $dirty.Count -eq 0) {
+                # A cherry-pick in progress with nothing conflicted, staged or modified is the 'now empty' case: upstream
+                # already has this change. Anything else that stops a cherry-pick without conflicts (a hook, for example)
+                # is an error and falls through to the throw below.
                 & git cherry-pick --skip 2>&1 | Out-Null
                 if ($LASTEXITCODE -ne 0) { & git cherry-pick --abort 2>&1 | Out-Null; throw "cherry-pick of $c stopped with no conflicting files and could not be skipped" }
                 $skipped += $c
                 Say "  SKIPPED $($c.Substring(0,8)) (already in upstream, empty after replay)  $subject"
                 continue
             }
+            if ($files.Count -eq 0) { & git cherry-pick --abort 2>&1 | Out-Null; throw "cherry-pick of $c failed without conflicts and is not empty (a hook or an environment problem); nothing was skipped" }
             Say "CONFLICT replaying $c ($subject). Files:"
             $files | ForEach-Object { Say "  $_" }
             & git cherry-pick --abort 2>&1 | Out-Null
@@ -176,10 +181,15 @@ try {
         $tscExit = $LASTEXITCODE
         $tscErrors = @($tscOut | Where-Object { $_ -match 'error TS' })
         $baselineFile = Join-Path $repo 'tools\ours\tsc-baseline.txt'
-        $baseline = if (Test-Path $baselineFile) { [int](Get-Content $baselineFile -TotalCount 1) } else { -1 }
-        Say "  tsc: exit $tscExit, $($tscErrors.Count) errors (baseline $baseline)"
-        if ($tscExit -ne 0 -and $tscErrors.Count -eq 0) { Fail 'tsc did not run (non-zero exit with no compiler errors)'; $tscOut | Select-Object -Last 5 | ForEach-Object { Say "    $_" } }
-        elseif ($baseline -ge 0 -and $tscErrors.Count -gt $baseline) { Fail 'tsc: more errors than the baseline' }
+        $known = @(if (Test-Path $baselineFile) { Get-Content $baselineFile | Where-Object { $_ -and -not $_.StartsWith('#') } })
+        $current = @($tscErrors | ForEach-Object { [regex]::Replace($_, '^(.*?)\(\d+,\d+\): error (TS\d+): (.*)$', '$1|$2|$3').Trim() })
+        # multiset difference: each known diagnostic can excuse one occurrence
+        $pool = New-Object System.Collections.Generic.List[string]; $pool.AddRange([string[]]$known)
+        $newErrors = @(foreach ($e in $current) { if (-not $pool.Remove($e)) { $e } })
+        Say "  tsc: exit $tscExit, $($current.Count) diagnostics, $($known.Count) known, $($newErrors.Count) new, $($pool.Count) known ones gone"
+        if ($tscExit -ne 0 -and $current.Count -eq 0) { Fail 'tsc did not run (non-zero exit with no compiler errors)'; $tscOut | Select-Object -Last 5 | ForEach-Object { Say "    $_" } }
+        elseif ($newErrors.Count -gt 0) { Fail 'tsc: diagnostics that are not in tools/ours/tsc-baseline.txt'; $newErrors | Select-Object -First 10 | ForEach-Object { Say "    NEW: $_" } }
+        elseif ($pool.Count -gt 0) { Say '  tsc: some known diagnostics are gone; lower tools/ours/tsc-baseline.txt in the next PR' }
 
         & go test ./cmd/wsh/... 2>&1 | Select-Object -Last 4 | ForEach-Object { Say "  $_" }
         if ($LASTEXITCODE -ne 0) { Fail 'go test ./cmd/wsh/...' }
@@ -223,7 +233,12 @@ finally {
         & git cherry-pick --abort 2>&1 | Out-Null
         & git checkout -q -- . 2>&1 | Out-Null
         & git checkout -q $startBranch 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: could not return to $startBranch, you are on $(& git rev-parse --abbrev-ref HEAD)" }
+        if ($LASTEXITCODE -ne 0) {
+            $now = (& git rev-parse --abbrev-ref HEAD)
+            Say "FAILED: could not return to $startBranch, you are on $now"
+            $script:status = 'could not return to the start branch'
+            $script:exitCode = 1
+        }
     }
     try { WriteReport } catch { Write-Host "could not write the report: $_" }
 }

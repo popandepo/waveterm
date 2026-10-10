@@ -628,5 +628,28 @@ describe("dropping a tile on the middle of another makes a stack", () => {
             direction: DropDirection.Left,
         });
         assert.equal(edge?.type, LayoutTreeActionType.Move);
+
+describe("leaving and entering stack mode never replaces the tile object", () => {
+    test("take out, turn into a stack and turn off keep the same node (so the view is not remounted)", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        const keep = (id: string) => findNode(state.rootNode, id);
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        assert.strictEqual(keep(b.id), b);
+        unstackNode(state, { type: LayoutTreeActionType.Unstack, nodeId: b.id });
+        balanceNode(state.rootNode);
+        assert.strictEqual(keep(b.id), b, "take out of stack");
+        assert.strictEqual(keep(a.id), a);
+        turnIntoStack(state, b.id);
+        assert.strictEqual(keep(b.id), b, "turn into a stack");
+        turnStackOff(state, b.id);
+        balanceNode(state.rootNode);
+        assert.strictEqual(keep(b.id), b, "turn stack off");
+    });
+
+    test("take out of stack leaves focus on the member that was taken out", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        unstackNode(state, { type: LayoutTreeActionType.Unstack, nodeId: b.id });
+        assert.equal(state.focusedNodeId, b.id);
     });
 });

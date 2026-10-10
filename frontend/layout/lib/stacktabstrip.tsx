@@ -69,7 +69,7 @@ const StackStrip = memo(({ layoutModel, stackId, props }: StackStripProps) => {
                 title="Add a block to this stack"
                 onClick={(e) => {
                     const active = tabs.find((t) => t.active) ?? tabs[tabs.length - 1];
-                    layoutModel.onStackAdd?.(active.blockId, e);
+                    layoutModel.onStackAdd?.(active.blockId, e, layoutModel);
                 }}
             >
                 <i className="fa-sharp fa-solid fa-plus" />

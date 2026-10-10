@@ -12,7 +12,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
 
 var termMagnified bool
@@ -27,6 +26,7 @@ var termCmd = &cobra.Command{
 
 func init() {
 	termCmd.Flags().BoolVarP(&termMagnified, "magnified", "m", false, "open view in magnified mode")
+	addNoFocusFlag(termCmd)
 	rootCmd.AddCommand(termCmd)
 }
 
@@ -75,9 +75,9 @@ func termRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			Meta: createMeta,
 		},
 		Magnified: termMagnified,
-		Focused:   true,
+		Focused:   newBlockFocused(),
 	}
-	oref, err := wshclient.CreateBlockCommand(RpcClient, createBlockData, nil)
+	oref, err := createBlockRPC(createBlockData)
 	if err != nil {
 		return fmt.Errorf("creating new terminal block: %w", err)
 	}

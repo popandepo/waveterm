@@ -14,7 +14,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
 
 var runCmd = &cobra.Command{
@@ -35,6 +34,7 @@ func init() {
 	flags.BoolP("paused", "p", false, "create block in paused state")
 	flags.String("cwd", "", "set working directory for command")
 	flags.BoolP("append", "a", false, "append output on restart instead of clearing")
+	addNoFocusFlag(runCmd)
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -149,10 +149,10 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			},
 		},
 		Magnified: magnified,
-		Focused:   true,
+		Focused:   newBlockFocused(),
 	}
 
-	oref, err := wshclient.CreateBlockCommand(RpcClient, createBlockData, nil)
+	oref, err := createBlockRPC(createBlockData)
 	if err != nil {
 		return fmt.Errorf("creating new run block: %w", err)
 	}

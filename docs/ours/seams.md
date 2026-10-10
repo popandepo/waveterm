@@ -34,6 +34,8 @@ Not covered: a seam whose declaration is unchanged but whose behaviour changed. 
 | reference resolution | `pkg/wshrpc/wshserver/resolvers.go` | `resolveSimpleId` | `tab:<id>`, `tab:N`, uuid, 8 chars |
 | setmeta and badge | `cmd/wsh/cmd/wshcmd-setmeta.go`, `wshcmd-badge.go` | `setMetaCmd`, tab oref accepted | colour and symbol from outside |
 | tab command group | `cmd/wsh/cmd/wshcmd-tab.go` | `tabCommand` | rename, new, switch, close join it |
+| create-block focus | `pkg/wshrpc/wshrpctypes.go` | `CommandCreateBlockData.Focused` | `--no-focus` on createblock, run, term, web open |
+| create-block target | `pkg/wshrpc/wshrpctypes.go` | `TargetBlockId`, `TargetAction` | `wsh slot` placement (splitright, splitleft, splitup, splitdown, replace) |
 
 ## RPC and services under tab management (feature b)
 

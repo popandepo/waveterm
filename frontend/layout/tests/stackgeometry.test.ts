@@ -2,9 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "vitest";
-import { newLayoutNode, newStackNode } from "../lib/layoutNode";
-import { applyStackLayout, buildStripTabs, computeStackLayout, StackStripHeightPx } from "../lib/stackgeometry";
-import { FlexDirection, type LayoutNodeAdditionalProps } from "../lib/types";
+import { addStackMember, newLayoutNode, newStackNode } from "../lib/layoutNode";
+import { focusNode, stackNodes } from "../lib/layoutTree";
+import {
+    applyStackLayout,
+    buildStripTabs,
+    canLayoutAsStack,
+    computeStackLayout,
+    StackStripHeightPx,
+    stripsToShow,
+} from "../lib/stackgeometry";
+import {
+    FlexDirection,
+    LayoutTreeActionType,
+    type LayoutNodeAdditionalProps,
+    type LayoutTreeState,
+} from "../lib/types";
+import { newLayoutTreeState } from "./model";
 
 function leaf(blockId: string) {
     return newLayoutNode(FlexDirection.Row, undefined, undefined, { blockId });
@@ -131,5 +145,55 @@ describe("tab strip model", () => {
         const map: Record<string, LayoutNodeAdditionalProps> = { [stack.id]: { treeKey: "0", rect } };
         applyStackLayout(stack, rect, map);
         expect(buildStripTabs(map[stack.id].stack, [a], null).map((t) => t.blockId)).toEqual(["blk-a"]);
+    });
+});
+
+describe("review points on PR 15", () => {
+    test("an empty stack lays out as nothing instead of throwing, and shows no strip", () => {
+        const stack = newStackNode([leaf("a")], undefined);
+        stack.children = [];
+        const out = computeStackLayout(stack, rect);
+        expect(out.order).toEqual([]);
+        expect(out.members).toEqual({});
+        const map: Record<string, LayoutNodeAdditionalProps> = { [stack.id]: { treeKey: "0", rect } };
+        expect(() => applyStackLayout(stack, rect, map)).not.toThrow();
+        expect(stripsToShow(map)).toEqual([]);
+    });
+
+    test("a stack that holds a non-leaf is not laid out as a stack, so no member is hidden or lost", () => {
+        const inner = newStackNode([leaf("x"), leaf("y")]);
+        const outer = newStackNode([leaf("a")]);
+        outer.children = [outer.children[0], inner];
+        expect(canLayoutAsStack(outer)).toBe(false);
+        expect(canLayoutAsStack(inner)).toBe(true);
+        expect(canLayoutAsStack(leaf("z"))).toBe(false);
+    });
+
+    test("a click on the tab of a hidden member makes it the visible one", () => {
+        const [a, b, c] = [leaf("a"), leaf("b"), leaf("c")];
+        const stack = newStackNode([a, b, c], a.id);
+        const state: LayoutTreeState = newLayoutTreeState(newLayoutNode(FlexDirection.Row, undefined, [stack]));
+        focusNode(state, { type: LayoutTreeActionType.FocusNode, nodeId: c.id });
+        const map: Record<string, LayoutNodeAdditionalProps> = { [stack.id]: { treeKey: "0", rect } };
+        applyStackLayout(stack, rect, map);
+        expect(map[c.id].isHidden).toBe(false);
+        expect(map[a.id].isHidden).toBe(true);
+        const tabs = buildStripTabs(map[stack.id].stack, [a, b, c], state.focusedNodeId);
+        expect(tabs.map((t) => [t.active, t.focused])).toEqual([
+            [false, false],
+            [false, false],
+            [true, true],
+        ]);
+    });
+
+    test("a stack cannot be put into a stack", () => {
+        const [a, b, c] = [leaf("a"), leaf("b"), leaf("c")];
+        const inner = newStackNode([b, c]);
+        const root = newLayoutNode(FlexDirection.Row, undefined, [a, inner]);
+        const state = newLayoutTreeState(root);
+        expect(stackNodes(state, { type: LayoutTreeActionType.Stack, nodeId: inner.id, targetNodeId: a.id })).toBe(
+            false
+        );
+        expect(() => addStackMember(newStackNode([a]), 0, inner)).toThrow();
     });
 });

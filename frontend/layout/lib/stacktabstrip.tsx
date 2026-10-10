@@ -4,9 +4,9 @@
 import { fireAndForget } from "@/util/util";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import type { LayoutModel } from "./layoutModel";
-import { buildStripTabs } from "./stackgeometry";
+import { buildStripTabs, stripsToShow } from "./stackgeometry";
 import type { LayoutNodeAdditionalProps } from "./types";
 import { setTransform } from "./utils";
 
@@ -25,10 +25,21 @@ const StackStrip = memo(({ layoutModel, stackId, props }: StackStripProps) => {
         () => buildStripTabs(props.stack, leafs, focusedNode?.id),
         [props.stack, leafs, focusedNode?.id]
     );
+    const stripRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const active = stripRef.current?.querySelector<HTMLElement>(".stack-tab.active");
+        active?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+    }, [props.stack.activeId, tabs.length]);
     return (
         <div
+            ref={stripRef}
             className="stack-strip"
             data-stackid={stackId}
+            onWheel={(e) => {
+                if (e.deltaY !== 0 && e.deltaX === 0 && stripRef.current) {
+                    stripRef.current.scrollLeft += e.deltaY;
+                }
+            }}
             style={setTransform(props.stack.strip, true, true, StripZIndex)}
         >
             {tabs.map((tab) => (
@@ -60,7 +71,7 @@ StackStrip.displayName = "StackStrip";
 
 export const StackStrips = memo(({ layoutModel }: { layoutModel: LayoutModel }) => {
     const additionalProps = useAtomValue(layoutModel.additionalProps);
-    const stacks = Object.entries(additionalProps).filter(([, props]) => props.stack != null);
+    const stacks = stripsToShow(additionalProps);
     return (
         <>
             {stacks.map(([stackId, props]) => (

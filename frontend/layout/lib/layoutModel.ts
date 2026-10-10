@@ -11,7 +11,7 @@ import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
-import { balanceNode, findNode, isStackNode, newLayoutNode, walkNodes } from "./layoutNode";
+import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
     clearTree,
     computeMoveNode,
@@ -29,7 +29,7 @@ import {
     swapNode,
     unstackNode,
 } from "./layoutTree";
-import { applyStackLayout } from "./stackgeometry";
+import { applyStackLayout, canLayoutAsStack } from "./stackgeometry";
 import {
     ContentRenderer,
     FlexDirection,
@@ -58,8 +58,8 @@ import {
     NavigationResult,
     NodeModel,
     PreviewRenderer,
-    StackTabLabelRenderer,
     ResizeHandleProps,
+    StackTabLabelRenderer,
     TileLayoutContents,
 } from "./types";
 import { getCenter, navigateDirectionToOffset, setTransform } from "./utils";
@@ -847,7 +847,7 @@ export class LayoutModel {
             return;
         }
 
-        if (isStackNode(node)) {
+        if (canLayoutAsStack(node)) {
             const stackRect: Dimensions =
                 node.id === this.treeState.rootNode.id ? boundingRect : additionalPropsMap[node.id]?.rect;
             if (stackRect) {

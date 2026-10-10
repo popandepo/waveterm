@@ -7,6 +7,18 @@ import { setTransform } from "./utils";
 
 export const StackStripHeightPx = 28;
 
+// Only a stack whose members are all leaves is laid out as one. Anything else (a tree from an older build or a
+// hand-edited layout) falls back to the normal row and column layout, so no member is ever hidden without a tab.
+export function canLayoutAsStack(node: LayoutNode): boolean {
+    return isStackNode(node) && node.children?.length > 0 && node.children.every((c) => !c.children && !!c.data);
+}
+
+export function stripsToShow(
+    additionalPropsMap: Record<string, LayoutNodeAdditionalProps>
+): [string, LayoutNodeAdditionalProps][] {
+    return Object.entries(additionalPropsMap).filter(([, props]) => props.stack?.order?.length > 0);
+}
+
 export interface StackMemberLayout {
     rect: Dimensions;
     hidden: boolean;
@@ -26,8 +38,11 @@ export function computeStackLayout(
     rect: Dimensions,
     stripHeightPx = StackStripHeightPx
 ): StackLayout {
-    if (!isStackNode(stack) || !stack.children?.length) {
-        throw new Error("computeStackLayout needs a stack with members");
+    if (!isStackNode(stack)) {
+        throw new Error("computeStackLayout needs a stack");
+    }
+    if (!stack.children?.length) {
+        return { strip: { ...rect, height: 0 }, activeId: "", order: [], members: {} };
     }
     const stripHeight = Math.max(0, Math.min(stripHeightPx, rect.height));
     const body: Dimensions = {

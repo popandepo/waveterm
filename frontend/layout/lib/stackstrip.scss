@@ -7,14 +7,17 @@
     align-items: stretch;
     gap: 2px;
     padding: 2px 4px 0 4px;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
     border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     user-select: none;
 
     .stack-tab {
         display: flex;
-        flex: 0 1 180px;
-        min-width: 60px;
+        flex: 0 0 auto;
+        min-width: 96px;
+        max-width: 200px;
         align-items: center;
         gap: 6px;
         padding: 0 8px;

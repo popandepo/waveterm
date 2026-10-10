@@ -740,3 +740,49 @@ export function activateStackMember(layoutState: LayoutTreeState, nodeId: string
     }
     return true;
 }
+
+/**
+ * Turns a plain tile into a stack of one: same place, same size. Stack mode then stays on (strip and plus) until
+ * turnStackOff, even when members are closed down to one.
+ */
+export function turnIntoStack(layoutState: LayoutTreeState, nodeId: string): boolean {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, nodeId) : undefined;
+    if (!node || node.children || !node.data) {
+        return false;
+    }
+    const parent = findParent(root, nodeId);
+    if (parent && isStackNode(parent)) {
+        return false;
+    }
+    const stack = newStackNode([node], node.id, node.size);
+    stack.flexDirection = node.flexDirection;
+    if (parent) {
+        parent.children[parent.children.indexOf(node)] = stack;
+    } else {
+        layoutState.rootNode = stack;
+    }
+    return true;
+}
+
+/**
+ * Gives the plain tile back when the stack has exactly one member. nodeId may be the stack or its member.
+ */
+export function turnStackOff(layoutState: LayoutTreeState, nodeId: string): boolean {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, nodeId) : undefined;
+    const stack = node && isStackNode(node) ? node : node ? findParent(root, nodeId) : undefined;
+    if (!stack || !isStackNode(stack) || stack.children.length !== 1) {
+        return false;
+    }
+    const only = stack.children[0];
+    only.size = stack.size;
+    only.flexDirection = stack.flexDirection;
+    const parent = findParent(root, stack.id);
+    if (parent) {
+        parent.children[parent.children.indexOf(stack)] = only;
+    } else {
+        layoutState.rootNode = only;
+    }
+    return true;
+}

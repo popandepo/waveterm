@@ -13,6 +13,22 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     user-select: none;
 
+    .stack-tab-add {
+        flex: 0 0 auto;
+        align-self: center;
+        margin-left: 4px;
+        padding: 2px 8px;
+        border: none;
+        border-radius: 4px;
+        background: none;
+        color: var(--secondary-text-color);
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--main-text-color);
+        }
+    }
+
     .stack-tab {
         display: flex;
         flex: 0 0 auto;

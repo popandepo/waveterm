@@ -259,7 +259,7 @@ export function balanceNode(
         },
         (node) => {
             node.children = node.children?.filter((v) => v);
-            if (node.children?.length === 1 && !node.children[0].children) {
+            if (node.children?.length === 1 && !node.children[0].children && !isStackNode(node)) {
                 node.data = node.children[0].data;
                 node.id = node.children[0].id;
                 node.children = undefined;

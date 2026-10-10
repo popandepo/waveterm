@@ -29,6 +29,8 @@ import {
     splitVertical,
     stackNodes,
     swapNode,
+    turnIntoStack,
+    turnStackOff,
     unstackNode,
 } from "./layoutTree";
 import { applyStackLayout, canLayoutAsStack } from "./stackgeometry";
@@ -55,6 +57,7 @@ import {
     LayoutTreeSplitVerticalAction,
     LayoutTreeStackAction,
     LayoutTreeStackInsertAction,
+    LayoutTreeStackModeAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
     LayoutTreeUnstackAction,
@@ -129,6 +132,11 @@ export class LayoutModel {
      * Callback that renders the label of one member in the tab strip of a stack.
      */
     renderStackTabLabel?: StackTabLabelRenderer;
+
+    /**
+     * Callback for the + on the tab strip of a stack.
+     */
+    onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
     /**
      * Callback that is invoked when a node is closed.
      */
@@ -686,6 +694,7 @@ export class LayoutModel {
         this.renderContent = contents.renderContent;
         this.renderPreview = contents.renderPreview;
         this.renderStackTabLabel = contents.renderStackTabLabel;
+        this.onStackAdd = contents.onStackAdd;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {
             this.setter(this.gapSizePx, contents.gapSizePx);
@@ -787,6 +796,12 @@ export class LayoutModel {
                 ) {
                     FocusManager.getInstance().requestNodeFocus();
                 }
+                break;
+            case LayoutTreeActionType.TurnIntoStack:
+                turnIntoStack(this.treeState, (action as LayoutTreeStackModeAction).nodeId);
+                break;
+            case LayoutTreeActionType.TurnStackOff:
+                turnStackOff(this.treeState, (action as LayoutTreeStackModeAction).nodeId);
                 break;
             case LayoutTreeActionType.Activate:
                 activateStackMember(this.treeState, (action as LayoutTreeActivateAction).nodeId);
@@ -1203,6 +1218,19 @@ export class LayoutModel {
                     return treeState.magnifiedNodeId === nodeid;
                 }),
                 isHidden: atom((get) => get(addlPropsAtom)?.isHidden ?? false),
+                stackSize: atom((get) => get(addlPropsAtom)?.stackSize ?? 0),
+                turnIntoStack: () =>
+                    this.treeReducer({
+                        type: LayoutTreeActionType.TurnIntoStack,
+                        nodeId: nodeid,
+                    } as LayoutTreeStackModeAction),
+                turnStackOff: () =>
+                    this.treeReducer({
+                        type: LayoutTreeActionType.TurnStackOff,
+                        nodeId: nodeid,
+                    } as LayoutTreeStackModeAction),
+                takeOutOfStack: () =>
+                    this.treeReducer({ type: LayoutTreeActionType.Unstack, nodeId: nodeid } as LayoutTreeUnstackAction),
                 anyMagnified: atom((get) => {
                     const treeState = get(this.localTreeStateAtom);
                     return treeState.magnifiedNodeId != null;

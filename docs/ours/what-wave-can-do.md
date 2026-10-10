@@ -264,3 +264,17 @@ straight into a group (never as a tile first). Blocks must be in the same tab. N
   `pkg/wcore` has two failing tests (`TestListWorkspaces_*`) that fail the same way on Master without this PR.
 - **Seen in a window:** this is the first change after which a stack can be made without touching the code: run
   `wsh group add --to` on two terminals in one tab and the tile shows a tab strip. The window check is step 4.
+
+## 18. Stack from the window: menu, one-member stacks, + (step A)
+
+Block menu (the dots / right-click on the header): "Turn into a stack" on a plain tile (it then shows a strip with one tab and a +),
+"Take out of stack" on a member of a stack with two or more members, "Turn stack off" on a stack with one member. A
+stack of one stays a stack until it is turned off or its last member is closed; the strip is never shown on a plain tile, so a
+tile that is not a stack keeps its full height. The + opens the widget bar's list (terminals first, hidden widgets
+left out) and adds the chosen block type to the stack as a new tab, so a stack can mix terminals, web and files.
+- **RAN:** vitest for turnIntoStack / turnStackOff / one-member balancing / closing members, the menu list
+  (`stackaddmenu.test.ts`), stack size for the menu. tsc stays at 17.
+- **READ, not run:** the React wiring (menu items, + button, create path), and that a web or preview block does not
+  reload or keep playing while hidden: hidden members stay mounted with `visibility: hidden`, which a web view does not
+  treat as a reload; media in a hidden tab keeps playing, which is not handled yet and is part of the window check.
+- **Seen in a window after this PR:** a tile can be turned into a stack from its menu, the + adds a block of any widget type.

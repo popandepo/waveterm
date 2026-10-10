@@ -92,8 +92,25 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | daily ping | `cmd/server/main-server.go` | `if !wcloud.DiagnosticPingAllowed(usageTelemetry) {` | the ping is only sent after the user opted in |
 | updater fallback | `emain/updater.ts` | `settings["autoupdate:enabled"] ?? false` | an absent setting reads as off |
 
-## Accent colour
+## Local API, state record, session restart, close tab, tab drag
 
+| Seam | File | Symbol or text | We use it for |
+|---|---|---|---|
+| focus window | `pkg/wshrpc/wshrpctypes.go` | `FocusWindowCommand` | local API goto with `window=true` |
+| set active tab | same | `ElectronSetActiveTabCommand` | local API focus tab and goto |
+| set block focus | same | `SetBlockFocusCommand` | local API focus block and goto |
+| path | same | `PathCommand` | `wsh api` finds the data directory of the running Wave |
+| list all workspaces | `pkg/wcore/workspace.go` | `ListAllWorkspaces` | local API list, and the state record, read every workspace |
+| main RPC client | `pkg/wshrpc/wshserver/wshserverutil.go` | `GetMainRpcClient` | the local API backend sends its RPC calls through it |
+| startup line | `cmd/server/main-server.go` | `go wshutil.RunWshRpcOverListener(unixListener, nil)` | `wavesrvapi.Start()` is added on the next line |
+| event observer | `pkg/wps/wps.go` | `notifyObservers(event)` | the state record reacts to every published object update |
+| state record start | `cmd/server/main-server.go` | `wavesrvstate.Start()` | wavesrv starts the state record writer |
+| controller start decision | `pkg/blockcontroller/shellcontroller.go` | `shouldRunCommand(...)` | `wsh session start --restart` depends on `cmd:runonstart` blocks starting again |
+| close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
+| tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
+| tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |
+
+## Accent colour
 | Seam | File | Symbol | We use it for |
 |---|---|---|---|
 | default accent | `frontend/app/theme.scss`, `frontend/tailwindsetup.css` | `--accent-color`, `--color-accent` | the variables our accent colour overrides at run time |

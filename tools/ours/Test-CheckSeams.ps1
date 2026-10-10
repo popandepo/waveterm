@@ -21,10 +21,14 @@ $missing = Join-Path $dir 'nope.txt'
 $r = Run $missing
 Check 'an expected file that does not exist fails the run' ($r.Code -eq 1 -and $r.Out -match 'file missing') "$($r.Code) $($r.Out)"
 
+$ghost = Join-Path $dir 'ghost.txt'
+Set-Content $ghost @('# a valid file naming one id that is not in the seam list', 'tab-flagcolor-const', 'no-such-seam-id')
+$r = Run $ghost
+Check 'a valid expected file naming an id that is absent from the seam list fails the run with the missing-id message' ($r.Code -eq 1 -and $r.Out -match 'RED\s+no-such-seam-id : in seams-expected.txt but missing from the seam list') "$($r.Code) $($r.Out)"
 $real = Run (Join-Path $PSScriptRoot 'seams-expected.txt')
 Check 'the real expected file passes' ($real.Code -eq 0 -and $real.Out -match 'seams red: 0') "$($real.Code) $($real.Out)"
 
-Remove-Item $empty
+Remove-Item $empty, $ghost
 Remove-Item $unreadable
 Remove-Item $dir
 if ($fail -gt 0) { exit 1 }

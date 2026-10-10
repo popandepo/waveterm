@@ -19,6 +19,10 @@ import (
 
 const DefaultTimeout = 2 * time.Second
 
+// CloseTabCountUnknown is the maxBlocks sent by the window when the owner approved a close without a block count (the dialog said
+// so): the tab is read here, and the close is refused if it cannot be read. -1 means no limit and no read.
+const CloseTabCountUnknown = -2
+
 type WorkspaceService struct{}
 
 func (svc *WorkspaceService) CreateWorkspace_Meta() tsgenmeta.MethodMeta {
@@ -243,4 +247,37 @@ func (svc *WorkspaceService) CloseTab(ctx context.Context, workspaceId string, t
 		wps.Broker.SendUpdateEvents(updates)
 	}()
 	return rtn, updates, nil
+}
+
+// checkTabWithinApproved is the last check before a tab is closed from the window: the tab may hold at most as many blocks as
+// the owner approved (maxBlocks < 0 means no limit). It is called in the same Go function that starts the close, with only
+// synchronous database reads in between and no round trip through the window, so a block added after the dialog but before the
+// delete is caught here instead of being deleted unasked. It is not one database transaction because the delete itself
+// (wcore.DeleteTab, upstream code) spans many store calls and block controllers and cannot be wrapped in one; a block created
+// in the same few microseconds on another goroutine is not caught.
+func checkTabWithinApproved(blockCount int, maxBlocks int) error {
+	if maxBlocks >= 0 && blockCount > maxBlocks {
+		return fmt.Errorf("the tab gained blocks since it was approved for closing (%d now, %d approved); it was not closed", blockCount, maxBlocks)
+	}
+	return nil
+}
+
+func (svc *WorkspaceService) CloseTabChecked_Meta() tsgenmeta.MethodMeta {
+	return tsgenmeta.MethodMeta{
+		ArgNames:   []string{"ctx", "workspaceId", "tabId", "fromElectron", "maxBlocks"},
+		ReturnDesc: "CloseTabRtn",
+	}
+}
+
+func (svc *WorkspaceService) CloseTabChecked(ctx context.Context, workspaceId string, tabId string, fromElectron bool, maxBlocks int) (*CloseTabRtnType, waveobj.UpdatesRtnType, error) {
+	if maxBlocks >= 0 || maxBlocks == CloseTabCountUnknown {
+		tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
+		if err != nil || tab == nil {
+			return nil, nil, fmt.Errorf("error reading the tab before closing it: %v", err)
+		}
+		if err := checkTabWithinApproved(len(tab.BlockIds), maxBlocks); err != nil {
+			return nil, nil, err
+		}
+	}
+	return svc.CloseTab(ctx, workspaceId, tabId, fromElectron)
 }

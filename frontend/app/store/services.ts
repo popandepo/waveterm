@@ -168,6 +168,11 @@ export class WorkspaceServiceType {
         return callBackendService(this?.waveEnv, "workspace", "CloseTab", Array.from(arguments))
     }
 
+    // @returns CloseTabRtn (and object updates)
+    CloseTabChecked(workspaceId: string, tabId: string, fromElectron: boolean, maxBlocks: number): Promise<CloseTabRtnType> {
+        return callBackendService(this?.waveEnv, "workspace", "CloseTabChecked", Array.from(arguments))
+    }
+
     // @returns tabId (and object updates)
     CreateTab(workspaceId: string, tabName: string, activateTab: boolean): Promise<string> {
         return callBackendService(this?.waveEnv, "workspace", "CreateTab", Array.from(arguments))

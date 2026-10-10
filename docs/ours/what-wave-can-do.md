@@ -385,6 +385,50 @@ its arguments and environment: it proves that the searched config folder is the 
 passed as one array instead of splatted: fixed). The source pin on the controller's call site can be bypassed by a rewrite;
 the window restart check is what proves the restart.
 
+## 22. Closing a tab asks first when it holds blocks
+
+Closing a tab (tab bar x, the close key, the vertical tab bar) deletes it and stops every program in it; upstream has no
+reopen and, with the default setting, no question. In this fork a tab that holds blocks always asks first ("This tab holds
+N blocks. Closing it stops the programs running in them, and it cannot be undone."), whatever `tab:confirmclose` says; an
+empty tab asks only when the setting does. If the block count cannot be read the question is asked anyway.
+- **RAN:** vitest for the rule (`closeTabPrompt`: blocks always ask, singular, empty tab, unknown count). tsc stays at 17.
+- **READ, not run:** the dialog in the main process (`close-tab` handler) in a window. `wsh tab close` and
+  `wsh session close` are not questions: they are commands with their own rules.
+- **Not done:** reopening a closed tab (about 2 working days).
+
+Review notes on section 22. **Which routes ask, which refuse, which do nothing:**
+- Tab bar x, vertical tab bar, the close key: all go through the one `close-tab` handler: they ask (asynchronous dialog, the rest
+  of the app keeps running). Only the explicit "Close Tab" answer closes; Escape, a dismissed dialog or any other result keeps the
+  tab. A second close request for the same tab while its dialog is open is ignored. The count is the tab's block list, which
+  includes the members of a stack, hidden ones too. Tested through the handler (`closetabhandler.test.ts`).
+- `wsh tab close <tab>`: **refuses** when the tab holds blocks (the error says how many) unless `--force`; no dialog, because the
+  callers are scripts and agents. The check is in the wsh command: a direct RPC call of `electronclosetab` is not checked.
+- `wsh session close`: has its own rule (a tab whose program is still running needs `--force`).
+- Closing a whole window, deleting a workspace and quitting the app are separate flows with their own settings
+  (`window:confirmclose`); they are NOT covered here.
+
+Second review pass on section 22: the guard against a second close request is set before the first await; the block count is read
+again before the close, so an empty tab that gained a block, or a confirmed tab that grew, asks again, and a tab that keeps
+changing is not closed (`closetabhandler.test.ts` has deferred, overlapping reads). The `wsh tab close` check now also happens in the
+main process right before the close (new `force` field of the electronclosetab call), so a direct RPC call of it is covered too;
+`force` is the deliberate bypass (next paragraph). A source-level route test checks that the UI routes go through the one handler.
+
+Third review pass on section 22: `force` of the electronclosetab call is the **deliberate bypass for every local RPC caller**, not
+only for `wsh tab close --force`. A local caller that can reach the call can already delete blocks, so the refusal guards against
+mistakes; it is not a security boundary. No UI route can pass it: the IPC close route has no such parameter and no front end file
+sets it (both are tests in `closetabhandler.test.ts`). The handler's window argument is now required.
+
+Final pass on section 22: the count that was approved travels with the close. The close from the window (and the `wsh` route when the
+tab was empty or had a count) calls a back-end service, `CloseTabChecked`, that compares the tab's block count with the approved
+one **in the same Go function that starts the close** (only synchronous database reads in between, no round trip through the
+window); a tab that gained blocks is not closed, and the caller is told so. It is not one database transaction: a block created in
+the same few microseconds on another goroutine would not be caught. The window's close request now resolves with whether the tab
+was really closed, and a close request that was replaced in the window's action queue resolves false.
+
+Fourth pass on section 22: whatever leaves the window's action queue (a destroyed window, an early end) first tells every close that is
+still queued "not closed" and empties the queue, so a caller (the window, or `wsh tab close`) gets an answer instead of waiting
+(tested). The unchecked back-end `CloseTab` is reached only for `force` (no limit). A close that the owner confirmed without a count (both reads failed, and the dialog said so) goes through the checked call as "count unknown" (-2): the back end reads the tab itself and refuses if it cannot (tested on the window side, and a test pins that the Go constant is the same -2). The check and the delete are not one database transaction, because the delete is upstream code spanning many store calls; a block created in the same few microseconds is the one case not caught.
+
 ## 23. Drag a tab out of its stack, reorder tabs (step E)
 
 Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of

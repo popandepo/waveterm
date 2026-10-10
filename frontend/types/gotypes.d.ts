@@ -397,6 +397,7 @@ declare global {
     type CommandElectronTabData = {
         workspaceid: string;
         tabid: string;
+        force?: boolean;
     };
 
     // wshrpc.CommandEventReadHistoryData

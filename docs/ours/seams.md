@@ -143,6 +143,8 @@ features. The run still exits 0; the update review decides, and an unresolved ov
 | upstream-electron-tab-rpc | `ElectronCreateTab`, `ElectronSetActiveTab`, `ElectronCloseTab`, `Tab(Create|Close|Switch|Rename)Command` in `pkg/wshrpc` | tab RPCs that collide with ours |
 | upstream-tab-group | `tabgroup`, `TabGroup`, `activeChildId` in `frontend` | tab grouping or a stack concept |
 | upstream-layout-kind | `kind`, `nodeType` in layout `types.ts` | layout nodes gained a kind |
+| upstream-confirm-close-tab | `confirmclosetab` in `frontend/app` | upstream added its own close-tab confirmation (open PR 2678) |
+| upstream-newtablayout | `newtablayout` in `pkg/wconfig` | upstream added a layout for new tabs (open PR 3117) |
 | upstream-tab-bar-icons | icon, symbol, emoji in `tabbar-model.ts` | tab bar model changed around icons |
 
 Rehearsed by planting a tab command file and a `tab:icon` line in a throwaway commit and scanning that commit

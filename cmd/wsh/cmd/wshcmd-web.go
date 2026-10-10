@@ -44,6 +44,7 @@ var webOpenReplaceBlock string
 func init() {
 	webOpenCmd.Flags().BoolVarP(&webOpenMagnified, "magnified", "m", false, "open view in magnified mode")
 	webOpenCmd.Flags().StringVarP(&webOpenReplaceBlock, "replace", "r", "", "replace block")
+	addNoFocusFlag(webOpenCmd)
 	webCmd.AddCommand(webOpenCmd)
 	webGetCmd.Flags().BoolVarP(&webGetInner, "inner", "", false, "get inner html (instead of outer)")
 	webGetCmd.Flags().BoolVarP(&webGetAll, "all", "", false, "get all matches (querySelectorAll)")
@@ -126,7 +127,7 @@ func webOpenRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			},
 		},
 		Magnified: webOpenMagnified,
-		Focused:   true,
+		Focused:   newBlockFocused(),
 	}
 	if replaceBlockORef != nil {
 		wshCmd.TargetBlockId = replaceBlockORef.OID

@@ -27,6 +27,7 @@ var termCmd = &cobra.Command{
 
 func init() {
 	termCmd.Flags().BoolVarP(&termMagnified, "magnified", "m", false, "open view in magnified mode")
+	addNoFocusFlag(termCmd)
 	rootCmd.AddCommand(termCmd)
 }
 
@@ -75,7 +76,7 @@ func termRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			Meta: createMeta,
 		},
 		Magnified: termMagnified,
-		Focused:   true,
+		Focused:   newBlockFocused(),
 	}
 	oref, err := wshclient.CreateBlockCommand(RpcClient, createBlockData, nil)
 	if err != nil {

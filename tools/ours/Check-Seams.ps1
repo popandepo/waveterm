@@ -71,6 +71,8 @@ $seams = @(
     @('wsh-setmeta-rpc', 'pkg/wshrpc/wshrpctypes.go', 'SetMetaCommand(ctx context.Context, data CommandSetMetaData) error', 'meta write used by tab style'),
     @('wsh-badge', 'cmd/wsh/cmd/wshcmd-badge.go', 'if oref.OType != waveobj.OType_Block && oref.OType != waveobj.OType_Tab {', 'badge accepts a tab oref'),
     @('wsh-tab-cmd', 'cmd/wsh/cmd/wshcmd-tab.go', 'var tabCommand = &cobra.Command{', 'existing tab command group we extend'),
+    @('create-block-focused', 'pkg/wshrpc/wshrpctypes.go', 'Focused bool `json:"focused,omitempty"`', 'wsh --no-focus sets this field on create-block requests'),
+    @('create-block-target', 'pkg/wshrpc/wshrpctypes.go', 'TargetAction string `json:"targetaction,omitempty"`', 'wsh slot places blocks with splitright/splitleft/splitup/splitdown/replace'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('electron-wsh-client', 'emain/emain-wsh.ts', 'async handle_electronsystembell(rh: RpcResponseHelper): Promise<void>', 'where electron-route handlers live'),

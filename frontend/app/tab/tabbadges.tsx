@@ -38,7 +38,7 @@ export function TabBadges({ badges, flagColor, symbol, className }: TabBadgesPro
         return null;
     }
     const firstBadge = allBadges[0];
-    const extraBadges = allBadges.slice(1, 3);
+    const extraBadges = allBadges.slice(1, 3).filter((b) => !(parsedSymbol && b.badgeid === flagBadgeId));
     return (
         <div className={cn(DefaultClassName, className)}>
             {firstIsTextSymbol ? (

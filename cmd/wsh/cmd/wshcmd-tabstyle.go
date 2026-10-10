@@ -18,7 +18,7 @@ const (
 	TabMetaFlagColor        = "tab:flagcolor"
 	TabMetaSymbol           = "tab:symbol"
 	MaxTabSymbolTextBytes   = 32
-	MaxTabSymbolTextRunes   = 8
+	MaxTabSymbolGraphemes   = 2
 	MaxTabSymbolIconNameLen = 40
 	zeroWidthJoiner         = 0x200d
 )
@@ -121,9 +121,58 @@ func hasHiddenOrDirectionalRunes(s string) bool {
 	return false
 }
 
+// hasMisplacedJoiner reports a zero width joiner that is not between two characters of an emoji sequence.
+func hasMisplacedJoiner(s string) bool {
+	runes := []rune(s)
+	for i, r := range runes {
+		if r != zeroWidthJoiner {
+			continue
+		}
+		if i == 0 || i == len(runes)-1 || runes[i-1] == zeroWidthJoiner || runes[i+1] == zeroWidthJoiner || unicode.IsSpace(runes[i-1]) || unicode.IsSpace(runes[i+1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// countGraphemes approximates user-perceived characters for the symbols a tab accepts: combining marks, variation
+// selectors, emoji modifiers, tag characters and anything after a joiner extend the previous character, and a pair of
+// regional indicators is one flag. It matches the frontend parser for emoji, flags and accented letters.
+func countGraphemes(s string) int {
+	count := 0
+	afterJoiner := false
+	regionalOpen := false
+	for _, r := range s {
+		switch {
+		case r == zeroWidthJoiner:
+			afterJoiner = true
+			continue
+		case unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || unicode.Is(unicode.Mc, r) ||
+			(r >= 0xfe00 && r <= 0xfe0f) || (r >= 0x1f3fb && r <= 0x1f3ff) || (r >= 0xe0020 && r <= 0xe007f):
+			continue
+		case afterJoiner:
+			afterJoiner = false
+			continue
+		case r >= 0x1f1e6 && r <= 0x1f1ff:
+			if regionalOpen {
+				regionalOpen = false
+				continue
+			}
+			regionalOpen = true
+		default:
+			regionalOpen = false
+		}
+		count++
+	}
+	return count
+}
+
 func validateTabSymbol(symbol string) error {
 	if hasHiddenOrDirectionalRunes(symbol) {
 		return fmt.Errorf("invalid symbol: control, bidirectional and invisible format characters are not allowed")
+	}
+	if hasMisplacedJoiner(symbol) {
+		return fmt.Errorf("invalid symbol: a zero width joiner is only allowed inside an emoji sequence")
 	}
 	if isIconName(symbol) {
 		if len(symbol) > MaxTabSymbolIconNameLen {
@@ -131,7 +180,7 @@ func validateTabSymbol(symbol string) error {
 		}
 		return nil
 	}
-	if len(symbol) > MaxTabSymbolTextBytes || len([]rune(symbol)) > MaxTabSymbolTextRunes || strings.ContainsAny(symbol, "<>&\"'`\\") {
+	if len(symbol) > MaxTabSymbolTextBytes || countGraphemes(symbol) > MaxTabSymbolGraphemes || strings.ContainsAny(symbol, "<>&\"'`\\") {
 		return fmt.Errorf("invalid symbol %q: use a Font Awesome icon name (lowercase, digits, dashes) or one or two characters such as an emoji (at most %d bytes)", symbol, MaxTabSymbolTextBytes)
 	}
 	return nil

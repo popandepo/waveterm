@@ -35,6 +35,11 @@ export function hasHiddenOrDirectionalChars(text: string): boolean {
     return false;
 }
 
+// A joiner only belongs between two characters of an emoji sequence; alone it draws nothing.
+export function hasMisplacedJoiner(text: string): boolean {
+    return /^\u200d|\u200d$|\u200d\u200d/.test(text) || /\s\u200d|\u200d\s/.test(text);
+}
+
 function utf8ByteLength(text: string): number {
     return new TextEncoder().encode(text).length;
 }
@@ -49,7 +54,7 @@ export function parseTabSymbol(raw: unknown): TabSymbol | null {
         return null;
     }
     const value = raw.trim();
-    if (value === "") {
+    if (value === "" || hasMisplacedJoiner(value)) {
         return null;
     }
     if (IconNameRegex.test(value)) {

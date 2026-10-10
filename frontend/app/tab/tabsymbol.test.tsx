@@ -43,6 +43,13 @@ describe("parseTabSymbol", () => {
         expect(parseTabSymbol(family)).toEqual({ kind: "text", value: family });
     });
 
+    it("rejects a joiner that is not inside an emoji sequence", () => {
+        expect(parseTabSymbol("\u200D")).toBeNull();
+        expect(parseTabSymbol("a\u200D")).toBeNull();
+        expect(parseTabSymbol("\u200Da")).toBeNull();
+        expect(parseTabSymbol("\u{1F468}\u200D\u200D\u{1F469}")).toBeNull();
+    });
+
     it("bounds a single grapheme stacked with many combining marks, and long icon names", () => {
         expect(parseTabSymbol("e" + "\u0301".repeat(2000))).toBeNull();
         expect(parseTabSymbol("a".repeat(41))).toBeNull();
@@ -95,6 +102,28 @@ describe("TabBadges with a symbol", () => {
         expect(markup).toContain("fa-bell");
         expect(markup).not.toContain("fa-flag");
         expect(markup).not.toContain("\u{1F451}");
+        expect(markup).not.toContain("#ff8800");
+        expect(markup).not.toContain("rounded-full");
+    });
+
+    it("does not show an icon symbol as a dot beside a winning badge", () => {
+        const markup = renderToStaticMarkup(
+            <TabBadges
+                flagColor="#ff8800"
+                symbol="crown"
+                badges={[{ badgeid: "b1", icon: "bell", color: "#4ade80", priority: 5 }]}
+            />
+        );
+        expect(markup).not.toContain("#ff8800");
+        expect(markup).not.toContain("rounded-full");
+    });
+
+    it("still shows the flag colour as a dot beside a winning badge when there is no symbol", () => {
+        const markup = renderToStaticMarkup(
+            <TabBadges flagColor="#ff8800" badges={[{ badgeid: "b1", icon: "bell", color: "#4ade80", priority: 5 }]} />
+        );
+        expect(markup).toContain("#ff8800");
+        expect(markup).toContain("rounded-full");
     });
 
     it("lets a higher priority badge win over the symbol", () => {

@@ -172,4 +172,4 @@ own workspace. If Wave ever gains such a boundary, the check belongs in `SetMeta
 The stored symbol is validated twice: by the command before writing, and by `parseTabSymbol` before drawing,
 because any block can write tab meta directly. Both refuse control, bidirectional and invisible format
 characters (the zero width joiner is allowed for emoji sequences) and bound the value (icon names 40 characters,
-text 32 bytes and two graphemes in the tab bar; the command is stricter and takes at most 8 runes).
+text 32 bytes and two graphemes, in the command as well as the parser; a zero width joiner must sit inside an emoji sequence). The command counts graphemes with a small approximation (combining marks, variation selectors, emoji modifiers, flags, joined sequences) instead of the full Unicode segmentation the browser has.

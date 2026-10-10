@@ -245,7 +245,7 @@ only what exists.
   strict JSON, the security descriptor of the folder, token file and a pre-existing folder with broad entries, the
   refusal to serve when the lock, the socket check or the token write fails, and a round trip over a real unix
   socket. Mutation checks: `tools\Mutate-WaveApi.ps1` (private, not in this repository) changes one production line
-  at a time; 23 of 24 go red, the 24th (`DisallowUnknownFields` removed) is an equivalent mutant because the key list
+  at a time; all but one go red (run it to count), the exception (`DisallowUnknownFields` removed) is an equivalent mutant because the key list
   already refuses unknown keys. Timing of the token compare cannot be unit tested; a test only pins that
   `subtle.ConstantTimeCompare` and `crypto/rand` are used.
 - **READ, not run:** the wavesrv backend (`pkg/waveapi/wavesrvapi`): it reads the object store and sends

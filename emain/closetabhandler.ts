@@ -4,6 +4,10 @@
 import { closeTabPrompt } from "./closetabprompt";
 
 export const CloseTabResultConfirmed = 1;
+// Values of maxBlocks besides a count: no limit (force, scripts) and a close that was approved without a count (both reads failed and
+// the dialog said so). The second still goes through the checked call, so the back end reads the tab itself and refuses if it cannot.
+export const CloseTabNoLimit = -1;
+export const CloseTabCountUnknown = -2;
 const MaxRounds = 4;
 
 // C is whatever the caller needs to act on the right window: it is handed back unchanged, so two windows closing tabs at the
@@ -12,7 +16,7 @@ export interface CloseTabDeps<C> {
     getBlockCount: (tabId: string) => Promise<number | null>;
     // resolves with the index of the pressed button; 1 is "Close Tab", everything else keeps the tab
     showDialog: (message: string, ctx: C) => Promise<number>;
-    // maxBlocks is the number of blocks that was approved (-1: no limit). The close itself must refuse a tab that holds more by
+    // maxBlocks is the number of blocks that was approved (CloseTabNoLimit, or CloseTabCountUnknown when approved without a count). The close itself must refuse a tab that holds more by
     // then, and resolves with whether the tab was really closed.
     closeTab: (tabId: string, ctx: C, maxBlocks: number) => Promise<boolean>;
 }
@@ -52,7 +56,7 @@ export function makeCloseTabHandler<C>(deps: CloseTabDeps<C>) {
                     approved = count;
                     continue;
                 }
-                return await deps.closeTab(tabId, ctx, approved == null ? -1 : approved);
+                return await deps.closeTab(tabId, ctx, approved == null ? CloseTabCountUnknown : approved);
             }
             return false;
         } finally {

@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
+import { CloseTabCountUnknown, CloseTabNoLimit, makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
 import { wshCloseRefusal } from "./closetabprompt";
 
 function setup(opts: { blockCount?: number | null; dialogResponse?: number | "pending"; confirmSetting?: boolean }) {
@@ -250,10 +250,17 @@ describe("the close itself carries the approved count (second review of PR 21)",
         expect(await t.handler("tab1", false, undefined)).toBe(false);
     });
 
-    test("an unreadable count that was confirmed closes without a limit", async () => {
+    test("an unreadable count that was confirmed still goes through the checked close, as 'count unknown' and not as 'no limit'", async () => {
         const t = closeSetup([null, null], [1], true);
         expect(await t.handler("tab1", false, undefined)).toBe(true);
-        expect(t.closes[0].maxBlocks).toBe(-1);
+        expect(t.closes[0].maxBlocks).toBe(CloseTabCountUnknown);
+        expect(t.closes[0].maxBlocks).not.toBe(CloseTabNoLimit);
+    });
+
+    test("the window sends both a count and 'count unknown' to the checked back end call, and only no limit to the plain one", () => {
+        const src = readFileSync(path.join(__dirname, "emain-window.ts"), "utf8");
+        expect(src).toContain("maxBlocks >= 0 || maxBlocks === CloseTabCountUnknown");
+        expect(src).toContain("WorkspaceService.CloseTabChecked(this.workspaceId, tabId, true, maxBlocks)");
     });
 });
 

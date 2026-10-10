@@ -9,6 +9,7 @@ import { BaseWindow, BaseWindowConstructorOptions, dialog, globalShortcut, ipcMa
 import { globalEvents } from "emain/emain-events";
 import path from "path";
 import { debounce } from "throttle-debounce";
+import { CloseTabCountUnknown, makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
 import {
     getGlobalIsQuitting,
     getGlobalIsRelaunching,
@@ -20,7 +21,6 @@ import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
 import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
-import { makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
@@ -661,7 +661,7 @@ export class WaveBrowserWindow extends BaseWindow {
                         tabId = entry.tabId;
                         const maxBlocks = entry.maxBlocks ?? -1;
                         const rtn =
-                            maxBlocks >= 0
+                            maxBlocks >= 0 || maxBlocks === CloseTabCountUnknown
                                 ? await WorkspaceService.CloseTabChecked(this.workspaceId, tabId, true, maxBlocks)
                                 : await WorkspaceService.CloseTab(this.workspaceId, tabId, true);
                         closedOk = rtn != null;

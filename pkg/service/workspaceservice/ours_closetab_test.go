@@ -26,3 +26,12 @@ func TestCloseTabCheckedRefusesATabThatGainedBlocks(t *testing.T) {
 		t.Fatalf("a negative limit means no limit (force or an unreadable count that the owner confirmed): %v", err)
 	}
 }
+
+func TestCountUnknownIsNotALimitAndMatchesTheWindow(t *testing.T) {
+	if CloseTabCountUnknown != -2 {
+		t.Fatalf("emain/closetabhandler.ts sends -2 for an approval without a count, got %d here", CloseTabCountUnknown)
+	}
+	if err := checkTabWithinApproved(9, CloseTabCountUnknown); err != nil {
+		t.Fatalf("an approval without a count has no limit to compare with: %v", err)
+	}
+}

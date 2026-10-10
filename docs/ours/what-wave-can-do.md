@@ -348,5 +348,4 @@ was really closed, and a close request that was replaced in the window's action 
 
 Fourth pass on section 22: whatever leaves the window's action queue (a destroyed window, an early end) first tells every close that is
 still queued "not closed" and empties the queue, so a caller (the window, or `wsh tab close`) gets an answer instead of waiting
-(tested). The unchecked back-end `CloseTab` is reached only when no limit applies: `force`, or a count that could not be read and
-that the owner confirmed anyway (a test pins that the window file calls the unchecked one once and the checked one once).
+(tested). The unchecked back-end `CloseTab` is reached only for `force` (no limit). A close that the owner confirmed without a count (both reads failed, and the dialog said so) goes through the checked call as "count unknown" (-2): the back end reads the tab itself and refuses if it cannot (tested on the window side, and a test pins that the Go constant is the same -2). The check and the delete are not one database transaction, because the delete is upstream code spanning many store calls; a block created in the same few microseconds is the one case not caught.

@@ -75,6 +75,21 @@ $seams = @(
     @('create-block-target', 'pkg/wshrpc/wshrpctypes.go', 'TargetAction string `json:"targetaction,omitempty"`', 'wsh slot places blocks with splitright/splitleft/splitup/splitdown/replace'),
     @('blocks-list-rpc', 'pkg/wshrpc/wshrpctypes.go', 'BlocksListCommand(ctx context.Context, data BlocksListRequest) ([]BlocksListEntry, error)', 'wsh slot finds the block of a slot by its meta'),
     @('delete-block-rpc', 'pkg/wshrpc/wshrpctypes.go', 'DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error', 'wsh slot close'),
+    @('telemetry-default-off', 'pkg/wconfig/defaultconfig/settings.json', '"telemetry:enabled": false,', 'fork rule: telemetry is opt-in; red if an upstream merge flips the default back'),
+    @('autoupdate-default-off', 'pkg/wconfig/defaultconfig/settings.json', '"autoupdate:enabled": false,', 'fork rule: no update check against upstream releases unless the user turns it on'),
+    @('ping-gated-on-telemetry', 'cmd/server/main-server.go', 'if !wcloud.DiagnosticPingAllowed(usageTelemetry) {', 'the daily diagnostic ping is only sent after the user opted in'),
+    @('updater-fallback-off', 'emain/updater.ts', 'settings["autoupdate:enabled"] ?? false', 'an absent autoupdate:enabled reads as off'),
+    @('stack-ui-geometry-hook', 'frontend/layout/lib/layoutModel.ts', 'applyStackLayout(node, stackRect, additionalPropsMap);', 'stack members are laid out by our geometry, not the row and column maths'),
+    @('stack-ui-strip-hook', 'frontend/layout/lib/TileLayout.tsx', '<StackStrips layoutModel={layoutModel} />', 'the tab strip of each stack is drawn next to the tiles'),
+    @('stack-ui-label-hook', 'frontend/app/tab/tabcontent.tsx', 'renderStackTabLabel,', 'tab labels come from block meta via the tab content'),
+    @('stack-ui-backend-actions', 'frontend/layout/lib/layoutModel.ts', 'case LayoutTreeActionType.StackInsert: {', 'the page applies stack actions queued by the back end'),
+    @('stack-create-block-hook', 'pkg/wshrpc/wshserver/wshserver.go', 'case wshrpc.CreateBlockAction_Stack:', 'create-block with a stack target queues stackinsert'),
+    @('stack-rpc-interface', 'pkg/wshrpc/wshrpctypes.go', 'StackBlockCommand(ctx context.Context, data CommandStackBlockData) error', 'wsh group add, remove, activate and stack move'),
+    @('stack-layout-queue', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackInsert', 'back-end layout actions for stacks'),
+    @('stack-move-layout-action', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackMove', 'wsh stack move queues this action'),
+    @('stack-menu-hook', 'frontend/app/block/blockframe-header.tsx', 'label: "Turn into a stack"', 'the block menu offers stack mode'),
+    @('stack-add-hook', 'frontend/app/tab/tabcontent.tsx', 'onStackAdd,', 'the + on a strip opens the widget-bar type menu'),
+    @('stack-create-in-stack-helper', 'frontend/app/store/global.ts', 'async function createBlockInStack(', 'creates a new block straight into a stack'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('electron-wsh-client', 'emain/emain-wsh.ts', 'async handle_electronsystembell(rh: RpcResponseHelper): Promise<void>', 'where electron-route handlers live'),
@@ -155,6 +170,6 @@ foreach ($w in $watch) {
     else { Write-Host "ok    $id" }
 }
 
-Write-Host "seams red: $red, watch hits: $watchHits"
+Write-Host "seams red: $red, watch hits: $watchHits, rows: $($seams.Count)"
 if ($red -gt 0) { exit 1 }
 exit 0

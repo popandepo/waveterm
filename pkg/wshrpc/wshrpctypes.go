@@ -95,6 +95,7 @@ type WshRpcInterface interface {
 	DisposeSuggestionsCommand(ctx context.Context, widgetId string) error
 	GetTabCommand(ctx context.Context, tabId string) (*waveobj.Tab, error)
 	UpdateTabNameCommand(ctx context.Context, tabId string, newName string) error
+	CreateTabCommand(ctx context.Context, data CommandCreateTabData) (string, error)
 	UpdateWorkspaceTabIdsCommand(ctx context.Context, workspaceId string, tabIds []string) error
 	GetAllBadgesCommand(ctx context.Context) ([]baseds.BadgeEvent, error)
 
@@ -138,6 +139,9 @@ type WshRpcInterface interface {
 	ElectronDecryptCommand(ctx context.Context, data CommandElectronDecryptData) (*CommandElectronDecryptRtnData, error)
 	NetworkOnlineCommand(ctx context.Context) (bool, error)
 	ElectronSystemBellCommand(ctx context.Context) error
+	ElectronSetActiveTabCommand(ctx context.Context, data CommandElectronTabData) error
+	ElectronCloseTabCommand(ctx context.Context, data CommandElectronTabData) error
+	ElectronPreloadTabCommand(ctx context.Context, data CommandElectronTabData) error
 
 	// secrets
 	GetSecretsCommand(ctx context.Context, names []string) (map[string]string, error)
@@ -677,6 +681,17 @@ type CommandTermGetScrollbackLinesRtnData struct {
 type CommandTermUpdateAttachedJobData struct {
 	BlockId string `json:"blockid"`
 	JobId   string `json:"jobid,omitempty"`
+}
+
+type CommandCreateTabData struct {
+	WorkspaceId string `json:"workspaceid"`
+	Name        string `json:"name,omitempty"`
+	Empty       bool   `json:"empty,omitempty"` // skip the default starter layout, so the tab has no blocks
+}
+
+type CommandElectronTabData struct {
+	WorkspaceId string `json:"workspaceid"`
+	TabId       string `json:"tabid"`
 }
 
 type CommandElectronEncryptData struct {

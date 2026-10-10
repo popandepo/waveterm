@@ -110,6 +110,30 @@ export class ElectronWshClientType extends WshClient {
         shell.beep();
     }
 
+    async handle_electronsetactivetab(rh: RpcResponseHelper, data: CommandElectronTabData): Promise<void> {
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        await ww.setActiveTab(data.tabid, true);
+    }
+
+    async handle_electronclosetab(rh: RpcResponseHelper, data: CommandElectronTabData): Promise<void> {
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        await ww.queueCloseTab(data.tabid);
+    }
+
+    async handle_electronpreloadtab(rh: RpcResponseHelper, data: CommandElectronTabData): Promise<void> {
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        await ww.preloadTab(data.tabid);
+    }
+
     // async handle_workspaceupdate(rh: RpcResponseHelper) {
     //     console.log("workspaceupdate");
     //     fireAndForget(async () => {

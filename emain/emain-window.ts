@@ -544,6 +544,24 @@ export class WaveBrowserWindow extends BaseWindow {
         }
     }
 
+    // Loads a tab's page in the background so its blocks mount and their processes start, without showing it,
+    // changing the active tab or focusing anything. The view is parked off screen like every other inactive tab.
+    async preloadTab(tabId: string) {
+        if (this.isDestroyed()) {
+            return;
+        }
+        const [tabView, tabInitialized] = await getOrCreateWebViewForTab(this.waveWindowId, tabId);
+        if (tabInitialized) {
+            return;
+        }
+        this.allLoadedTabViews.set(tabId, tabView);
+        await this.initializeTab(tabView, false);
+        if (this.isDestroyed()) {
+            return;
+        }
+        tabView.positionTabOffScreen(this.getContentBounds());
+    }
+
     async queueCreateTab() {
         await this._queueActionInternal({ op: "createtab" });
     }

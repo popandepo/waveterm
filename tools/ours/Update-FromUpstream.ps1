@@ -88,7 +88,7 @@ GitRun checkout -q -b $branch $targetSha
 $replayed = @()
 foreach ($c in $stack) {
     $subject = (GitOut log -1 --format=%s $c).Trim()
-    & git cherry-pick -x $c 2>&1 | Out-Null
+    & git cherry-pick $c 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         $files = @(GitOut diff --name-only --diff-filter=U)
         Say "CONFLICT replaying $c ($subject). Files:"
@@ -115,9 +115,9 @@ foreach ($r in $replayed) {
     }
 }
 if ($meaningChanged -eq 0) { Say '  all replayed commits have identical patch ids' }
-Say '### range-diff (old stack vs replayed stack)'
+Say '### range-diff summary (= same, ! changed; run git range-diff without -s on a ! line for the hunks)'
 if ($stack.Count -gt 0) {
-    & git range-diff "$base..$OursBranch" "$targetSha..$branch" 2>&1 | ForEach-Object { Say "    $_" }
+    & git range-diff -s "$base..$OursBranch" "$targetSha..$branch" 2>&1 | ForEach-Object { Say "    $_" }
 }
 
 Say '## Upstream changes in files we touch'

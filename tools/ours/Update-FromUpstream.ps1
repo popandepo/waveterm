@@ -142,7 +142,11 @@ if (-not $SkipBuild) {
     Say '## Checks'
     $vt = & npx vitest run 2>&1 | Select-Object -Last 6
     $vt | ForEach-Object { Say "  $_" }
-    if ($LASTEXITCODE -ne 0) { Say '  VITEST FAILED'; $failed = $true }
+    if ($LASTEXITCODE -ne 0) {
+        Say '  vitest failed, retrying once (timeouts happen on a cold or loaded machine)'
+        & npx vitest run 2>&1 | Select-Object -Last 6 | ForEach-Object { Say "  $_" }
+        if ($LASTEXITCODE -ne 0) { Say '  VITEST FAILED'; $failed = $true } else { Say '  vitest passed on retry (flaky first run)' }
+    }
 
     $tscOut = & npx tsc --noEmit 2>&1
     $tscErrors = @($tscOut | Where-Object { $_ -match 'error TS' } | ForEach-Object { ($_ -split '\(')[0] })

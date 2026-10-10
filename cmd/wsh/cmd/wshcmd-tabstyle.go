@@ -36,6 +36,8 @@ The colour is a CSS colour name or a hex colour (#RRGGBB or #RRGGBBAA) and is st
 "tab:flagcolor" key. The symbol is a Font Awesome icon name (for example crown, star, rocket) or one or two
 characters of text such as an emoji, and is stored in "tab:symbol".
 
+--clear removes the colour, the symbol and the accent of the tab.
+
 By default the tab the command runs in is changed. Use --tab with a tab id, the first 8 characters of one,
 "tab:<n>" (the n-th tab of the workspace) or a full tab:<uuid> reference to change another tab.`,
 	Example: `  wsh tab style --color gold --symbol crown
@@ -60,7 +62,7 @@ func init() {
 	tabStyleCmd.Flags().StringVar(&tabStyleColor, "color", "", "CSS colour name or hex colour")
 	tabStyleCmd.Flags().StringVar(&tabStyleAccent, "accent", "", "colour for the whole Wave frame while this tab is active (CSS name or hex); a workspace accent and the default are the fallbacks")
 	tabStyleCmd.Flags().StringVar(&tabStyleSymbol, "symbol", "", "Font Awesome icon name, or one or two characters (emoji)")
-	tabStyleCmd.Flags().BoolVar(&tabStyleClear, "clear", false, "remove both the colour and the symbol")
+	tabStyleCmd.Flags().BoolVar(&tabStyleClear, "clear", false, "remove the colour, the symbol and the accent")
 	tabCommand.AddCommand(tabStyleCmd)
 }
 

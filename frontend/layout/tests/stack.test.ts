@@ -628,6 +628,8 @@ describe("dropping a tile on the middle of another makes a stack", () => {
             direction: DropDirection.Left,
         });
         assert.equal(edge?.type, LayoutTreeActionType.Move);
+    });
+});
 
 describe("leaving and entering stack mode never replaces the tile object", () => {
     test("take out, turn into a stack and turn off keep the same node (so the view is not remounted)", () => {

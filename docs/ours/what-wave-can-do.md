@@ -449,6 +449,44 @@ terminal and note its process id; after the drag the marker must still be on the
 (`devdata/proof/drag-check.ps1` in the private test folder does the marker and the pid part with `wsh send` and `wsh screen`);
 (3) drop a tab on the middle of another tile, on another tab of the same strip, and on a tab of another strip.
 
+## 24. The live state record (what runs where, readable from outside)
+
+Wave writes `<data dir>/state/wave-state.json` after every change to a workspace, tab, block, layout or window (a 300 ms
+coalescing delay, no polling and no timer), by writing a temp file in the same folder, flushing it and renaming it over the
+old one: a reader sees the old record or the new one, never half of one. An unchanged state is not rewritten; `sequence` counts
+the writes; a failed write leaves the old file in place and is retried at the next change.
+Words: a **workspace** has **tabs** (the T1, T2 row), a tab has **tiles**, a tile of kind `stack` has a **group** of block tabs
+(in order, one active), a plain tile has a group of one. Per block: view, title, working folder, the program name only (never
+its path, arguments, address or environment: those can hold secrets), the controller, and every `session:*` meta value
+(`session:name`, `session:id`, `session:model`, `session:effort`, `session:permissionmode` ...: the starter writes them with
+`wsh session start --meta`, see section 21). `sessions` is an index of the blocks that carry a session id: workspace, tab,
+tile position, stack and position in its group, so that an outside tool can put things back.
+A block that the saved layout does not show yet (the page saves its layout 100 ms after a change) is still listed, as a plain
+tile at the end of its tab.
+- **RAN:** Go tests for the builder (names, order, active tab of a group, secrets never in the file, sessions index, missing
+  layout or block), the writer (atomic replacement, a failed rename keeps the old file and leaves no temp file, no rewrite of an
+  unchanged state, a burst gives one build, no write without a change, retry after a failure) and the event filter; two
+  mutations (skip-unchanged, sequence) turned tests red.
+- **READ, not run:** the loader that reads the object store and the hook in wavesrv startup (needs the database), and the
+  file as the app really writes it.
+- **Private reader:** `Read-WaveState.ps1` (outside the repository) prints the record and the command lines to resume each session.
+
+Review notes on section 24 (the state record), asked by the reviewer:
+- **Where:** `<data dir>/state/wave-state.json`; the folder is created for the current user (mode 0700 on systems that have modes; on
+  Windows it inherits the access of the data folder, which sits in the user's own profile or test folder). It is not locked down further
+  the way the local API folder is: it holds no token.
+- **What could be private:** block **titles** (set by the user or by the program running in the block, so they can contain anything a
+  program prints into its title) and **working folders** (paths with the user's name and project names) are in the file on purpose,
+  because the folder is what puts a session back. Never in the file: urls, environments, command lines or arguments (only the
+  program's base name), and any `session:*` value except name, id, model, effort, permissionmode, status-session and status-tab
+  (each at most 200 characters).
+- Only blocks that belong to a tab are recorded in it, each once; a block that the saved layout still names but the tab no longer holds,
+  or names twice, is not shown as a ghost or a duplicate.
+- A failed database read keeps the last good file (the record is never published incomplete). A replace that fails because a reader
+  holds the file open is retried for about two seconds before it is given up and tried again at the next change. A test with a real
+  open reader on Windows fails if the retry is removed.
+- A test changes an object through the event stream and checks that the file changes (it fails if the observer is never registered).
+
 ## 25. Keyboard: next and previous tab inside a tile
 
 The design: `Ctrl+Shift+PageDown` shows and focuses the next tab of the stack that holds the focused tile, `Ctrl+Shift+PageUp`

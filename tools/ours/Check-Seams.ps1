@@ -88,6 +88,8 @@ $seams = @(
     @('api-startup-hook', 'cmd/server/main-server.go', 'go wshutil.RunWshRpcOverListener(unixListener, nil)', 'wavesrvapi.Start() is added on the next line of wavesrv startup'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
+    @('state-record-event-hook', 'pkg/wps/wps.go', 'notifyObservers(event)', 'the state record reacts to every published object update'),
+    @('state-record-start-hook', 'cmd/server/main-server.go', 'wavesrvstate.Start()', 'wavesrv starts the state record writer'),
     @('electron-wsh-client', 'emain/emain-wsh.ts', 'async handle_electronsystembell(rh: RpcResponseHelper): Promise<void>', 'where electron-route handlers live'),
     @('window-set-active-tab', 'emain/emain-window.ts', 'async setActiveTab(tabId: string, setInBackend: boolean, primaryStartupTab = false)', 'electron tab switch'),
     @('window-queue-close-tab', 'emain/emain-window.ts', 'async queueCloseTab(tabId: string', 'electron tab close'),

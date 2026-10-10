@@ -26,6 +26,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
 	"github.com/wavetermdev/waveterm/pkg/secretstore"
 	"github.com/wavetermdev/waveterm/pkg/service"
+	"github.com/wavetermdev/waveterm/pkg/staterecord/wavesrvstate"
 	"github.com/wavetermdev/waveterm/pkg/telemetry"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
 	"github.com/wavetermdev/waveterm/pkg/util/envutil"
@@ -576,6 +577,7 @@ func main() {
 	go updateTelemetryCountsLoop()
 	go backupCleanupLoop()
 	go startupActivityUpdate(firstLaunch) // must be after startConfigWatcher()
+	wavesrvstate.Start()
 	blocklogger.InitBlockLogger()
 	jobcontroller.InitJobController()
 	blockcontroller.InitBlockController()

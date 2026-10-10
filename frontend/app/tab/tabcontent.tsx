@@ -5,9 +5,11 @@ import { Block } from "@/app/block/block";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { stackAddEntries } from "@/app/tab/stackaddmenu";
+import { entryStillAllowed } from "@/app/tab/stackcreate";
 import { StackTabLabel } from "@/app/tab/stacktablabel";
 import { CenteredDiv } from "@/element/quickelems";
 import { ContentRenderer, NodeModel, PreviewRenderer, TileLayout } from "@/layout/index";
+import type { LayoutModel } from "@/layout/lib/layoutModel";
 import { TileLayoutContents } from "@/layout/lib/types";
 import { atoms, createBlockInStack, getApi } from "@/store/global";
 import * as services from "@/store/services";
@@ -41,13 +43,17 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
 
         const renderStackTabLabel = (blockId: string) => <StackTabLabel key={blockId} blockId={blockId} />;
 
-        const onStackAdd = (targetBlockId: string, ev: React.MouseEvent<any>) => {
+        const onStackAdd = (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => {
             const widgets = globalStore.get(atoms.fullConfigAtom)?.widgets;
-            const entries = stackAddEntries(widgets, globalStore.get(atoms.workspaceId));
+            const workspaceIdAtOpen = globalStore.get(atoms.workspaceId);
+            const entries = stackAddEntries(widgets, workspaceIdAtOpen);
             const menu: ContextMenuItem[] = entries.map((entry) => ({
                 label: entry.label,
                 click: () => {
-                    fireAndForget(() => createBlockInStack(entry.blockdef, targetBlockId));
+                    if (!entryStillAllowed(workspaceIdAtOpen, globalStore.get(atoms.workspaceId))) {
+                        return;
+                    }
+                    fireAndForget(() => createBlockInStack(entry.blockdef, targetBlockId, layoutModel));
                 },
             }));
             ContextMenuModel.getInstance().showContextMenu(menu, ev);

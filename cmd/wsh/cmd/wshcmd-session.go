@@ -68,6 +68,8 @@ var (
 	sessionArgsFile  string
 	sessionWorkspace string
 	sessionActivate  bool
+	sessionRestart   bool
+	sessionMeta      []string
 	sessionForce     bool
 )
 
@@ -80,6 +82,8 @@ func init() {
 	f.StringArrayVar(&sessionEnv, "env", nil, "KEY=VALUE for the program, repeatable")
 	f.StringVar(&sessionArgsFile, "args-file", "", "JSON array of strings: the command and its arguments")
 	f.StringVar(&sessionWorkspace, "workspace", "", "workspace id (defaults to WAVETERM_WORKSPACEID)")
+	f.BoolVar(&sessionRestart, "restart", false, "start the program again every time Wave starts (use with a command that resumes its own session)")
+	f.StringArrayVar(&sessionMeta, "meta", nil, "session:KEY=VALUE written on the block for outside tools (session:id, session:model ...), repeatable")
 	f.BoolVar(&sessionActivate, "activate", false, "switch to the new tab (default: leave the active tab alone)")
 	sessionCloseCmd.Flags().BoolVar(&sessionForce, "force", false, "close even if a program is still running")
 	sessionCommand.AddCommand(sessionStartCmd)
@@ -121,6 +125,40 @@ func splitSessionCommand(dashArgs []string, argsFileData []byte) (string, []stri
 		return "", nil, fmt.Errorf("no command given: put it after -- or in --args-file")
 	}
 	return dashArgs[0], dashArgs[1:], nil
+}
+
+// parseSessionMeta accepts only keys under "session:". The block meta also decides what program runs and where, so
+// no other key may be set from here.
+func parseSessionMeta(pairs []string) (map[string]any, error) {
+	meta := make(map[string]any)
+	for _, p := range pairs {
+		kv := strings.SplitN(p, "=", 2)
+		if len(kv) != 2 || !strings.HasPrefix(kv[0], "session:") || len(kv[0]) == len("session:") {
+			return nil, fmt.Errorf("invalid --meta %q: want session:KEY=VALUE", p)
+		}
+		if strings.ContainsAny(kv[1], "\r\n") {
+			return nil, fmt.Errorf("invalid --meta %q: a value cannot contain a line break", kv[0])
+		}
+		if _, dup := meta[kv[0]]; dup {
+			return nil, fmt.Errorf("--meta %s given twice", kv[0])
+		}
+		meta[kv[0]] = kv[1]
+	}
+	return meta, nil
+}
+
+// applySessionOptions adds the optional parts to the block meta. Restart mode makes Wave start the program at every
+// start of the app (the controller runs a block whose runonstart is true and which is not marked run once) and keeps
+// the earlier output instead of clearing it.
+func applySessionOptions(meta map[string]any, restart bool, extra map[string]any) {
+	if restart {
+		meta[waveobj.MetaKey_CmdRunOnce] = false
+		meta[waveobj.MetaKey_CmdRunOnStart] = true
+		meta[waveobj.MetaKey_CmdClearOnStart] = false
+	}
+	for k, v := range extra {
+		meta[k] = v
+	}
 }
 
 func parseSessionEnv(pairs []string) (map[string]any, error) {
@@ -181,7 +219,12 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			return fmt.Errorf("tab %s was created but styling it failed: %w", tabId, err)
 		}
 	}
+	extraMeta, err := parseSessionMeta(sessionMeta)
+	if err != nil {
+		return err
+	}
 	blockMeta := buildSessionBlockMeta(command, cmdArgs, cwd, envMap, RpcContext.Conn)
+	applySessionOptions(blockMeta, sessionRestart, extraMeta)
 	oref, err := wshclient.CreateBlockCommand(RpcClient, wshrpc.CommandCreateBlockData{
 		TabId:    tabId,
 		BlockDef: &waveobj.BlockDef{Meta: blockMeta},

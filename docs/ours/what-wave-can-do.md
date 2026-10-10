@@ -305,3 +305,18 @@ confirmed; keyboard focus moves only with `--focus`.
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
+
+## 21. A session block that comes back after Wave restarts (`wsh session start --restart --meta`)
+
+`wsh session start --restart` marks the block so that Wave starts its program again at every start of the app (the
+controller runs a block whose `cmd:runonstart` is true and which is not marked run once) and keeps the earlier output.
+`--meta session:KEY=VALUE` (repeatable, only `session:*` keys, no line breaks) writes facts on the block for outside
+tools, for example `session:id`, `session:model`, `session:effort`; Wave itself never reads them. A running process always
+dies with the app: "coming back" means the same command is started again in the same block, so the command must resume
+its own work. For a Claude session that is: first start `--session-id <guid>`, every later start `--resume <guid>`.
+- **RAN:** Go tests for the meta rules (only `session:*`, no duplicates, no line breaks) and for restart mode (run once off,
+  start with Wave on, output kept; a mutation of the run-once line turned the test red); a real throwaway check outside Wave
+  with a cheap model: a session created with `--session-id <guid>` and resumed with `--resume <guid>` answered with the
+  word it had been given in the first start.
+- **READ, not run:** Wave actually starting the block at its next start (needs the restart in a window); the claude TUI
+  (the check used print mode).

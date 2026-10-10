@@ -6,6 +6,8 @@ package cmd
 import (
 	"reflect"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
 func TestSplitSessionCommand(t *testing.T) {
@@ -82,5 +84,48 @@ func TestBuildSessionBlockMetaPassesArgumentsUntouched(t *testing.T) {
 	}
 	if got := buildSessionBlockMeta("x", nil, "c", nil, "ssh:host")["connection"]; got != "ssh:host" {
 		t.Fatalf("connection not set: %v", got)
+	}
+}
+
+func TestParseSessionMetaAcceptsOnlySessionKeys(t *testing.T) {
+	got, err := parseSessionMeta([]string{"session:id=abc-123", "session:model=claude-sonnet-5-5", "session:name=tether notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["session:id"] != "abc-123" || got["session:model"] != "claude-sonnet-5-5" || got["session:name"] != "tether notes" || len(got) != 3 {
+		t.Fatalf("got %v", got)
+	}
+	for _, bad := range []string{"cmd=evil", "view=web", "controller=shell", "session:=x", "novalue", "=x", "session:id", "cmd:runonce=true", "connection=other"} {
+		if _, err := parseSessionMeta([]string{bad}); err == nil {
+			t.Fatalf("%q should be refused: only session:* keys with a value may be set", bad)
+		}
+	}
+	if _, err := parseSessionMeta([]string{"session:id=a", "session:id=b"}); err == nil {
+		t.Fatalf("the same key twice should be refused")
+	}
+	if _, err := parseSessionMeta([]string{"session:id=a\nb"}); err == nil {
+		t.Fatalf("a newline in a value should be refused")
+	}
+}
+
+func TestRestartModeMakesTheProgramStartAgainWithWave(t *testing.T) {
+	meta := buildSessionBlockMeta("pwsh", []string{"-File", "x.ps1"}, "C:/w", nil, "")
+	if meta[waveobj.MetaKey_CmdRunOnce] != true {
+		t.Fatalf("the default stays run once")
+	}
+	applySessionOptions(meta, true, map[string]any{"session:id": "abc"})
+	if meta[waveobj.MetaKey_CmdRunOnce] != false || meta[waveobj.MetaKey_CmdRunOnStart] != true {
+		t.Fatalf("restart mode must start the program at every start of Wave: %v", meta)
+	}
+	if meta[waveobj.MetaKey_CmdClearOnStart] != false {
+		t.Fatalf("restart mode keeps the earlier output")
+	}
+	if meta["session:id"] != "abc" {
+		t.Fatalf("the session meta is carried on the block")
+	}
+	plain := buildSessionBlockMeta("pwsh", nil, "C:/w", nil, "")
+	applySessionOptions(plain, false, nil)
+	if plain[waveobj.MetaKey_CmdRunOnce] != true || plain[waveobj.MetaKey_CmdClearOnStart] != true {
+		t.Fatalf("without --restart nothing changes: %v", plain)
 	}
 }

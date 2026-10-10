@@ -79,7 +79,7 @@ $seams = @(
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('electron-wsh-client', 'emain/emain-wsh.ts', 'async handle_electronsystembell(rh: RpcResponseHelper): Promise<void>', 'where electron-route handlers live'),
     @('window-set-active-tab', 'emain/emain-window.ts', 'async setActiveTab(tabId: string, setInBackend: boolean, primaryStartupTab = false)', 'electron tab switch'),
-    @('window-queue-close-tab', 'emain/emain-window.ts', 'async queueCloseTab(tabId: string)', 'electron tab close'),
+    @('window-queue-close-tab', 'emain/emain-window.ts', 'async queueCloseTab(tabId: string', 'electron tab close'),
     @('close-tab-handler', 'emain/emain-window.ts', 'closeTabHandler(tabId, confirmClose, ww)', 'every UI route that closes a tab goes through one handler that asks first'),
     @('layout-rootnode-any', 'pkg/waveobj/wtype.go', 'RootNode any `json:"rootnode,omitempty"`', 'layout tree is opaque to the back end (stack node spike)'),
     @('layout-node-type', 'frontend/layout/lib/types.ts', 'export interface LayoutNode { id: string; data?: TabLayoutData; children?: LayoutNode[]; flexDirection: FlexDirection; size: number; kind?: "stack"; activeChildId?: string; }', 'node shape'),

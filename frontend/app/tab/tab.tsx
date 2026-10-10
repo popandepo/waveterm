@@ -14,6 +14,7 @@ import { useAtomValue } from "jotai";
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { makeORef } from "../store/wos";
 import { TabBadges } from "./tabbadges";
+import { TabSymbolMetaKey } from "./tabsymbol";
 import "./tab.scss";
 import { buildTabContextMenu } from "./tabcontextmenu";
 
@@ -42,6 +43,7 @@ interface TabVProps {
     isNew: boolean;
     badges?: Badge[] | null;
     flagColor?: string | null;
+    symbol?: string | null;
     onClick: () => void;
     onClose: (event: React.MouseEvent<HTMLButtonElement, MouseEvent> | null) => void;
     onDragStart: (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
@@ -62,6 +64,7 @@ const TabV = forwardRef<HTMLDivElement, TabVProps>((props, ref) => {
         isNew,
         badges,
         flagColor,
+        symbol,
         onClick,
         onClose,
         onDragStart,
@@ -204,7 +207,7 @@ const TabV = forwardRef<HTMLDivElement, TabVProps>((props, ref) => {
                 >
                     {displayName}
                 </div>
-                <TabBadges badges={badges} flagColor={flagColor} />
+                <TabBadges badges={badges} flagColor={flagColor} symbol={symbol} />
                 <Button
                     className="ghost grey close"
                     onClick={onClose}
@@ -304,6 +307,7 @@ const TabInner = forwardRef<HTMLDivElement, TabProps>((props, ref) => {
             isNew={isNew}
             badges={badges}
             flagColor={flagColor}
+            symbol={tabData?.meta?.[TabSymbolMetaKey]}
             onClick={handleTabClick}
             onClose={onClose}
             onDragStart={onDragStart}

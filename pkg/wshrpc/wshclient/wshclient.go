@@ -239,6 +239,18 @@ func DisposeSuggestionsCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcO
 	return err
 }
 
+// command "electronclosetab", wshserver.ElectronCloseTabCommand
+func ElectronCloseTabCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronTabData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "electronclosetab", data, opts)
+	return err
+}
+
+// command "electroncreatetab", wshserver.ElectronCreateTabCommand
+func ElectronCreateTabCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronCreateTabData, opts *wshrpc.RpcOpts) (string, error) {
+	resp, err := sendRpcRequestCallHelper[string](w, "electroncreatetab", data, opts)
+	return resp, err
+}
+
 // command "electrondecrypt", wshserver.ElectronDecryptCommand
 func ElectronDecryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronDecryptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandElectronDecryptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandElectronDecryptRtnData](w, "electrondecrypt", data, opts)
@@ -249,6 +261,12 @@ func ElectronDecryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronDecryp
 func ElectronEncryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronEncryptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandElectronEncryptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandElectronEncryptRtnData](w, "electronencrypt", data, opts)
 	return resp, err
+}
+
+// command "electronsetactivetab", wshserver.ElectronSetActiveTabCommand
+func ElectronSetActiveTabCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronTabData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "electronsetactivetab", data, opts)
+	return err
 }
 
 // command "electronsystembell", wshserver.ElectronSystemBellCommand

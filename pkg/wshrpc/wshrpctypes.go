@@ -138,6 +138,9 @@ type WshRpcInterface interface {
 	ElectronDecryptCommand(ctx context.Context, data CommandElectronDecryptData) (*CommandElectronDecryptRtnData, error)
 	NetworkOnlineCommand(ctx context.Context) (bool, error)
 	ElectronSystemBellCommand(ctx context.Context) error
+	ElectronCreateTabCommand(ctx context.Context, data CommandElectronCreateTabData) (string, error)
+	ElectronSetActiveTabCommand(ctx context.Context, data CommandElectronTabData) error
+	ElectronCloseTabCommand(ctx context.Context, data CommandElectronTabData) error
 
 	// secrets
 	GetSecretsCommand(ctx context.Context, names []string) (map[string]string, error)
@@ -677,6 +680,17 @@ type CommandTermGetScrollbackLinesRtnData struct {
 type CommandTermUpdateAttachedJobData struct {
 	BlockId string `json:"blockid"`
 	JobId   string `json:"jobid,omitempty"`
+}
+
+type CommandElectronCreateTabData struct {
+	WorkspaceId string `json:"workspaceid"`
+	Name        string `json:"name,omitempty"`
+	NoActivate  bool   `json:"noactivate,omitempty"`
+}
+
+type CommandElectronTabData struct {
+	WorkspaceId string `json:"workspaceid"`
+	TabId       string `json:"tabid"`
 }
 
 type CommandElectronEncryptData struct {

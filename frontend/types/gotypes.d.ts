@@ -349,6 +349,13 @@ declare global {
         routeid: string;
     };
 
+    // wshrpc.CommandElectronCreateTabData
+    type CommandElectronCreateTabData = {
+        workspaceid: string;
+        name?: string;
+        noactivate?: boolean;
+    };
+
     // wshrpc.CommandElectronDecryptData
     type CommandElectronDecryptData = {
         ciphertext: string;
@@ -369,6 +376,12 @@ declare global {
     type CommandElectronEncryptRtnData = {
         ciphertext: string;
         storagebackend: string;
+    };
+
+    // wshrpc.CommandElectronTabData
+    type CommandElectronTabData = {
+        workspaceid: string;
+        tabid: string;
     };
 
     // wshrpc.CommandEventReadHistoryData
@@ -1589,6 +1602,7 @@ declare global {
         "debug:panictype"?: string;
         "block:view"?: string;
         "block:controller"?: string;
+        "block:subblock"?: boolean;
         "ai:backendtype"?: string;
         "ai:local"?: boolean;
         "wsh:cmd"?: string;

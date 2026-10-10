@@ -1,7 +1,7 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { WindowService } from "@/app/store/services";
+import { WindowService, WorkspaceService } from "@/app/store/services";
 import { RpcResponseHelper, WshClient } from "@/app/store/wshclient";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { Notification, net, safeStorage, shell } from "electron";
@@ -108,6 +108,35 @@ export class ElectronWshClientType extends WshClient {
 
     async handle_electronsystembell(rh: RpcResponseHelper): Promise<void> {
         shell.beep();
+    }
+
+    async handle_electroncreatetab(rh: RpcResponseHelper, data: CommandElectronCreateTabData): Promise<string> {
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        const activate = !data.noactivate;
+        const tabId = await WorkspaceService.CreateTab(data.workspaceid, data.name ?? "", activate);
+        if (activate) {
+            await ww.setActiveTab(tabId, false);
+        }
+        return tabId;
+    }
+
+    async handle_electronsetactivetab(rh: RpcResponseHelper, data: CommandElectronTabData): Promise<void> {
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        await ww.setActiveTab(data.tabid, true);
+    }
+
+    async handle_electronclosetab(rh: RpcResponseHelper, data: CommandElectronTabData): Promise<void> {
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        await ww.queueCloseTab(data.tabid);
     }
 
     // async handle_workspaceupdate(rh: RpcResponseHelper) {

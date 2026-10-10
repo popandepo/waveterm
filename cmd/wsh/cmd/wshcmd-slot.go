@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -26,8 +27,9 @@ var slotCommand = &cobra.Command{
 "wsh slot open middle web url=http://127.0.0.1:18766/" always lands in the middle: it replaces what is
 there, or opens next to the nearest filled slot. "wsh slot close middle" gives the space back.
 The slot names and how each one finds its neighbour are data (--layout-file).
-Limits: two agents opening the same empty slot at the same instant are not prevented; the smaller block id
-keeps the slot and the other call removes its own block and fails. A slot is never placed by splitting one
+Limits: opening the same empty slot from two places at the same instant is NOT safe: there is no lock in the
+backend, so both blocks can survive. The call re-checks after creating and the smaller block id wins, but a
+rival that appears after the check is missed. "wsh slot repair" removes such duplicates (keeps the smallest id). A slot is never placed by splitting one
 block of a two-block column (it would not be full height); that case is refused with a message.`,
 	PersistentPreRunE: preRunSetupRpcClient,
 }
@@ -46,6 +48,13 @@ var slotCloseCmd = &cobra.Command{
 	RunE:  slotCloseRun,
 }
 
+var slotRepairCmd = &cobra.Command{
+	Use:   "repair",
+	Short: "remove duplicate blocks that claim the same slot (the smallest block id is kept)",
+	Args:  cobra.NoArgs,
+	RunE:  slotRepairRun,
+}
+
 var slotListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "show which block fills each slot of the tab (JSON)",
@@ -60,6 +69,7 @@ func init() {
 	slotCommand.AddCommand(slotOpenCmd)
 	slotCommand.AddCommand(slotCloseCmd)
 	slotCommand.AddCommand(slotListCmd)
+	slotCommand.AddCommand(slotRepairCmd)
 	rootCmd.AddCommand(slotCommand)
 }
 
@@ -175,7 +185,10 @@ func openInSlot(ops slotOps, layout *slotLayout, tabId string, slot string, view
 	// keeps the slot and the other caller removes its own block, so every caller agrees on the winner.
 	owners, err := ops.SlotOwners(tabId, slot)
 	if err != nil {
-		return nil, fmt.Errorf("checking slot %q after creating block %s: %w", slot, blockId, err)
+		if delErr := ops.DeleteBlock(blockId); delErr != nil {
+			return nil, fmt.Errorf("checking slot %q after creating block %s failed (%v) and removing that block also failed, close it by hand: %w", slot, blockId, err, delErr)
+		}
+		return nil, fmt.Errorf("checking slot %q after creating block %s failed, the block was removed: %w", slot, blockId, err)
 	}
 	if len(owners) > 1 && owners[0] != blockId {
 		if delErr := ops.DeleteBlock(blockId); delErr != nil {
@@ -292,4 +305,59 @@ func slotListRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	out, _ := json.Marshal(rows)
 	WriteStdout("%s\n", out)
 	return nil
+}
+
+type slotRepairResult struct {
+	Slot    string   `json:"slot"`
+	Kept    string   `json:"kept"`
+	Removed []string `json:"removed"`
+}
+
+// repairSlots removes every block but the one with the smallest id from each slot that has more than one.
+func repairSlots(ops slotOps, layout *slotLayout, tabId string) ([]slotRepairResult, error) {
+	var results []slotRepairResult
+	var failures []string
+	for _, def := range layout.Slots {
+		owners, err := ops.SlotOwners(tabId, def.Name)
+		if err != nil {
+			return results, err
+		}
+		if len(owners) < 2 {
+			continue
+		}
+		res := slotRepairResult{Slot: def.Name, Kept: owners[0]}
+		for _, id := range owners[1:] {
+			if err := ops.DeleteBlock(id); err != nil {
+				failures = append(failures, fmt.Sprintf("%s: %v", id, err))
+				continue
+			}
+			res.Removed = append(res.Removed, id)
+		}
+		results = append(results, res)
+	}
+	if len(failures) > 0 {
+		return results, fmt.Errorf("could not remove: %s", strings.Join(failures, "; "))
+	}
+	return results, nil
+}
+
+func slotRepairRun(cmd *cobra.Command, args []string) (rtnErr error) {
+	defer func() {
+		sendActivity("slot", rtnErr == nil)
+	}()
+	layout, err := loadSlotLayout(slotLayoutFile)
+	if err != nil {
+		return err
+	}
+	tabId, err := slotTabId()
+	if err != nil {
+		return err
+	}
+	results, err := repairSlots(rpcSlotOps{}, layout, tabId)
+	out, _ := json.Marshal(results)
+	if results == nil {
+		out = []byte("[]")
+	}
+	WriteStdout("%s\n", out)
+	return err
 }

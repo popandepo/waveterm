@@ -21,6 +21,10 @@ type fakeSlotOps struct {
 	failOn  string
 	// rival, when set, is a block another agent created in the same slot while we were creating ours.
 	rival map[string]string
+	// ownersFail makes SlotOwners fail; deleteFail makes DeleteBlock fail.
+	ownersFail, deleteFail bool
+	// extra holds more claimants of a slot, for repair tests.
+	extra map[string][]string
 }
 
 func newFakeSlotOps() *fakeSlotOps {
@@ -36,7 +40,10 @@ func (f *fakeSlotOps) SlotBlocks(tabId string) (map[string]string, error) {
 }
 
 func (f *fakeSlotOps) SlotOwners(tabId string, slot string) ([]string, error) {
-	var out []string
+	if f.ownersFail {
+		return nil, fmt.Errorf("list failed")
+	}
+	out := append([]string(nil), f.extra[slot]...)
 	if id := f.blocks[slot]; id != "" {
 		out = append(out, id)
 	}
@@ -60,6 +67,9 @@ func (f *fakeSlotOps) CreateBlock(d wshrpc.CommandCreateBlockData) (string, erro
 }
 
 func (f *fakeSlotOps) DeleteBlock(id string) error {
+	if f.deleteFail {
+		return fmt.Errorf("delete failed")
+	}
 	f.deleted = append(f.deleted, id)
 	for k, v := range f.blocks {
 		if v == id {
@@ -334,5 +344,66 @@ func TestSlotOpenCommandSendsNoFocusPayload(t *testing.T) {
 	}
 	if d.BlockDef.Meta[SlotMetaKey] != "middle" || d.BlockDef.Meta["url"] != "http://127.0.0.1:18766/" || d.BlockDef.Meta["view"] != "web" {
 		t.Errorf("meta = %v", d.BlockDef.Meta)
+	}
+}
+
+func TestOwnersListFailureAfterCreateRemovesTheNewBlock(t *testing.T) {
+	l := mustDefaultLayout(t)
+	ops := newFakeSlotOps()
+	ops.ownersFail = true
+	_, err := openInSlot(ops, l, "tab1", "middle", "web", nil, false)
+	if err == nil || !strings.Contains(err.Error(), "was removed") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(ops.deleted) != 1 || ops.deleted[0] != "b1" {
+		t.Errorf("deleted = %v, want our block b1", ops.deleted)
+	}
+}
+
+func TestOwnersListFailureAndDeleteFailureBothReported(t *testing.T) {
+	l := mustDefaultLayout(t)
+	ops := newFakeSlotOps()
+	ops.ownersFail = true
+	ops.deleteFail = true
+	_, err := openInSlot(ops, l, "tab1", "middle", "web", nil, false)
+	if err == nil || !strings.Contains(err.Error(), "close it by hand") || !strings.Contains(err.Error(), "b1") {
+		t.Fatalf("err = %v, want a cleanup failure naming the block", err)
+	}
+}
+
+func TestRepairKeepsSmallestIdAndRemovesTheRest(t *testing.T) {
+	l := mustDefaultLayout(t)
+	ops := newFakeSlotOps()
+	ops.extra = map[string][]string{"middle": {"m9", "m2", "m5"}, "left": {"l1"}}
+	res, err := repairSlots(ops, l, "tab1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].Slot != "middle" || res[0].Kept != "m2" || strings.Join(res[0].Removed, ",") != "m5,m9" {
+		t.Errorf("res = %+v", res)
+	}
+	if strings.Join(ops.deleted, ",") != "m5,m9" {
+		t.Errorf("deleted = %v", ops.deleted)
+	}
+}
+
+func TestRepairWithNoDuplicatesDoesNothing(t *testing.T) {
+	l := mustDefaultLayout(t)
+	ops := newFakeSlotOps()
+	ops.extra = map[string][]string{"left": {"l1"}}
+	res, err := repairSlots(ops, l, "tab1")
+	if err != nil || len(res) != 0 || len(ops.deleted) != 0 {
+		t.Errorf("res = %+v, err = %v, deleted = %v", res, err, ops.deleted)
+	}
+}
+
+func TestRepairReportsDeleteFailure(t *testing.T) {
+	l := mustDefaultLayout(t)
+	ops := newFakeSlotOps()
+	ops.extra = map[string][]string{"middle": {"m1", "m2"}}
+	ops.deleteFail = true
+	_, err := repairSlots(ops, l, "tab1")
+	if err == nil || !strings.Contains(err.Error(), "m2") {
+		t.Errorf("err = %v", err)
 	}
 }

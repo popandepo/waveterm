@@ -210,3 +210,7 @@ replace), so no RPC, frontend or backend change.
   shape when middle opens and closes, focus staying put.
 - **Limit:** opening a slot never splits one block of a two-block column (refused with a message); with a single right block it nests one
   level deeper than a flat row.
+- **Concurrent opens are NOT safe.** The backend has no lock, so two callers opening the same empty slot at the
+  same instant can both keep a block. `wsh slot open` re-checks after creating (smallest block id wins, the other
+  call removes its own block), but a rival that appears after that check is missed. `wsh slot repair` removes the
+  duplicates (keeps the smallest id). The real fix is an atomic slot-owner key in the backend (not done).

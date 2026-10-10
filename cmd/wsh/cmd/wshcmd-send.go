@@ -10,8 +10,10 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -35,7 +37,11 @@ interactive programs read several keys arriving in one chunk as a paste. A token
   text:<text>  literal text, sent as is (no Enter is added)
   <text>       anything else is literal text too
 --stdin reads more literal text from standard input and sends it last, as one token (use it for text that is awkward
-to put on a command line).`,
+to put on a command line).
+
+Text is plain text: control characters (ESC, newline, carriage return, backspace and the rest) and invisible format
+characters are refused in text tokens, because they would act as keys. Use key:<Name> for keys. --raw lifts this for
+text you really mean to send as bytes.`,
 	Example: `  wsh send -b 3 key:Down key:Enter
   wsh send -b 3f2a9c10 "text:continue please" key:Enter
   wsh send -b 3 key:Ctrl+C`,
@@ -46,11 +52,13 @@ to put on a command line).`,
 var (
 	sendDelayMs int
 	sendStdin   bool
+	sendRaw     bool
 )
 
 func init() {
 	sendCmd.Flags().IntVar(&sendDelayMs, "delay", 40, "pause in milliseconds between tokens")
 	sendCmd.Flags().BoolVar(&sendStdin, "stdin", false, "also send standard input as literal text, last")
+	sendCmd.Flags().BoolVar(&sendRaw, "raw", false, "allow control characters in text tokens (they will act as keys)")
 	rootCmd.AddCommand(sendCmd)
 }
 
@@ -88,10 +96,20 @@ func encodeKey(name string) (string, error) {
 	return "", fmt.Errorf("unknown key %q", name)
 }
 
+// validateTextToken refuses control and invisible format characters in plain text, so text cannot act as keys.
+func validateTextToken(text string) error {
+	for _, r := range text {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return fmt.Errorf("text contains the control or invisible character U+%04X; use key:<Name> for keys, or --raw to send it as bytes", r)
+		}
+	}
+	return nil
+}
+
 // encodeSendTokens turns tokens into the chunks that are written one at a time.
-func encodeSendTokens(tokens []string) ([]string, error) {
+func encodeSendTokens(tokens []string, raw bool) ([]string, error) {
 	chunks := make([]string, 0, len(tokens))
-	for _, tok := range tokens {
+	for i, tok := range tokens {
 		switch {
 		case strings.HasPrefix(tok, SendKeyPrefix):
 			val, err := encodeKey(tok[len(SendKeyPrefix):])
@@ -99,13 +117,45 @@ func encodeSendTokens(tokens []string) ([]string, error) {
 				return nil, err
 			}
 			chunks = append(chunks, val)
-		case strings.HasPrefix(tok, SendTextPrefix):
-			chunks = append(chunks, tok[len(SendTextPrefix):])
 		default:
-			chunks = append(chunks, tok)
+			text := tok
+			if strings.HasPrefix(tok, SendTextPrefix) {
+				text = tok[len(SendTextPrefix):]
+			}
+			if !raw {
+				if err := validateTextToken(text); err != nil {
+					return nil, fmt.Errorf("token %d: %w", i+1, err)
+				}
+			}
+			chunks = append(chunks, text)
 		}
 	}
 	return chunks, nil
+}
+
+type inputSender func(blockId string, data []byte) error
+
+// deliverChunks writes each non-empty chunk to the block, pausing between chunks. It returns how many chunks and
+// bytes were written. A send with nothing to write is an error, not a success.
+func deliverChunks(blockId string, chunks []string, delay time.Duration, send inputSender, sleep func(time.Duration)) (int, int, error) {
+	nChunks, nBytes := 0, 0
+	for _, chunk := range chunks {
+		if chunk == "" {
+			continue
+		}
+		if nChunks > 0 && delay > 0 {
+			sleep(delay)
+		}
+		if err := send(blockId, []byte(chunk)); err != nil {
+			return nChunks, nBytes, fmt.Errorf("sending input to block %s (after %d chunk(s)): %w", blockId, nChunks, err)
+		}
+		nChunks++
+		nBytes += len(chunk)
+	}
+	if nChunks == 0 {
+		return 0, 0, fmt.Errorf("nothing to send: every token was empty")
+	}
+	return nChunks, nBytes, nil
 }
 
 func sendRun(cmd *cobra.Command, args []string) (rtnErr error) {
@@ -118,12 +168,12 @@ func sendRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		if err != nil {
 			return fmt.Errorf("reading stdin: %w", err)
 		}
-		tokens = append(append([]string{}, args...), SendTextPrefix+string(data))
+		tokens = append(append([]string{}, args...), SendTextPrefix+strings.TrimRight(string(data), "\r\n"))
 	}
 	if len(tokens) == 0 {
 		return fmt.Errorf("nothing to send: give key:<Name> or text tokens, or --stdin")
 	}
-	chunks, err := encodeSendTokens(tokens)
+	chunks, err := encodeSendTokens(tokens, sendRaw)
 	if err != nil {
 		return err
 	}
@@ -131,22 +181,23 @@ func sendRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return err
 	}
-	for i, chunk := range chunks {
-		if i > 0 && sendDelayMs > 0 {
-			time.Sleep(time.Duration(sendDelayMs) * time.Millisecond)
-		}
-		if chunk == "" {
-			continue
-		}
-		data := wshrpc.CommandBlockInputData{
-			BlockId:     fullORef.OID,
-			InputData64: base64.StdEncoding.EncodeToString([]byte(chunk)),
-		}
-		err = wshclient.ControllerInputCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 5000})
-		if err != nil {
-			return fmt.Errorf("sending input to block %s: %w", fullORef.OID, err)
-		}
+	metaData, err := wshclient.GetMetaCommand(RpcClient, wshrpc.CommandGetMetaData{ORef: *fullORef}, &wshrpc.RpcOpts{Timeout: 2000})
+	if err != nil {
+		return fmt.Errorf("block %s: %w", fullORef.OID, err)
 	}
-	WriteStdout("sent %d token(s) to block %s\n", len(chunks), fullORef.OID)
+	if view, _ := metaData[waveobj.MetaKey_View].(string); view != "term" {
+		return fmt.Errorf("block %s is not a terminal block (view type: %s)", fullORef.OID, view)
+	}
+	send := func(blockId string, data []byte) error {
+		return wshclient.ControllerInputCommand(RpcClient, wshrpc.CommandBlockInputData{
+			BlockId:     blockId,
+			InputData64: base64.StdEncoding.EncodeToString(data),
+		}, &wshrpc.RpcOpts{Timeout: 5000})
+	}
+	nChunks, nBytes, err := deliverChunks(fullORef.OID, chunks, time.Duration(sendDelayMs)*time.Millisecond, send, time.Sleep)
+	if err != nil {
+		return err
+	}
+	WriteStdout("wrote %d bytes in %d chunk(s) to the controller of block %s\n", nBytes, nChunks, fullORef.OID)
 	return nil
 }

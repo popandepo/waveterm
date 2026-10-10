@@ -15,6 +15,7 @@ import {
     DefaultNodeSize,
     DropDirection,
     FlexDirection,
+    LayoutNode,
     LayoutTreeActionType,
     LayoutTreeComputeMoveNodeAction,
     LayoutTreeDeleteNodeAction,
@@ -28,9 +29,16 @@ import {
     LayoutTreeSwapNodeAction,
     MoveOperation,
 } from "./types";
+import { reverseFlexDirection } from "./utils";
 
-import { newLayoutNode } from "./layoutNode";
-import { LayoutTreeReplaceNodeAction, LayoutTreeSplitHorizontalAction, LayoutTreeSplitVerticalAction } from "./types";
+import { addStackMember, isStackNode, newLayoutNode, newStackNode } from "./layoutNode";
+import {
+    LayoutTreeReplaceNodeAction,
+    LayoutTreeSplitHorizontalAction,
+    LayoutTreeSplitVerticalAction,
+    LayoutTreeStackAction,
+    LayoutTreeUnstackAction,
+} from "./types";
 
 export const DEFAULT_MAX_CHILDREN = 5;
 
@@ -40,9 +48,43 @@ export const DEFAULT_MAX_CHILDREN = 5;
  * @param layoutState The state of the tree.
  * @param computeInsertAction The operation to compute.
  */
+/**
+ * Focuses a node. If it is a member of a stack, the stack shows it: this is the single place where focus and the
+ * active member of a stack are tied together, so every focus path (keyboard, click, wsh focusblock, new block,
+ * focus fallback) brings a hidden member to the front.
+ */
+export function setFocusedNode(layoutState: LayoutTreeState, nodeId: string) {
+    layoutState.focusedNodeId = nodeId;
+    if (!nodeId || !layoutState.rootNode) {
+        return;
+    }
+    const parent = findParent(layoutState.rootNode, nodeId);
+    if (parent && isStackNode(parent)) {
+        parent.activeChildId = nodeId;
+    }
+}
+
+/**
+ * Drop and split targets that are members of a stack mean the stack as a whole: a tile is placed next to the group,
+ * never spliced into it.
+ */
+export function placementTargetId(rootNode: LayoutNode, nodeId: string): string {
+    const parent = rootNode ? findParent(rootNode, nodeId) : undefined;
+    return parent && isStackNode(parent) ? parent.id : nodeId;
+}
+
+// After a member leaves a stack, pick the neighbour that was next to it as the active one.
+function activateNeighbourAfterRemoval(stack: LayoutNode, removedId: string, removedIndex: number) {
+    if (!isStackNode(stack) || stack.activeChildId !== removedId || !stack.children?.length) {
+        return;
+    }
+    stack.activeChildId = stack.children[Math.min(removedIndex, stack.children.length - 1)].id;
+}
+
 export function computeMoveNode(layoutState: LayoutTreeState, computeInsertAction: LayoutTreeComputeMoveNodeAction) {
     const rootNode = layoutState.rootNode;
-    const { nodeId, nodeToMoveId, direction } = computeInsertAction;
+    const { nodeToMoveId, direction } = computeInsertAction;
+    const nodeId = placementTargetId(rootNode, computeInsertAction.nodeId);
     if (!nodeId || !nodeToMoveId) {
         console.warn("either nodeId or nodeToMoveId not set", nodeId, nodeToMoveId);
         return;
@@ -288,11 +330,11 @@ export function insertNode(layoutState: LayoutTreeState, action: LayoutTreeInser
         addChildAt(insertLoc.node, insertLoc.index, action.node);
         if (action.magnified) {
             layoutState.magnifiedNodeId = action.node.id;
-            layoutState.focusedNodeId = action.node.id;
+            setFocusedNode(layoutState, action.node.id);
         }
     }
     if (action.focused) {
-        layoutState.focusedNodeId = action.node.id;
+        setFocusedNode(layoutState, action.node.id);
     }
 }
 
@@ -312,11 +354,11 @@ export function insertNodeAtIndex(layoutState: LayoutTreeState, action: LayoutTr
         addChildAt(insertLoc.node, insertLoc.index + 1, action.node);
         if (action.magnified) {
             layoutState.magnifiedNodeId = action.node.id;
-            layoutState.focusedNodeId = action.node.id;
+            setFocusedNode(layoutState, action.node.id);
         }
     }
     if (action.focused) {
-        layoutState.focusedNodeId = action.node.id;
+        setFocusedNode(layoutState, action.node.id);
     }
 }
 
@@ -366,7 +408,9 @@ export function deleteNode(layoutState: LayoutTreeState, action: LayoutTreeDelet
         const parent = findParent(layoutState.rootNode, action.nodeId);
         if (parent) {
             const node = parent.children.find((child) => child.id === action.nodeId);
+            const removedIndex = parent.children.indexOf(node);
             removeChild(parent, node);
+            activateNeighbourAfterRemoval(parent, node.id, removedIndex);
             if (layoutState.focusedNodeId === node.id) {
                 layoutState.focusedNodeId = undefined;
             }
@@ -396,7 +440,7 @@ export function focusNode(layoutState: LayoutTreeState, action: LayoutTreeFocusN
         return;
     }
 
-    layoutState.focusedNodeId = action.nodeId;
+    setFocusedNode(layoutState, action.nodeId);
 }
 
 export function magnifyNodeToggle(layoutState: LayoutTreeState, action: LayoutTreeMagnifyNodeToggleAction) {
@@ -412,7 +456,7 @@ export function magnifyNodeToggle(layoutState: LayoutTreeState, action: LayoutTr
         layoutState.magnifiedNodeId = undefined;
     } else {
         layoutState.magnifiedNodeId = action.nodeId;
-        layoutState.focusedNodeId = action.nodeId;
+        setFocusedNode(layoutState, action.nodeId);
     }
 }
 
@@ -445,14 +489,15 @@ export function replaceNode(layoutState: LayoutTreeState, action: LayoutTreeRepl
         parent.children[index] = newNode;
     }
     if (action.focused) {
-        layoutState.focusedNodeId = newNode.id;
+        setFocusedNode(layoutState, newNode.id);
     }
 }
 
 // ─── SPLIT HORIZONTAL ─────────────────────────────────────────────────────────────
 
 export function splitHorizontal(layoutState: LayoutTreeState, action: LayoutTreeSplitHorizontalAction) {
-    const { targetNodeId, newNode, position } = action;
+    const { newNode, position } = action;
+    const targetNodeId = placementTargetId(layoutState.rootNode, action.targetNodeId);
     const targetNode = findNode(layoutState.rootNode, targetNodeId);
     if (!targetNode) {
         console.error("splitHorizontal: Target node not found", targetNodeId);
@@ -488,14 +533,15 @@ export function splitHorizontal(layoutState: LayoutTreeState, action: LayoutTree
         }
     }
     if (action.focused) {
-        layoutState.focusedNodeId = newNode.id;
+        setFocusedNode(layoutState, newNode.id);
     }
 }
 
 // ─── SPLIT VERTICAL ─────────────────────────────────────────────────────────────
 
 export function splitVertical(layoutState: LayoutTreeState, action: LayoutTreeSplitVerticalAction) {
-    const { targetNodeId, newNode, position } = action;
+    const { newNode, position } = action;
+    const targetNodeId = placementTargetId(layoutState.rootNode, action.targetNodeId);
     const targetNode = findNode(layoutState.rootNode, targetNodeId);
     if (!targetNode) {
         console.error("splitVertical: Target node not found", targetNodeId);
@@ -529,6 +575,100 @@ export function splitVertical(layoutState: LayoutTreeState, action: LayoutTreeSp
         }
     }
     if (action.focused) {
-        layoutState.focusedNodeId = newNode.id;
+        setFocusedNode(layoutState, newNode.id);
     }
+}
+
+// ─── STACK ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Groups leaves into a stack (tab group): `nodeId` joins the stack that contains `targetNodeId`, or the two leaves
+ * become a new stack where the target was. The moved leaf becomes the active member.
+ */
+export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStackAction) {
+    const root = layoutState.rootNode;
+    const { nodeId, targetNodeId } = action;
+    if (!root || !nodeId || !targetNodeId || nodeId === targetNodeId) {
+        console.error("stackNodes: need two different nodes");
+        return;
+    }
+    const node = findNode(root, nodeId);
+    const target = findNode(root, targetNodeId);
+    if (!node || !target) {
+        console.error("stackNodes: node not found", nodeId, targetNodeId);
+        return;
+    }
+    if (node.children || !node.data) {
+        console.error("stackNodes: only a leaf can be put into a stack", nodeId);
+        return;
+    }
+    const targetParent = findParent(root, targetNodeId);
+    let stack: LayoutNode = isStackNode(target)
+        ? target
+        : targetParent && isStackNode(targetParent)
+          ? targetParent
+          : null;
+    if (!stack && (target.children || !target.data)) {
+        console.error("stackNodes: the target must be a leaf or a stack", targetNodeId);
+        return;
+    }
+    const oldParent = findParent(root, nodeId);
+    if (!oldParent) {
+        console.error("stackNodes: the root leaf cannot be moved into another node", nodeId);
+        return;
+    }
+    if (stack && oldParent === stack) {
+        setFocusedNode(layoutState, nodeId);
+        return;
+    }
+    const removedIndex = oldParent.children.indexOf(node);
+    removeChild(oldParent, node);
+    activateNeighbourAfterRemoval(oldParent, nodeId, removedIndex);
+    if (stack) {
+        const after = stack.children.findIndex((c) => c.id === targetNodeId);
+        addStackMember(stack, after >= 0 ? after + 1 : stack.children.length, node, true);
+    } else {
+        const newStack = newStackNode([target, node], nodeId, target.size);
+        const parentNow = findParent(layoutState.rootNode, targetNodeId);
+        if (parentNow) {
+            const idx = parentNow.children.findIndex((c) => c.id === targetNodeId);
+            newStack.flexDirection = target.flexDirection;
+            parentNow.children[idx] = newStack;
+        } else {
+            layoutState.rootNode = newStack;
+        }
+        stack = newStack;
+    }
+    if (action.focused ?? true) {
+        setFocusedNode(layoutState, nodeId);
+    }
+}
+
+/**
+ * Takes a leaf out of its stack and puts it next to the stack, focused.
+ */
+export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnstackAction) {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, action.nodeId) : undefined;
+    const stack = node ? findParent(root, node.id) : undefined;
+    if (!node || !stack || !isStackNode(stack)) {
+        console.error("unstackNode: the node is not a member of a stack", action.nodeId);
+        return;
+    }
+    const removedIndex = stack.children.indexOf(node);
+    removeChild(stack, node);
+    activateNeighbourAfterRemoval(stack, node.id, removedIndex);
+    node.size = DefaultNodeSize;
+    const stackParent = findParent(root, stack.id);
+    if (stackParent) {
+        const idx = stackParent.children.indexOf(stack);
+        node.flexDirection = reverseFlexDirection(stackParent.flexDirection);
+        stackParent.children.splice(idx + 1, 0, node);
+    } else {
+        const group = newLayoutNode(FlexDirection.Row, stack.size, [stack, node]);
+        stack.flexDirection = FlexDirection.Column;
+        node.flexDirection = FlexDirection.Column;
+        layoutState.rootNode = group;
+    }
+    setFocusedNode(layoutState, node.id);
 }

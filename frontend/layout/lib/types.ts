@@ -75,6 +75,8 @@ export enum LayoutTreeActionType {
     ComputeMove = "computemove",
     Move = "move",
     Swap = "swap",
+    Stack = "stack",
+    Unstack = "unstack",
     SetPendingAction = "setpending",
     CommitPendingAction = "commitpending",
     ClearPendingAction = "clearpending",
@@ -262,6 +264,26 @@ export interface LayoutTreeResizeNodeAction extends LayoutTreeAction {
 /**
  * Action for focusing a node from the layout tree.
  */
+/**
+ * Puts the node 
+odeId into the stack that contains 	argetNodeId, or makes a new stack of the two leaves.
+ */
+export interface LayoutTreeStackAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.Stack;
+    targetNodeId: string;
+    nodeId: string;
+    focused?: boolean;
+}
+
+/**
+ * Takes the leaf 
+odeId out of its stack and places it next to the stack.
+ */
+export interface LayoutTreeUnstackAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.Unstack;
+    nodeId: string;
+}
+
 export interface LayoutTreeFocusNodeAction extends LayoutTreeAction {
     type: LayoutTreeActionType.FocusNode;
 
@@ -299,6 +321,12 @@ export interface LayoutNode {
     children?: LayoutNode[];
     flexDirection: FlexDirection;
     size: number;
+    /**
+     * stack: a tab group. Its children are all leaves that share one rectangle; only the child named by
+     * ctiveChildId is shown. Absent for ordinary row and column nodes, which keeps old layouts valid.
+     */
+    kind?: "stack";
+    activeChildId?: string;
 }
 
 export type LayoutTreeStateSetter = (value: LayoutState) => void;

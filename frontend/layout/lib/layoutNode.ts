@@ -44,10 +44,17 @@ export function addChildAt(node: LayoutNode, idx: number, ...children: LayoutNod
     // console.log("adding", children, "to", node, "at index", idx);
     if (children.length === 0) return;
 
-    if (!node.children) {
+    // A stack is placed as a unit, like a leaf; members are added with addStackMember.
+    if (!node.children || isStackNode(node)) {
         addIntermediateNode(node);
     }
     const childrenToAdd = children.flatMap((v) => {
+        if (isStackNode(v)) {
+            if (v.flexDirection === node.flexDirection) {
+                v.flexDirection = reverseFlexDirection(node.flexDirection);
+            }
+            return v;
+        }
         if (v.flexDirection !== node.flexDirection) {
             return v;
         } else if (v.children) {
@@ -75,7 +82,14 @@ export function addChildAt(node: LayoutNode, idx: number, ...children: LayoutNod
 export function addIntermediateNode(node: LayoutNode): LayoutNode {
     let intermediateNode: LayoutNode;
 
-    if (node.data) {
+    if (isStackNode(node)) {
+        intermediateNode = newLayoutNode(reverseFlexDirection(node.flexDirection), undefined, node.children);
+        intermediateNode.kind = "stack";
+        intermediateNode.activeChildId = node.activeChildId;
+        node.kind = undefined;
+        node.activeChildId = undefined;
+        node.children = [intermediateNode];
+    } else if (node.data) {
         intermediateNode = newLayoutNode(reverseFlexDirection(node.flexDirection), undefined, undefined, node.data);
         node.children = [intermediateNode];
         node.data = undefined;
@@ -88,6 +102,40 @@ export function addIntermediateNode(node: LayoutNode): LayoutNode {
     intermediateNode.id = node.id;
     node.id = intermediateNodeId;
     return intermediateNode;
+}
+
+export function isStackNode(node: LayoutNode): boolean {
+    return node?.kind === "stack";
+}
+
+/**
+ * Creates a stack (tab group) from leaves. The first leaf is active unless another is named.
+ */
+export function newStackNode(leaves: LayoutNode[], activeChildId?: string, size?: number): LayoutNode {
+    if (leaves.length === 0 || leaves.some((l) => l.children || !l.data)) {
+        throw new Error("A stack needs one or more leaves");
+    }
+    const stack = newLayoutNode(FlexDirection.Row, size, leaves);
+    stack.kind = "stack";
+    stack.activeChildId = leaves.some((l) => l.id === activeChildId) ? activeChildId : leaves[0].id;
+    return stack;
+}
+
+/**
+ * Adds a leaf as a member of the stack, at the given index, and makes it active when asked.
+ */
+export function addStackMember(stack: LayoutNode, idx: number, leaf: LayoutNode, activate = false) {
+    if (!isStackNode(stack)) {
+        throw new Error("not a stack");
+    }
+    if (leaf.children || !leaf.data) {
+        throw new Error("only a leaf can be added to a stack");
+    }
+    const at = idx < 0 || idx > stack.children.length ? stack.children.length : idx;
+    stack.children.splice(at, 0, leaf);
+    if (activate || !stack.activeChildId) {
+        stack.activeChildId = leaf.id;
+    }
 }
 
 /**
@@ -152,6 +200,10 @@ export function validateNode(node: LayoutNode): boolean {
         console.error("Node cannot define an empty array of children");
         return false;
     }
+    if (isStackNode(node) && node.children.some((c) => c.children || !c.data)) {
+        console.error("A stack can only contain leaves");
+        return false;
+    }
     return true;
 }
 
@@ -192,6 +244,11 @@ export function balanceNode(
                 if (child.flexDirection === node.flexDirection) {
                     child.flexDirection = reverseFlexDirection(node.flexDirection);
                 }
+                if (!isStackNode(child) && child.children?.length === 1 && isStackNode(child.children[0])) {
+                    // a wrapper around a single stack is replaced by the stack, never dissolved into its members
+                    child.children[0].size = child.size;
+                    return child.children[0];
+                }
                 if (child.children?.length == 1 && child.children[0].children) {
                     return child.children[0].children;
                 }
@@ -206,6 +263,19 @@ export function balanceNode(
                 node.data = node.children[0].data;
                 node.id = node.children[0].id;
                 node.children = undefined;
+                node.kind = undefined;
+                node.activeChildId = undefined;
+            } else if (!isStackNode(node) && node.children?.length === 1 && isStackNode(node.children[0])) {
+                // a node whose only child is a stack is that stack (keeps its own size)
+                const only = node.children[0];
+                node.kind = only.kind;
+                node.activeChildId = only.activeChildId;
+                node.id = only.id;
+                node.children = only.children;
+            } else if (isStackNode(node) && node.children?.length > 0) {
+                if (!node.children.some((c) => c.id === node.activeChildId)) {
+                    node.activeChildId = node.children[0].id;
+                }
             }
             afterWalkCallback?.(node);
         }
@@ -266,7 +336,7 @@ function findNextInsertLocationHelper(
     curDepth: number = 1
 ): { node: LayoutNode; index: number; depth: number } {
     if (!node) return;
-    if (!node.children) return { node, index: 1, depth: curDepth };
+    if (!node.children || isStackNode(node)) return { node, index: 1, depth: curDepth };
     let insertLocs: { node: LayoutNode; index: number; depth: number }[] = [];
     if (node.children.length < maxChildren) {
         insertLocs.push({ node, index: node.children.length, depth: curDepth });

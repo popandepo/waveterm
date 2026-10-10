@@ -14,6 +14,7 @@ import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
+    adjacentStackMember,
     clearTree,
     computeMoveNode,
     deleteNode,
@@ -22,6 +23,7 @@ import {
     insertNodeAtIndex,
     insertNodeIntoStack,
     placeholderTargetId,
+    reorderStackMember,
     magnifyNodeToggle,
     moveIntoStack,
     moveNode,
@@ -61,6 +63,7 @@ import {
     LayoutTreeStackInsertAction,
     LayoutTreeStackModeAction,
     LayoutTreeStackMoveAction,
+    LayoutTreeStackReorderAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
     LayoutTreeUnstackAction,
@@ -830,6 +833,9 @@ export class LayoutModel {
                     FocusManager.getInstance().requestNodeFocus();
                 }
                 break;
+            case LayoutTreeActionType.StackReorder:
+                reorderStackMember(this.treeState, action as LayoutTreeStackReorderAction);
+                break;
             case LayoutTreeActionType.TurnIntoStack:
                 turnIntoStack(this.treeState, (action as LayoutTreeStackModeAction).nodeId);
                 break;
@@ -1421,6 +1427,17 @@ export class LayoutModel {
      * Set the layout to focus on the given node.
      * @param nodeId The id of the node that is being focused.
      */
+    // Shows and focuses the next (offset above 0) or previous tab of the stack that holds the focused tile. False when the focused
+    // tile is not in a stack with at least two tabs, so that the key can go on to whatever else wants it.
+    focusAdjacentStackMember(offset: number): boolean {
+        const target = adjacentStackMember(this.treeState.rootNode, this.focusedNodeId, offset);
+        if (!target) {
+            return false;
+        }
+        this.focusNode(target);
+        return true;
+    }
+
     focusNode(nodeId: string) {
         if (this.focusedNodeId === nodeId) return;
         let layoutNode = findNode(this.treeState?.rootNode, nodeId);

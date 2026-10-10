@@ -80,6 +80,7 @@ export enum LayoutTreeActionType {
     Unstack = "unstack",
     StackInsert = "stackinsert",
     StackMove = "stackmove",
+    StackReorder = "stackreorder",
     TurnIntoStack = "turnintostack",
     TurnStackOff = "turnstackoff",
     Activate = "activate",
@@ -315,6 +316,15 @@ export interface LayoutTreeStackMoveAction extends LayoutTreeAction {
     fromNodeId: string;
     toNodeId: string;
     focused?: boolean;
+}
+
+/**
+ * Puts a member of a stack at the place of another member of the same stack.
+ */
+export interface LayoutTreeStackReorderAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.StackReorder;
+    nodeId: string;
+    targetNodeId: string;
 }
 
 /**

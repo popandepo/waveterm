@@ -117,6 +117,8 @@ func metaString(meta waveobj.MetaMapType, key string) string {
 // quoted part counts as one token), then only its base name. Nothing past the first token is ever looked at, so an argument
 // cannot end up in the name. When the first token cannot be identified safely (an unmatched quote, text glued to the closing quote, a Windows path with
 // spaces that is not quoted, a name with characters a program name does not have) the program is left out.
+const commandWhitespace = " \t\r\n\v\f"
+
 func executableOf(cmd string) string {
 	s := strings.TrimSpace(cmd)
 	if s == "" {
@@ -128,13 +130,13 @@ func executableOf(cmd string) string {
 			return ""
 		}
 		after := 2 + end
-		if after < len(s) && s[after] != ' ' && s[after] != '\t' {
+		if after < len(s) && !strings.ContainsRune(commandWhitespace, rune(s[after])) {
 			return ""
 		}
 		return s[1 : 1+end]
 	}
 	first := s
-	if i := strings.IndexAny(s, " \t"); i >= 0 {
+	if i := strings.IndexAny(s, commandWhitespace); i >= 0 {
 		first = s[:i]
 		if len(first) >= 3 && first[1] == ':' && (first[2] == '\\' || first[2] == '/') && !hasExecutableExtension(first) {
 			return ""

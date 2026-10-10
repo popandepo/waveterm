@@ -37,6 +37,7 @@ import {
     LayoutTreeSplitHorizontalAction,
     LayoutTreeSplitVerticalAction,
     LayoutTreeStackAction,
+    LayoutTreeStackInsertAction,
     LayoutTreeUnstackAction,
 } from "./types";
 
@@ -680,6 +681,62 @@ export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnst
     }
     if (action.focused ?? true) {
         setFocusedNode(layoutState, node.id);
+    }
+    return true;
+}
+
+/**
+ * Puts a node that is not in the tree yet straight into the stack of the target leaf, or makes a stack of the
+ * target and the new node. Nothing else moves, so a new terminal that is meant to be a tab never appears as a tile.
+ */
+export function insertNodeIntoStack(layoutState: LayoutTreeState, action: LayoutTreeStackInsertAction): boolean {
+    const root = layoutState.rootNode;
+    const { node, targetNodeId } = action;
+    if (!root || !node || node.children || !node.data) {
+        console.error("insertNodeIntoStack: the new node must be a leaf");
+        return false;
+    }
+    const target = findNode(root, targetNodeId);
+    if (!target || (target.children && !isStackNode(target)) || (!target.children && !target.data)) {
+        console.error("insertNodeIntoStack: the target must be a leaf or a stack", targetNodeId);
+        return false;
+    }
+    const wantFocus = action.focused ?? true;
+    const targetParent = findParent(root, targetNodeId);
+    const stack = isStackNode(target) ? target : targetParent && isStackNode(targetParent) ? targetParent : null;
+    if (stack) {
+        const after = stack.children.findIndex((c) => c.id === targetNodeId);
+        addStackMember(stack, after >= 0 ? after + 1 : stack.children.length, node, wantFocus);
+    } else {
+        const newStack = newStackNode([target, node], wantFocus ? node.id : target.id, target.size);
+        newStack.flexDirection = target.flexDirection;
+        if (targetParent) {
+            const idx = targetParent.children.findIndex((c) => c.id === targetNodeId);
+            targetParent.children[idx] = newStack;
+        } else {
+            layoutState.rootNode = newStack;
+        }
+    }
+    if (wantFocus) {
+        setFocusedNode(layoutState, node.id);
+    }
+    return true;
+}
+
+/**
+ * Shows a member of a stack without asking for keyboard focus. If the focused node is a member of the same stack the
+ * focus moves with the tab, because keystrokes must never go to a terminal nobody can see.
+ */
+export function activateStackMember(layoutState: LayoutTreeState, nodeId: string): boolean {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, nodeId) : undefined;
+    const stack = node ? findParent(root, nodeId) : undefined;
+    if (!node || !stack || !isStackNode(stack)) {
+        return false;
+    }
+    stack.activeChildId = nodeId;
+    if (layoutState.focusedNodeId && stack.children.some((c) => c.id === layoutState.focusedNodeId)) {
+        layoutState.focusedNodeId = nodeId;
     }
     return true;
 }

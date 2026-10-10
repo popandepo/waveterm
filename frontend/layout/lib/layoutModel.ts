@@ -13,12 +13,14 @@ import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
+    activateStackMember,
     clearTree,
     computeMoveNode,
     deleteNode,
     focusNode,
     insertNode,
     insertNodeAtIndex,
+    insertNodeIntoStack,
     magnifyNodeToggle,
     moveNode,
     replaceNode,
@@ -37,6 +39,7 @@ import {
     LayoutNodeAdditionalProps,
     LayoutTreeAction,
     LayoutTreeActionType,
+    LayoutTreeActivateAction,
     LayoutTreeClearTreeAction,
     LayoutTreeComputeMoveNodeAction,
     LayoutTreeDeleteNodeAction,
@@ -51,6 +54,7 @@ import {
     LayoutTreeSplitHorizontalAction,
     LayoutTreeSplitVerticalAction,
     LayoutTreeStackAction,
+    LayoutTreeStackInsertAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
     LayoutTreeUnstackAction,
@@ -574,6 +578,76 @@ export class LayoutModel {
                 this.treeReducer(splitAction, false);
                 break;
             }
+            case LayoutTreeActionType.Stack: {
+                const node = this?.getNodeByBlockId(action.blockid);
+                const target = this?.getNodeByBlockId(action.targetblockid);
+                if (!node || !target) {
+                    console.error(
+                        "Cannot apply eventbus layout action Stack, block not found",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.Stack,
+                        nodeId: node.id,
+                        targetNodeId: target.id,
+                        focused: action.focused,
+                    } as LayoutTreeStackAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.StackInsert: {
+                const target = this?.getNodeByBlockId(action.targetblockid);
+                if (!target) {
+                    console.error(
+                        "Cannot apply eventbus layout action StackInsert, target not found",
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.StackInsert,
+                        node: newLayoutNode(undefined, undefined, undefined, { blockId: action.blockid }),
+                        targetNodeId: target.id,
+                        focused: action.focused,
+                    } as LayoutTreeStackInsertAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.Unstack: {
+                const node = this?.getNodeByBlockId(action.blockid);
+                if (!node) {
+                    console.error("Cannot apply eventbus layout action Unstack, block not found", action.blockid);
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.Unstack,
+                        nodeId: node.id,
+                        focused: action.focused,
+                    } as LayoutTreeUnstackAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.Activate: {
+                const node = this?.getNodeByBlockId(action.blockid);
+                if (!node) {
+                    console.error("Cannot apply eventbus layout action Activate, block not found", action.blockid);
+                    break;
+                }
+                this.treeReducer(
+                    { type: LayoutTreeActionType.Activate, nodeId: node.id } as LayoutTreeActivateAction,
+                    false
+                );
+                break;
+            }
             case "cleanuporphaned": {
                 await this.cleanupOrphanedBlocks();
                 break;
@@ -705,6 +779,17 @@ export class LayoutModel {
                 ) {
                     FocusManager.getInstance().requestNodeFocus();
                 }
+                break;
+            case LayoutTreeActionType.StackInsert:
+                if (
+                    insertNodeIntoStack(this.treeState, action as LayoutTreeStackInsertAction) &&
+                    ((action as LayoutTreeStackInsertAction).focused ?? true)
+                ) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
+                break;
+            case LayoutTreeActionType.Activate:
+                activateStackMember(this.treeState, (action as LayoutTreeActivateAction).nodeId);
                 break;
             case LayoutTreeActionType.Unstack:
                 if (

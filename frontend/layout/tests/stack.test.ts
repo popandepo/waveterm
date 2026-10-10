@@ -15,9 +15,11 @@ import {
     validateNode,
 } from "../lib/layoutNode";
 import {
+    activateStackMember,
     deleteNode,
     focusNode,
     insertNode,
+    insertNodeIntoStack,
     placementTargetId,
     setFocusedNode,
     splitHorizontal,
@@ -374,4 +376,130 @@ test("addStackMember only accepts leaves", () => {
     addStackMember(stack, 1, leaf("z"), true);
     assert.equal(stack.children![1].data!.blockId, "z");
     assert.equal(stack.activeChildId, stack.children![1].id);
+});
+
+describe("inserting a new leaf straight into a stack", () => {
+    test("a new leaf next to a plain leaf makes a stack of the two, the new one active when focused", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        const fresh = leaf("fresh");
+        assert.isTrue(
+            insertNodeIntoStack(state, {
+                type: LayoutTreeActionType.StackInsert,
+                node: fresh,
+                targetNodeId: b.id,
+            } as any)
+        );
+        const stack = findParent(state.rootNode, b.id);
+        assert.isTrue(isStackNode(stack));
+        assert.deepEqual(
+            stack.children.map((n) => n.data.blockId),
+            ["b", "fresh"]
+        );
+        assert.equal(stack.activeChildId, fresh.id);
+        assert.equal(state.focusedNodeId, fresh.id);
+        assert.equal(state.rootNode.children.length, 3, "the stack replaces b, nothing else moves");
+        assert.equal(state.rootNode.children[0].id, a.id);
+        assert.equal(state.rootNode.children[2].id, c.id);
+    });
+
+    test("a new leaf next to a member of an existing stack joins that stack after it", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, nodeId: b.id, targetNodeId: a.id } as any);
+        const stack = findParent(state.rootNode, a.id);
+        const fresh = leaf("fresh");
+        assert.isTrue(
+            insertNodeIntoStack(state, {
+                type: LayoutTreeActionType.StackInsert,
+                node: fresh,
+                targetNodeId: a.id,
+                focused: false,
+            } as any)
+        );
+        assert.deepEqual(
+            stack.children.map((n) => n.data.blockId),
+            ["a", "fresh", "b"]
+        );
+    });
+
+    test("without focus the active member and the focus stay where they were", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, nodeId: b.id, targetNodeId: a.id } as any);
+        const stack = findParent(state.rootNode, a.id);
+        const activeBefore = stack.activeChildId;
+        const focusBefore = state.focusedNodeId;
+        const fresh = leaf("fresh");
+        insertNodeIntoStack(state, {
+            type: LayoutTreeActionType.StackInsert,
+            node: fresh,
+            targetNodeId: a.id,
+            focused: false,
+        } as any);
+        assert.equal(stack.activeChildId, activeBefore);
+        assert.equal(state.focusedNodeId, focusBefore);
+    });
+
+    test("an unknown target or a target that is not a leaf changes nothing and returns false", () => {
+        const { state } = treeWithThreeLeaves();
+        const before = JSON.stringify(state.rootNode);
+        assert.isFalse(
+            insertNodeIntoStack(state, {
+                type: LayoutTreeActionType.StackInsert,
+                node: leaf("x"),
+                targetNodeId: "nope",
+            } as any)
+        );
+        assert.isFalse(
+            insertNodeIntoStack(state, {
+                type: LayoutTreeActionType.StackInsert,
+                node: leaf("x"),
+                targetNodeId: state.rootNode.id,
+            } as any)
+        );
+        assert.equal(JSON.stringify(state.rootNode), before);
+    });
+
+    test("the new node must be a leaf", () => {
+        const { state, b } = treeWithThreeLeaves();
+        const notLeaf = newLayoutNode(FlexDirection.Row, undefined, [leaf("p"), leaf("q")]);
+        assert.isFalse(
+            insertNodeIntoStack(state, {
+                type: LayoutTreeActionType.StackInsert,
+                node: notLeaf,
+                targetNodeId: b.id,
+            } as any)
+        );
+    });
+});
+
+describe("activating a member without taking focus", () => {
+    test("another stack member is shown and the focus is left alone when it was elsewhere", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        stackNodes(state, {
+            type: LayoutTreeActionType.Stack,
+            nodeId: b.id,
+            targetNodeId: a.id,
+            focused: false,
+        } as any);
+        setFocusedNode(state, c.id);
+        assert.isTrue(activateStackMember(state, b.id));
+        assert.equal(findParent(state.rootNode, a.id).activeChildId, b.id);
+        assert.equal(state.focusedNodeId, c.id);
+    });
+
+    test("focus follows when the focused member of that stack would be hidden", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, nodeId: b.id, targetNodeId: a.id } as any);
+        setFocusedNode(state, a.id);
+        assert.isTrue(activateStackMember(state, b.id));
+        assert.equal(findParent(state.rootNode, a.id).activeChildId, b.id);
+        assert.equal(state.focusedNodeId, b.id, "keystrokes must never go to a hidden terminal");
+    });
+
+    test("a leaf that is not in a stack or an unknown node returns false and changes nothing", () => {
+        const { state, a } = treeWithThreeLeaves();
+        const before = JSON.stringify(state);
+        assert.isFalse(activateStackMember(state, a.id));
+        assert.isFalse(activateStackMember(state, "nope"));
+        assert.equal(JSON.stringify(state), before);
+    });
 });

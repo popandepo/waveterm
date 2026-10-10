@@ -30,10 +30,11 @@ is not covered is listed at the end.
   (`WAVETERM_SWAPTOKEN`) which the shell init script trades for the real environment with the hidden command
   `wsh token` (`cmd/wsh/cmd/wshcmd-token.go`, `pkg/util/shellutil/tokenswap.go`, `GetAndRemoveTokenSwapEntry`
   deletes the entry). **READ**.
-- Consequence: there is no "outside process with its own login". A controller must itself run inside a Wave
-  block (it then inherits `WAVETERM_JWT`, `WAVETERM_BLOCKID`, `WAVETERM_TABID`, `WAVETERM_WORKSPACEID`) or be
-  given a token by something that is. **RAN**: inside a block these variables exist (names listed by a script
-  run in the block).
+- Consequence (stated once): `wsh` always needs a valid token for the caller. In practice that means the
+  caller runs inside a Wave block, where it inherits `WAVETERM_JWT`, `WAVETERM_BLOCKID`, `WAVETERM_TABID`
+  and `WAVETERM_WORKSPACEID` (**RAN**: the variable names are present in a block). A process outside Wave
+  could in principle be handed a token by something that already has one; that was **not tried** (a probe was
+  refused) and it is **not our model**: the design here assumes the controller runs inside a block.
 - `wsh` commands accept `-b <ref>` where ref is `this`, `tab`, `ws`, a block number (position in the tab's
   leaf order), a view name such as `term`, a uuid or its first 8 characters, or a full oref
   (`pkg/wshrpc/wshserver/resolvers.go`). **READ**. **RAN**: `-b tab`, `-b this`, `-b 2`, `-b 5`.
@@ -66,9 +67,9 @@ fill it from the environment).
 | Want | What exists | Status |
 |---|---|---|
 | Rename tab | RPC `UpdateTabNameCommand(tabId, newName)` and the tab context menu. **No `wsh` command.** | READ. **RAN**: `wsh setmeta -b tab name=Renamed` stored a `name` key in tab *meta* but did **not** rename the tab (`tab list` still showed `T1`). Do not use that |
-| Tab colour | Meta key `tab:flagcolor` (CSS colour). Right-click tab, "Flag Tab" offers a fixed palette; `wsh setmeta -b tab "tab:flagcolor=#ff8800"` accepts any valid CSS colour | **RAN**: set from a block, tab shows an orange flag icon in the tab bar (screenshot), value persisted across an app restart |
+| Tab colour | Meta key `tab:flagcolor` (CSS colour). Right-click tab, "Flag Tab" offers a fixed palette; `wsh setmeta -b tab "tab:flagcolor=#ff8800"` accepts any valid CSS colour. **Another tab can be addressed from inside any block** with `-b tab:<tabuuid>`, a bare uuid, its first 8 characters, or `tab:<n>` (n-th tab of the workspace) | **RAN**: set from a block, tab shows an orange flag icon in the tab bar (screenshot), value persisted across an app restart. **RAN** from tab T2 on tab T1: `setmeta -b tab:<uuid>`, `-b <uuid>`, `-b <8 chars>`, `-b tab:1` all returned "metadata set" and `getmeta` on the other tab showed the change |
 | Tab icon / symbol | **Nothing for tabs.** A tab shows only the flag glyph (coloured by `tab:flagcolor`) and transient badges. `wsh setmeta -b tab "tab:icon=crown"` is accepted and stored (meta accepts unknown keys) but nothing draws it | **RAN** (stored, persisted, not drawn). Frontend reading: `frontend/app/tab/tab.tsx`, `tabbadges.tsx` |
-| Tab badge (icon plus colour) | `wsh badge [icon] --color c --priority n -b tab`; icon is a Font Awesome name; event `badge`, stored in memory only ("not persisted and cleared on restart", `pkg/wcore/badge.go`). Badges on a tab clear when that tab gets focus (`frontend/app/store/badge.ts`). Higher priority wins over the flag | **RAN**: `wsh badge -b tab star --color gold` returned "badge set"; the tab (active) showed the flag, consistent with the clear-on-focus rule. Not observed on an inactive tab. Persistence: READ only |
+| Tab badge (icon plus colour) | `wsh badge [icon] --color c --priority n -b tab`; icon is a Font Awesome name; event `badge`, stored in memory only ("not persisted and cleared on restart", `pkg/wcore/badge.go`). Badges on a tab clear when that tab gets focus (`frontend/app/store/badge.ts`). Higher priority wins over the flag | **RAN**: `wsh badge -b tab star --color gold` on the active tab: the tab kept showing the flag (consistent with clear-on-focus). `wsh badge -b tab:<other tab uuid> star --color gold` from another tab: the inactive tab showed a gold star with a small dot for the flag colour (screenshot). Persistence: READ only |
 | Block title and icon in its frame | Meta keys `frame:title`, `frame:icon`, `frame:text`, `frame:bordercolor`, `frame:activebordercolor` (`pkg/waveobj/metaconsts.go`) | **RAN**: set and persisted across restart. **Not observed to change the header of a terminal block** (header kept the `user@host` text; not investigated why) |
 | Tab background | `wsh setbg`, meta `tab:background`, `bg:*` | READ |
 | Workspace name, icon, colour | Workspace object has them; edited in the UI | RAN (listed), READ for editing |
@@ -142,18 +143,18 @@ Checks on the unmodified base:
 
 1. **Tab colour already exists upstream** (`tab:flagcolor`, context menu, `wsh setmeta`). Feature (a) is
    mostly the missing half: a symbol on the tab, a name-or-hex friendly command, and a way to set it from
-   outside by tab id. The colour part should reuse `tab:flagcolor` as is.
+   from another tab by tab id. The colour part should reuse `tab:flagcolor` as is. Setting another tab's colour or symbol already works with `wsh setmeta -b tab:<uuid>` (RAN, section 4); a new command is only a friendlier front (colour names, one call for colour plus symbol), not a new capability.
 2. **Tab symbol does not exist.** Badges are the nearest mechanism but are transient and cleared on focus,
    so a persistent symbol needs a new meta key drawn in `tab.tsx` / `tabbadges.tsx`.
 3. **No `wsh` command renames, creates, switches or closes tabs.** A host that "opens, names, colours,
    addresses and closes" sessions needs new commands for these; the RPC and service calls exist underneath.
-4. **A controller has to live inside a Wave block** (JWT), see section 1.
+4. **The controller runs inside a Wave block** (token requirement and the untried outside option: section 1).
 
 ## 10. Not covered
 
-- Visual result of `focusblock`; badge on an inactive tab; why `termscrollback` was empty; why a terminal
+- Visual result of `focusblock`; why `termscrollback` was empty; why a terminal
   header ignored `frame:title`.
-- Anything on a second tab (only one tab existed; creating one needs the UI).
+- Anything beyond meta and badge on a second tab (created with the UI "+" button, since no command does it).
 - `controllerinput`, `captureblockscreenshot`, events, remote connections, WSL, Wave AI.
 - Memory and CPU cost of the dev app; many-terminal behaviour.
 - Linux and macOS.

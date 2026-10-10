@@ -278,3 +278,14 @@ left out) and adds the chosen block type to the stack as a new tab, so a stack c
   reload or keep playing while hidden: hidden members stay mounted with `visibility: hidden`, which a web view does not
   treat as a reload; media in a hidden tab keeps playing, which is not handled yet and is part of the window check.
 - **Seen in a window after this PR:** a tile can be turned into a stack from its menu, the + adds a block of any widget type.
+
+## 19. Drop on the middle makes a stack (step B)
+
+Dragging a tile over the middle of another tile now outlines the target and, on drop, puts the dragged tile into the
+target's stack, or makes a stack of the two; dropping on a member means its stack. The upstream swap action and its
+code are unchanged but no longer reachable from the mouse (the owner never uses swap). Edge zones still move tiles
+as before. Leaving a stack: drag the active member's header to an edge zone (the move takes it out), or "Take out of
+stack" in its menu.
+- **RAN:** vitest (centre = stack action, member target = its stack, root refused, edge zones still move).
+- **READ, not run:** the outline (the Swap placeholder case now also draws for Stack) and the drag itself.
+- **Seen in a window after this PR:** drag a tile onto the middle of another: outline, drop, a tab strip with both.

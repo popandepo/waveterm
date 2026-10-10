@@ -173,3 +173,19 @@ The stored symbol is validated twice: by the command before writing, and by `par
 because any block can write tab meta directly. Both refuse control, bidirectional and invisible format
 characters (the zero width joiner is allowed for emoji sequences) and bound the value (icon names 40 characters,
 text 32 bytes and two graphemes, in the command as well as the parser; a zero width joiner must sit inside an emoji sequence). The command counts graphemes with a small approximation (combining marks, variation selectors, emoji modifiers, flags, joined sequences) instead of the full Unicode segmentation the browser has.
+## 12. Accent colour (fork feature)
+
+Upstream has one global accent: `--accent-color` in `frontend/app/theme.scss` and `--color-accent`, `--color-accent-50..900`,
+`--color-accentbg` in `frontend/tailwindsetup.css` (READ). The fork recolours the whole frame of a tab's page at run
+time by setting those variables on the root element (`frontend/app/accent.ts`); each tab is its own page, so switching
+tabs switches the colour. Order, first valid colour wins:
+
+1. the focused block's connection: `display:accent` in `connections.json` (so the safety does not depend on any session);
+2. the tab: `wsh tab style --accent <colour>` (meta `tab:accent`);
+3. the workspace: `wsh workspace style --accent <colour>` (meta `ws:accent`);
+4. the workspace's own icon colour (`workspace.color`);
+5. the default green.
+
+Blocks on a connection with `display:accent` are also framed in that colour (and their header tinted) whether focused or
+not (`frontend/app/block/conn-accent.scss`). Colours are validated before use; an invalid value is skipped. The palette
+steps are derived with CSS `color-mix`, so no colour maths runs in script.

@@ -24,6 +24,8 @@ import {
     setFocusedNode,
     splitHorizontal,
     stackNodes,
+    turnIntoStack,
+    turnStackOff,
     unstackNode,
 } from "../lib/layoutTree";
 import { FlexDirection, LayoutNode, LayoutTreeActionType, LayoutTreeState } from "../lib/types";
@@ -91,16 +93,16 @@ describe("the tree rewriters leave stacks alone", () => {
         assert.equal(found!.children!.length, 2);
     });
 
-    test("balanceNode turns a one-member stack back into a plain leaf", () => {
+    test("balanceNode keeps a one-member stack: stack mode ends only when the user turns it off", () => {
         const a = leaf("a");
         const stack = newStackNode([a, leaf("b")]);
         const root = newLayoutNode(FlexDirection.Row, undefined, [stack, leaf("c")]);
         stack.children!.pop();
         balanceNode(root);
         const first = root.children![0];
-        assert.isUndefined(first.kind);
-        assert.isUndefined(first.activeChildId);
-        assert.equal(first.data!.blockId, "a");
+        assert.equal(first.kind, "stack");
+        assert.equal(first.activeChildId, a.id);
+        assert.equal(first.children![0].data!.blockId, "a");
     });
 
     test("balanceNode repairs an active member that no longer exists", () => {
@@ -204,11 +206,11 @@ describe("stackNodes and unstackNode", () => {
         unstackNode(state, { type: LayoutTreeActionType.Unstack, nodeId: b.id });
         balanceNode(state.rootNode);
         assert.deepEqual(
-            state.rootNode.children!.map((x) => x.data?.blockId),
+            state.rootNode.children!.map((x) => x.data?.blockId ?? x.children![0].data!.blockId),
             ["a", "b", "c"],
-            "the one-member stack collapsed back to a plain leaf"
+            "a stays in its stack of one: stack mode stays on until it is turned off"
         );
-        assert.isFalse(state.rootNode.children!.some((n) => isStackNode(n)));
+        assert.isTrue(isStackNode(state.rootNode.children![0]));
         assert.equal(state.focusedNodeId, b.id);
     });
 
@@ -501,5 +503,81 @@ describe("activating a member without taking focus", () => {
         assert.isFalse(activateStackMember(state, a.id));
         assert.isFalse(activateStackMember(state, "nope"));
         assert.equal(JSON.stringify(state), before);
+    });
+});
+
+describe("stack mode on a single tile", () => {
+    test("turning a tile into a stack keeps its place and size and makes a one-member stack", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        b.size = 33;
+        assert.isTrue(turnIntoStack(state, b.id));
+        const stack = state.rootNode.children![1];
+        assert.isTrue(isStackNode(stack));
+        assert.deepEqual(
+            stack.children!.map((x) => x.id),
+            [b.id]
+        );
+        assert.equal(stack.activeChildId, b.id);
+        assert.equal(stack.size, 33);
+        assert.equal(state.rootNode.children![0].id, a.id);
+        assert.equal(state.rootNode.children![2].id, c.id);
+    });
+
+    test("a one-member stack survives balancing: stack mode stays on until it is turned off", () => {
+        const { state, b } = treeWithThreeLeaves();
+        turnIntoStack(state, b.id);
+        balanceNode(state.rootNode);
+        const stack = findParent(state.rootNode, b.id)!;
+        assert.isTrue(isStackNode(stack));
+        assert.equal(stack.children!.length, 1);
+    });
+
+    test("closing the second to last member leaves a one-member stack, closing the last removes it", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        deleteNode(state, { type: LayoutTreeActionType.DeleteNode, nodeId: b.id });
+        balanceNode(state.rootNode);
+        const stack = findParent(state.rootNode, a.id)!;
+        assert.isTrue(isStackNode(stack));
+        assert.equal(stack.activeChildId, a.id);
+        deleteNode(state, { type: LayoutTreeActionType.DeleteNode, nodeId: a.id });
+        balanceNode(state.rootNode);
+        assert.isNull(findNode(state.rootNode, a.id) ?? null);
+        assert.equal(state.rootNode.data!.blockId, "c", "only c is left, so it is the root leaf and no stack remains");
+    });
+
+    test("turning stack mode off works only with one member left and gives the plain tile back", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        turnIntoStack(state, b.id);
+        assert.isTrue(turnStackOff(state, b.id));
+        balanceNode(state.rootNode);
+        assert.isFalse(state.rootNode.children!.some((n) => isStackNode(n)));
+        assert.deepEqual(
+            state.rootNode.children!.map((x) => x.id),
+            [a.id, b.id, c.id]
+        );
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        assert.isFalse(turnStackOff(state, a.id), "two members: nothing is turned off");
+        assert.isTrue(isStackNode(findParent(state.rootNode, a.id)!));
+    });
+
+    test("a tile that is already a member, a non-leaf and an unknown id are refused", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        assert.isFalse(turnIntoStack(state, a.id));
+        assert.isFalse(turnIntoStack(state, state.rootNode.id));
+        assert.isFalse(turnIntoStack(state, "nope"));
+        assert.isFalse(turnStackOff(state, "nope"));
+        assert.isFalse(turnStackOff(state, state.rootNode.id));
+    });
+
+    test("a root leaf can be turned into a stack and back", () => {
+        const only = leaf("only");
+        const state = newLayoutTreeState(only);
+        assert.isTrue(turnIntoStack(state, only.id));
+        assert.isTrue(isStackNode(state.rootNode));
+        assert.isTrue(turnStackOff(state, only.id));
+        assert.isFalse(isStackNode(state.rootNode));
+        assert.equal(state.rootNode.data!.blockId, "only");
     });
 });

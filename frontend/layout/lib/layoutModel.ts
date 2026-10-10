@@ -23,6 +23,7 @@ import {
     insertNodeAtIndex,
     insertNodeIntoStack,
     placeholderTargetId,
+    reorderStackMember,
     magnifyNodeToggle,
     moveIntoStack,
     moveNode,
@@ -62,6 +63,7 @@ import {
     LayoutTreeStackInsertAction,
     LayoutTreeStackModeAction,
     LayoutTreeStackMoveAction,
+    LayoutTreeStackReorderAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
     LayoutTreeUnstackAction,
@@ -830,6 +832,9 @@ export class LayoutModel {
                 ) {
                     FocusManager.getInstance().requestNodeFocus();
                 }
+                break;
+            case LayoutTreeActionType.StackReorder:
+                reorderStackMember(this.treeState, action as LayoutTreeStackReorderAction);
                 break;
             case LayoutTreeActionType.TurnIntoStack:
                 turnIntoStack(this.treeState, (action as LayoutTreeStackModeAction).nodeId);

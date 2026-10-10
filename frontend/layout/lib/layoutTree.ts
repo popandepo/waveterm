@@ -40,6 +40,7 @@ import {
     LayoutTreeStackAction,
     LayoutTreeStackInsertAction,
     LayoutTreeStackMoveAction,
+    LayoutTreeStackReorderAction,
     LayoutTreeUnstackAction,
 } from "./types";
 
@@ -881,6 +882,61 @@ export function moveIntoStack(layoutState: LayoutTreeState, action: LayoutTreeSt
         setFocusedNode(layoutState, activeMemberId);
     }
     return moved;
+}
+
+/**
+ * Puts a member of a stack at the place of another member of the same stack. The node object stays the same and the
+ * active member does not change.
+ */
+export function reorderStackMember(layoutState: LayoutTreeState, action: LayoutTreeStackReorderAction): boolean {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, action.nodeId) : undefined;
+    const target = root ? findNode(root, action.targetNodeId) : undefined;
+    if (!node || !target || node.id === target.id) {
+        return false;
+    }
+    const stack = findParent(root, node.id);
+    if (!stack || !isStackNode(stack) || findParent(root, target.id) !== stack) {
+        return false;
+    }
+    const to = stack.children.indexOf(target);
+    stack.children.splice(stack.children.indexOf(node), 1);
+    stack.children.splice(to, 0, node);
+    return true;
+}
+
+/**
+ * What dropping a dragged tile on a tab of a strip does: reorder when both are in the same stack, join that stack
+ * (after the tab) when the dragged tile comes from outside, nothing when it is dropped on itself.
+ */
+export function tabDropAction(
+    rootNode: LayoutNode,
+    draggedNodeId: string,
+    targetTabNodeId: string
+): LayoutTreeAction | undefined {
+    const dragged = rootNode ? findNode(rootNode, draggedNodeId) : undefined;
+    const target = rootNode ? findNode(rootNode, targetTabNodeId) : undefined;
+    if (!dragged || !target || dragged.id === target.id) {
+        return undefined;
+    }
+    const targetStack = findParent(rootNode, target.id);
+    if (!targetStack || !isStackNode(targetStack)) {
+        return undefined;
+    }
+    if (findParent(rootNode, dragged.id) === targetStack) {
+        const reorder: LayoutTreeStackReorderAction = {
+            type: LayoutTreeActionType.StackReorder,
+            nodeId: draggedNodeId,
+            targetNodeId: targetTabNodeId,
+        };
+        return reorder;
+    }
+    const join: LayoutTreeStackAction = {
+        type: LayoutTreeActionType.Stack,
+        nodeId: draggedNodeId,
+        targetNodeId: targetTabNodeId,
+    };
+    return join;
 }
 
 /**

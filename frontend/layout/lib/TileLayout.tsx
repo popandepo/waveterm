@@ -22,6 +22,7 @@ import { useDevicePixelRatio } from "use-device-pixel-ratio";
 import { LayoutModel } from "./layoutModel";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
 import "./stackstrip.scss";
+import { tileItemType } from "./dndtypes";
 import { StackStrips } from "./stacktabstrip";
 import "./tilelayout.scss";
 import {
@@ -33,7 +34,7 @@ import {
 } from "./types";
 import { determineDropDirection } from "./utils";
 
-const tileItemType = "TILE_ITEM";
+
 
 export interface TileLayoutProps {
     /**

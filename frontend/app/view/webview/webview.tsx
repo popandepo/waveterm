@@ -22,10 +22,13 @@ import clsx from "clsx";
 import type { WebviewTag } from "electron";
 import { Atom, PrimitiveAtom, atom, useAtomValue, useSetAtom } from "jotai";
 import { Fragment, createRef, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { audioMuteChange, effectiveAudioMuted } from "./hiddenmute";
 import "./webview.scss";
 import type { WebViewEnv } from "./webviewenv";
 
 // User agent strings for mobile emulation
+const NeverHiddenAtom = atom(false);
+
 const USER_AGENT_IPHONE =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 const USER_AGENT_ANDROID =
@@ -273,9 +276,10 @@ export class WebViewModel implements ViewModel {
             e.stopPropagation();
         }
         try {
-            const newMutedVal = !this.webviewRef.current?.isAudioMuted();
+            const newMutedVal = !globalStore.get(this.mediaMuted);
             globalStore.set(this.mediaMuted, newMutedVal);
-            this.webviewRef.current?.setAudioMuted(newMutedVal);
+            const hidden = this.nodeModel.isHidden ? globalStore.get(this.nodeModel.isHidden) : false;
+            this.webviewRef.current?.setAudioMuted(effectiveAudioMuted(newMutedVal, hidden));
         } catch (e) {
             console.error("Failed to change mute value", e);
         }
@@ -924,6 +928,23 @@ const WebView = memo(({ model, onFailLoad, blockRef, initialSrc }: WebViewProps)
 
     const [webContentsId, setWebContentsId] = useState(null);
     const domReady = useAtomValue(model.domReady);
+    const hiddenInStack = useAtomValue(model.nodeModel.isHidden ?? NeverHiddenAtom);
+    const mutedByOwner = useAtomValue(model.mediaMuted);
+
+    useEffect(() => {
+        const webview = model.webviewRef.current;
+        if (webview == null || !domReady) {
+            return;
+        }
+        try {
+            const change = audioMuteChange(webview.isAudioMuted(), mutedByOwner, hiddenInStack);
+            if (change != null) {
+                webview.setAudioMuted(change);
+            }
+        } catch (e) {
+            console.error("Failed to set the audio mute of a hidden or shown web tile", e);
+        }
+    }, [domReady, hiddenInStack, mutedByOwner]);
 
     const [errorText, setErrorText] = useState("");
 

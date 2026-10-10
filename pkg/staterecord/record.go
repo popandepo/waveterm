@@ -115,7 +115,7 @@ func metaString(meta waveobj.MetaMapType, key string) string {
 // Only the program name is kept, not its path or arguments, and no url, environment or other meta: the file is for
 // restoring places, and command lines and addresses can hold secrets. Only the first token of the command is read (a leading
 // quoted part counts as one token), then only its base name. Nothing past the first token is ever looked at, so an argument
-// cannot end up in the name. When the first token cannot be identified safely (an unmatched quote, a Windows path with
+// cannot end up in the name. When the first token cannot be identified safely (an unmatched quote, text glued to the closing quote, a Windows path with
 // spaces that is not quoted, a name with characters a program name does not have) the program is left out.
 func executableOf(cmd string) string {
 	s := strings.TrimSpace(cmd)
@@ -125,6 +125,10 @@ func executableOf(cmd string) string {
 	if s[0] == 39 || s[0] == 34 {
 		end := strings.IndexByte(s[1:], s[0])
 		if end < 0 {
+			return ""
+		}
+		after := 2 + end
+		if after < len(s) && s[after] != ' ' && s[after] != '\t' {
 			return ""
 		}
 		return s[1 : 1+end]

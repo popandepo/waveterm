@@ -189,6 +189,10 @@ func TestProgramNameIsOnlyTheExecutable(t *testing.T) {
 		`'unmatched --token SECRET`:                                       "",
 		`C:\Program Files\PowerShell\7\pwsh.exe -File x --api-key=SECRET`: "",
 		`C:\tools\my app\run.cmd arg`:                                     "",
+		`"safe"evil --arg`:                                                "",
+		`"safe" --arg`:                                                    "safe",
+		`"safe"`:                                                          "safe",
+		`'safe'evil`:                                                      "",
 		"cmd;rm -rf x":                                                    "",
 		`"a;b" arg`:                                                       "",
 	}

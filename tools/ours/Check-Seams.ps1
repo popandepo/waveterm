@@ -11,7 +11,7 @@
 #   -Ref      upstream commit to scan for watch hits (default upstream/main; the run fails if the ref does not exist)
 #   -BaseRef  the previously synced upstream point (default merge-base of origin/Master and Ref)
 [CmdletBinding()]
-param([string]$Root = '', [string]$Ref = '', [string]$BaseRef = '')
+param([string]$Root = '', [string]$Ref = '', [string]$BaseRef = '', [string]$ExpectedFile = '')
 
 $ErrorActionPreference = 'Stop'
 if (-not $Root) { $Root = (& git rev-parse --show-toplevel).Trim() }
@@ -79,6 +79,21 @@ $seams = @(
     @('stack-dnd-type-shared', 'frontend/layout/lib/TileLayout.tsx', 'import { tileItemType } from "./dndtypes";', 'tabs of a stack are drag sources of the same type as tile headers'),
     @('stack-reorder-reducer', 'frontend/layout/lib/layoutModel.ts', 'case LayoutTreeActionType.StackReorder:', 'dropping a tab on another tab of its strip'),
     @('delete-block-rpc', 'pkg/wshrpc/wshrpctypes.go', 'DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error', 'wsh slot close'),
+    @('telemetry-default-off', 'pkg/wconfig/defaultconfig/settings.json', '"telemetry:enabled": false,', 'fork rule: telemetry is opt-in; red if an upstream merge flips the default back'),
+    @('autoupdate-default-off', 'pkg/wconfig/defaultconfig/settings.json', '"autoupdate:enabled": false,', 'fork rule: no update check against upstream releases unless the user turns it on'),
+    @('ping-gated-on-telemetry', 'cmd/server/main-server.go', 'if !wcloud.DiagnosticPingAllowed(usageTelemetry) {', 'the daily diagnostic ping is only sent after the user opted in'),
+    @('updater-fallback-off', 'emain/updater.ts', 'settings["autoupdate:enabled"] ?? false', 'an absent autoupdate:enabled reads as off'),
+    @('stack-ui-geometry-hook', 'frontend/layout/lib/layoutModel.ts', 'applyStackLayout(node, stackRect, additionalPropsMap);', 'stack members are laid out by our geometry, not the row and column maths'),
+    @('stack-ui-strip-hook', 'frontend/layout/lib/TileLayout.tsx', '<StackStrips layoutModel={layoutModel} />', 'the tab strip of each stack is drawn next to the tiles'),
+    @('stack-ui-label-hook', 'frontend/app/tab/tabcontent.tsx', 'renderStackTabLabel,', 'tab labels come from block meta via the tab content'),
+    @('stack-ui-backend-actions', 'frontend/layout/lib/layoutModel.ts', 'case LayoutTreeActionType.StackInsert: {', 'the page applies stack actions queued by the back end'),
+    @('stack-create-block-hook', 'pkg/wshrpc/wshserver/wshserver.go', 'case wshrpc.CreateBlockAction_Stack:', 'create-block with a stack target queues stackinsert'),
+    @('stack-rpc-interface', 'pkg/wshrpc/wshrpctypes.go', 'StackBlockCommand(ctx context.Context, data CommandStackBlockData) error', 'wsh group add, remove, activate and stack move'),
+    @('stack-layout-queue', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackInsert', 'back-end layout actions for stacks'),
+    @('stack-move-layout-action', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackMove', 'wsh stack move queues this action'),
+    @('stack-menu-hook', 'frontend/app/block/blockframe-header.tsx', 'label: "Turn into a stack"', 'the block menu offers stack mode'),
+    @('stack-add-hook', 'frontend/app/tab/tabcontent.tsx', 'onStackAdd,', 'the + on a strip opens the widget-bar type menu'),
+    @('stack-create-in-stack-helper', 'frontend/app/store/global.ts', 'async function createBlockInStack(', 'creates a new block straight into a stack'),
     @('api-focus-window-rpc', 'pkg/wshrpc/wshrpctypes.go', 'FocusWindowCommand(ctx context.Context, windowId string) error', 'local API goto with window=true'),
     @('api-set-active-tab-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSetActiveTabCommand(ctx context.Context, data CommandElectronTabData) error', 'local API focus tab and goto'),
     @('api-set-block-focus-rpc', 'pkg/wshrpc/wshrpctypes.go', 'SetBlockFocusCommand(ctx context.Context, blockId string) error', 'local API focus block and goto'),
@@ -126,6 +141,19 @@ $watch = @(
 )
 
 $red = 0
+Write-Host '== expected ids (tools/ours/seams-expected.txt, kept apart from the list below)'
+$expectedFile = if ($ExpectedFile) { $ExpectedFile } else { Join-Path $PSScriptRoot 'seams-expected.txt' }
+if (-not (Test-Path -LiteralPath $expectedFile)) { Write-Host "RED   expected-ids : file missing: $expectedFile"; $red++ }
+else {
+    try { $lines = @(Get-Content -LiteralPath $expectedFile -ErrorAction Stop) }
+    catch { Write-Host "FATAL: the expected ids could not be read ($expectedFile): $($_.Exception.Message)"; exit 1 }
+    $expected = @($lines | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() })
+    if ($expected.Count -eq 0) { Write-Host "FATAL: $expectedFile holds no ids, so it protects nothing"; exit 1 }
+    $have = @($seams | ForEach-Object { $_[0] })
+    foreach ($e in $expected) { if ($have -notcontains $e) { Write-Host "RED   $e : in seams-expected.txt but missing from the seam list (row dropped?)"; $red++ } }
+    foreach ($h in $have) { if ($expected -notcontains $h) { Write-Host "NOTE  $h : in the seam list but not in seams-expected.txt (not protected against being dropped)" } }
+    Write-Host "expected ids: $($expected.Count)"
+}
 Write-Host '== seams (must all be present, comments ignored)'
 foreach ($s in $seams) {
     $id, $file, $text, $why = $s
@@ -169,6 +197,6 @@ foreach ($w in $watch) {
     else { Write-Host "ok    $id" }
 }
 
-Write-Host "seams red: $red, watch hits: $watchHits"
+Write-Host "seams red: $red, watch hits: $watchHits, rows: $($seams.Count)"
 if ($red -gt 0) { exit 1 }
 exit 0

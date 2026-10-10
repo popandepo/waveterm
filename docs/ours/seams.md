@@ -7,6 +7,8 @@ and whitespace collapsed before matching, and most rows are full signatures, so 
 name in a comment, or a changed argument list or return type, turns it red. The list in that script is the source
 of truth, this file explains it. Add a row here and in the script in the same commit as any change that starts depending on something new.
 
+The ids that must stay in the list are also kept in `tools/ours/seams-expected.txt`, apart from the list: a row that is dropped from the script goes red. A new row adds its id to that file in the same commit (a row that is only in the script prints a NOTE). A file that cannot be read, or that holds no ids, stops the run with exit 1 (`tools\ours\Test-CheckSeams.ps1` tests that).
+
 Check: `tools\ours\Check-Seams.ps1` (exit 0 ok, exit 1 a seam moved; WATCH lines never fail the run).
 What would have made it red: a rename, removal or signature change of the declaration in the listed file (tested by
 renaming one function while leaving the old declaration in a comment, and by adding an argument to another).
@@ -66,8 +68,49 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | rectangle maths | `frontend/layout/lib/layoutModel.ts` | `updateTreeHelper` | stack members share one rectangle |
 | silent rewriters | `frontend/layout/lib/layoutNode.ts` | `balanceNode`, `addChildAt` | rewrite the tree on every update; need guards |
 
-## Accent colour
+## Stacks (tabs inside a tile)
 
+| Seam | File | Symbol or text | We use it for |
+|---|---|---|---|
+| geometry hook | `frontend/layout/lib/layoutModel.ts` | `applyStackLayout(node, stackRect, additionalPropsMap);` | stack members are laid out by our geometry, not the row and column maths |
+| strip hook | `frontend/layout/lib/TileLayout.tsx` | `<StackStrips layoutModel={layoutModel} />` | the tab strip of each stack is drawn next to the tiles |
+| label hook | `frontend/app/tab/tabcontent.tsx` | `renderStackTabLabel,` | strip labels come from block meta |
+| add hook | `frontend/app/tab/tabcontent.tsx` | `onStackAdd,` | the + on a strip opens the widget-bar type menu |
+| back-end actions | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackInsert: {` | the page applies stack actions queued by the back end |
+| create-block target | `pkg/wshrpc/wshserver/wshserver.go` | `case wshrpc.CreateBlockAction_Stack:` | create-block with a stack target queues a stack insert |
+| stack RPC | `pkg/wshrpc/wshrpctypes.go` | `StackBlockCommand` | wsh group add, remove, activate and stack move |
+| layout actions | `pkg/wcore/layout.go` | `LayoutActionDataType_StackInsert`, `LayoutActionDataType_StackMove` | back-end layout actions for stacks |
+| block menu | `frontend/app/block/blockframe-header.tsx` | `label: "Turn into a stack"` | the block menu offers stack mode |
+| create into stack | `frontend/app/store/global.ts` | `async function createBlockInStack(` | creates a new block straight into a stack |
+
+## Fork rules: telemetry and updates
+
+| Seam | File | Symbol or text | Why it matters |
+|---|---|---|---|
+| telemetry default | `pkg/wconfig/defaultconfig/settings.json` | `"telemetry:enabled": false,` | telemetry is opt-in; red if an upstream merge flips it back |
+| autoupdate default | same | `"autoupdate:enabled": false,` | no update check against upstream releases unless the user turns it on |
+| daily ping | `cmd/server/main-server.go` | `if !wcloud.DiagnosticPingAllowed(usageTelemetry) {` | the ping is only sent after the user opted in |
+| updater fallback | `emain/updater.ts` | `settings["autoupdate:enabled"] ?? false` | an absent setting reads as off |
+
+## Local API, state record, session restart, close tab, tab drag
+
+| Seam | File | Symbol or text | We use it for |
+|---|---|---|---|
+| focus window | `pkg/wshrpc/wshrpctypes.go` | `FocusWindowCommand` | local API goto with `window=true` |
+| set active tab | same | `ElectronSetActiveTabCommand` | local API focus tab and goto |
+| set block focus | same | `SetBlockFocusCommand` | local API focus block and goto |
+| path | same | `PathCommand` | `wsh api` finds the data directory of the running Wave |
+| list all workspaces | `pkg/wcore/workspace.go` | `ListAllWorkspaces` | local API list, and the state record, read every workspace |
+| main RPC client | `pkg/wshrpc/wshserver/wshserverutil.go` | `GetMainRpcClient` | the local API backend sends its RPC calls through it |
+| startup line | `cmd/server/main-server.go` | `go wshutil.RunWshRpcOverListener(unixListener, nil)` | `wavesrvapi.Start()` is added on the next line |
+| event observer | `pkg/wps/wps.go` | `notifyObservers(event)` | the state record reacts to every published object update |
+| state record start | `cmd/server/main-server.go` | `wavesrvstate.Start()` | wavesrv starts the state record writer |
+| controller start decision | `pkg/blockcontroller/shellcontroller.go` | `shouldRunCommand(...)` | `wsh session start --restart` depends on `cmd:runonstart` blocks starting again |
+| close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
+| tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
+| tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |
+
+## Accent colour
 | Seam | File | Symbol | We use it for |
 |---|---|---|---|
 | default accent | `frontend/app/theme.scss`, `frontend/tailwindsetup.css` | `--accent-color`, `--color-accent` | the variables our accent colour overrides at run time |

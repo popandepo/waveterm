@@ -1,0 +1,89 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+// Package wavesrvstate connects the state record to wavesrv: it reads the object store into a Snapshot and starts a writer
+// that reacts to object updates. It is kept apart so that the record itself needs no database.
+package wavesrvstate
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"path/filepath"
+	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/staterecord"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
+	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
+)
+
+const (
+	StateDirName  = "state"
+	StateFileName = "wave-state.json"
+	debounce      = 300 * time.Millisecond
+	loadTimeout   = 5 * time.Second
+)
+
+func loadSnapshot() (staterecord.Snapshot, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
+	defer cancel()
+	snap := staterecord.Snapshot{
+		WaveVersion: wavebase.WaveVersion,
+		Tabs:        map[string]*waveobj.Tab{},
+		Blocks:      map[string]*waveobj.Block{},
+		Layouts:     map[string]*waveobj.LayoutState{},
+	}
+	entries, err := wcore.ListAllWorkspaces(ctx)
+	if err != nil {
+		return snap, fmt.Errorf("listing workspaces: %w", err)
+	}
+	for _, entry := range entries {
+		ws, err := wcore.GetWorkspace(ctx, entry.WorkspaceId)
+		if err != nil {
+			return snap, fmt.Errorf("workspace %s: %w", entry.WorkspaceId, err)
+		}
+		snap.Workspaces = append(snap.Workspaces, staterecord.WorkspaceSource{WindowId: entry.WindowId, Workspace: ws})
+		for _, tabId := range ws.TabIds {
+			tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
+			if err != nil || tab == nil {
+				continue
+			}
+			snap.Tabs[tabId] = tab
+			if tab.LayoutState != "" {
+				if layout, err := wstore.DBGet[*waveobj.LayoutState](ctx, tab.LayoutState); err == nil && layout != nil {
+					snap.Layouts[tab.LayoutState] = layout
+				}
+			}
+			for _, blockId := range tab.BlockIds {
+				if block, err := wstore.DBGet[*waveobj.Block](ctx, blockId); err == nil && block != nil {
+					snap.Blocks[blockId] = block
+				}
+			}
+		}
+	}
+	return snap, nil
+}
+
+// Start writes the record once and then again after every change to the objects it is built from. A failure is logged and
+// never stops wavesrv.
+func Start() *staterecord.Writer {
+	path := filepath.Join(wavebase.GetWaveDataDir(), StateDirName, StateFileName)
+	w := staterecord.MakeWriter(path, func() (staterecord.Record, error) {
+		snap, err := loadSnapshot()
+		if err != nil {
+			return staterecord.Record{}, err
+		}
+		return staterecord.BuildRecord(snap), nil
+	}, debounce)
+	wps.AddObserver(func(event wps.WaveEvent) {
+		if staterecord.IsRelevantUpdate(event.Event, event.Scopes) {
+			w.Notify()
+		}
+	})
+	w.Notify()
+	log.Printf("state record: %s\n", path)
+	return w
+}

@@ -305,3 +305,25 @@ confirmed; keyboard focus moves only with `--focus`.
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
+
+## 24. The live state record (what runs where, readable from outside)
+
+Wave writes `<data dir>/state/wave-state.json` after every change to a workspace, tab, block, layout or window (a 300 ms
+coalescing delay, no polling and no timer), by writing a temp file in the same folder, flushing it and renaming it over the
+old one: a reader sees the old record or the new one, never half of one. An unchanged state is not rewritten; `sequence` counts
+the writes; a failed write leaves the old file in place and is retried at the next change.
+Words: a **workspace** has **tabs** (the T1, T2 row), a tab has **tiles**, a tile of kind `stack` has a **group** of block tabs
+(in order, one active), a plain tile has a group of one. Per block: view, title, working folder, the program name only (never
+its path, arguments, address or environment: those can hold secrets), the controller, and every `session:*` meta value
+(`session:name`, `session:id`, `session:model`, `session:effort`, `session:permissionmode` ...: the starter writes them with
+`wsh session start --meta`, see section 21). `sessions` is an index of the blocks that carry a session id: workspace, tab,
+tile position, stack and position in its group, so that an outside tool can put things back.
+A block that the saved layout does not show yet (the page saves its layout 100 ms after a change) is still listed, as a plain
+tile at the end of its tab.
+- **RAN:** Go tests for the builder (names, order, active tab of a group, secrets never in the file, sessions index, missing
+  layout or block), the writer (atomic replacement, a failed rename keeps the old file and leaves no temp file, no rewrite of an
+  unchanged state, a burst gives one build, no write without a change, retry after a failure) and the event filter; two
+  mutations (skip-unchanged, sequence) turned tests red.
+- **READ, not run:** the loader that reads the object store and the hook in wavesrv startup (needs the database), and the
+  file as the app really writes it.
+- **Private reader:** `Read-WaveState.ps1` (outside the repository) prints the record and the command lines to resume each session.

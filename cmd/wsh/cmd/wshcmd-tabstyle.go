@@ -30,7 +30,9 @@ var tabStyleCmd = &cobra.Command{
 	Short: "Set the colour and symbol of a tab",
 	Long: `Set the colour and the symbol shown on a tab in the tab bar.
 
---accent changes the colour of the whole Wave frame (buttons, highlights, focused borders) while this tab is the\nactive one; it falls back to the workspace accent (wsh workspace style) and then to the default green. It is separate\nfrom --color so that a tab can have a flag colour without recolouring the window.
+--accent changes the colour of the whole Wave frame (buttons, highlights, focused borders) while this tab is the
+active one; it falls back to the workspace accent (wsh workspace style) and then to the default green. It is separate
+from --color so that a tab can have a flag colour without recolouring the window.
 
 The colour is a CSS colour name or a hex colour (#RRGGBB or #RRGGBBAA) and is stored in the existing
 "tab:flagcolor" key. The symbol is a Font Awesome icon name (for example crown, star, rocket) or one or two

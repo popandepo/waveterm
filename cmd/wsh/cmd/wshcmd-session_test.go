@@ -60,3 +60,27 @@ func TestParseSessionEnv(t *testing.T) {
 		t.Fatal("expected an error for an empty key")
 	}
 }
+
+func TestBuildSessionBlockMetaPassesArgumentsUntouched(t *testing.T) {
+	prompt := "a; b & c | d \"quoted\" %PATH% ^x `tick` $(cmd)\nsecond line"
+	meta := buildSessionBlockMeta("pwsh", []string{"-File", "s.ps1", "-Prompt", prompt}, `C:\work`, map[string]any{"K": "v"}, "")
+	if meta["cmd:shell"] != false {
+		t.Fatalf("cmd:shell must be false so that no shell re-parses the arguments, got %v", meta["cmd:shell"])
+	}
+	args, ok := meta["cmd:args"].([]string)
+	if !ok || !reflect.DeepEqual(args, []string{"-File", "s.ps1", "-Prompt", prompt}) {
+		t.Fatalf("arguments changed: %q", meta["cmd:args"])
+	}
+	if meta["cmd"] != "pwsh" || meta["controller"] != "cmd" || meta["view"] != "term" || meta["cmd:cwd"] != `C:\work` {
+		t.Fatalf("unexpected meta %v", meta)
+	}
+	if meta["cmd:runonce"] != true || meta["cmd:runonstart"] != true {
+		t.Fatalf("the program must start once on creation: %v", meta)
+	}
+	if _, has := meta["connection"]; has {
+		t.Fatal("no connection unless one is given")
+	}
+	if got := buildSessionBlockMeta("x", nil, "c", nil, "ssh:host")["connection"]; got != "ssh:host" {
+		t.Fatalf("connection not set: %v", got)
+	}
+}

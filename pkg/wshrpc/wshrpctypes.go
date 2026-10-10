@@ -97,6 +97,7 @@ type WshRpcInterface interface {
 	GetTabCommand(ctx context.Context, tabId string) (*waveobj.Tab, error)
 	UpdateTabNameCommand(ctx context.Context, tabId string, newName string) error
 	CreateTabCommand(ctx context.Context, data CommandCreateTabData) (string, error)
+	SessionCloseTabCommand(ctx context.Context, data CommandSessionCloseTabData) (*CommandSessionCloseTabRtnData, error)
 	UpdateWorkspaceTabIdsCommand(ctx context.Context, workspaceId string, tabIds []string) error
 	GetAllBadgesCommand(ctx context.Context) ([]baseds.BadgeEvent, error)
 
@@ -143,6 +144,7 @@ type WshRpcInterface interface {
 	ElectronSetActiveTabCommand(ctx context.Context, data CommandElectronTabData) error
 	ElectronCloseTabCommand(ctx context.Context, data CommandElectronTabData) error
 	ElectronPreloadTabCommand(ctx context.Context, data CommandElectronTabData) error
+	ElectronTabClosedCommand(ctx context.Context, data CommandElectronTabClosedData) error
 
 	// secrets
 	GetSecretsCommand(ctx context.Context, names []string) (map[string]string, error)
@@ -682,6 +684,24 @@ type CommandTermGetScrollbackLinesRtnData struct {
 type CommandTermUpdateAttachedJobData struct {
 	BlockId string `json:"blockid"`
 	JobId   string `json:"jobid,omitempty"`
+}
+
+type CommandSessionCloseTabData struct {
+	WorkspaceId string `json:"workspaceid"`
+	TabId       string `json:"tabid"`
+	Force       bool   `json:"force,omitempty"`
+}
+
+type CommandSessionCloseTabRtnData struct {
+	CloseWindow    bool   `json:"closewindow,omitempty"`
+	NewActiveTabId string `json:"newactivetabid,omitempty"`
+}
+
+type CommandElectronTabClosedData struct {
+	WorkspaceId    string `json:"workspaceid"`
+	TabId          string `json:"tabid"`
+	NewActiveTabId string `json:"newactivetabid,omitempty"`
+	CloseWindow    bool   `json:"closewindow,omitempty"`
 }
 
 type CommandControllerStatusRtnData struct {

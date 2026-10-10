@@ -385,6 +385,14 @@ declare global {
         storagebackend: string;
     };
 
+    // wshrpc.CommandElectronTabClosedData
+    type CommandElectronTabClosedData = {
+        workspaceid: string;
+        tabid: string;
+        newactivetabid?: string;
+        closewindow?: boolean;
+    };
+
     // wshrpc.CommandElectronTabData
     type CommandElectronTabData = {
         workspaceid: string;
@@ -653,6 +661,19 @@ declare global {
     // wshrpc.CommandRestartBuilderAndWaitData
     type CommandRestartBuilderAndWaitData = {
         builderid: string;
+    };
+
+    // wshrpc.CommandSessionCloseTabData
+    type CommandSessionCloseTabData = {
+        workspaceid: string;
+        tabid: string;
+        force?: boolean;
+    };
+
+    // wshrpc.CommandSessionCloseTabRtnData
+    type CommandSessionCloseTabRtnData = {
+        closewindow?: boolean;
+        newactivetabid?: string;
     };
 
     // wshrpc.CommandSetMetaData

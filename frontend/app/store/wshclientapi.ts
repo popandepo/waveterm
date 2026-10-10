@@ -288,6 +288,12 @@ export class RpcApiType {
         return client.wshRpcCall("electronsystembell", null, opts);
     }
 
+    // command "electrontabclosed" [call]
+    ElectronTabClosedCommand(client: WshClient, data: CommandElectronTabClosedData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electrontabclosed", data, opts);
+        return client.wshRpcCall("electrontabclosed", data, opts);
+    }
+
     // command "eventpublish" [call]
     EventPublishCommand(client: WshClient, data: WaveEvent, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "eventpublish", data, opts);
@@ -862,6 +868,12 @@ export class RpcApiType {
     SendTelemetryCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sendtelemetry", null, opts);
         return client.wshRpcCall("sendtelemetry", null, opts);
+    }
+
+    // command "sessionclosetab" [call]
+    SessionCloseTabCommand(client: WshClient, data: CommandSessionCloseTabData, opts?: RpcOpts): Promise<CommandSessionCloseTabRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sessionclosetab", data, opts);
+        return client.wshRpcCall("sessionclosetab", data, opts);
     }
 
     // command "setblockfocus" [call]

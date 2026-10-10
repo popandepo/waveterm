@@ -126,6 +126,14 @@ export class ElectronWshClientType extends WshClient {
         await ww.queueCloseTab(data.tabid);
     }
 
+    async handle_electrontabclosed(rh: RpcResponseHelper, data: CommandElectronTabClosedData): Promise<void> {
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            return;
+        }
+        await ww.tabClosedInBackend(data.tabid, data.newactivetabid, data.closewindow);
+    }
+
     async handle_electronpreloadtab(rh: RpcResponseHelper, data: CommandElectronTabData): Promise<void> {
         const ww = getWaveWindowByWorkspaceId(data.workspaceid);
         if (ww == null) {

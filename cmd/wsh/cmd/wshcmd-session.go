@@ -51,8 +51,9 @@ var sessionListCmd = &cobra.Command{
 var sessionCloseCmd = &cobra.Command{
 	Use:   "close <tab>",
 	Short: "Close a tab whose program has ended",
-	Long: `Close the tab (tab id, first 8 characters, tab:<n> or tab:<uuid>) after checking that no terminal block in it is
-still running a program. Use --force to close it anyway.`,
+	Long: `Close the tab (tab id, first 8 characters, tab:<n> or tab:<uuid>) only if every terminal block in it is known to have
+finished its program. A block whose status is unknown (starting, restarting, or not started since the app launched)
+counts as not finished. The check and the close happen in one backend call. Use --force to close anyway.`,
 	Args:    cobra.ExactArgs(1),
 	RunE:    sessionCloseRun,
 	PreRunE: preRunSetupRpcClient,
@@ -170,7 +171,7 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			return fmt.Errorf("getting current directory: %w", err)
 		}
 	}
-	tabId, err := createBackgroundTab(wsId, sessionName, true, sessionActivate)
+	tabId, err := createBackgroundTab(rpcTabCreator{}, wsId, sessionName, true, sessionActivate)
 	if err != nil {
 		return err
 	}
@@ -180,23 +181,7 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			return fmt.Errorf("tab %s was created but styling it failed: %w", tabId, err)
 		}
 	}
-	blockMeta := map[string]any{
-		waveobj.MetaKey_View:            "term",
-		waveobj.MetaKey_Controller:      "cmd",
-		waveobj.MetaKey_Cmd:             command,
-		waveobj.MetaKey_CmdArgs:         cmdArgs,
-		waveobj.MetaKey_CmdShell:        false,
-		waveobj.MetaKey_CmdCwd:          cwd,
-		waveobj.MetaKey_CmdRunOnce:      true,
-		waveobj.MetaKey_CmdRunOnStart:   true,
-		waveobj.MetaKey_CmdClearOnStart: true,
-	}
-	if len(envMap) > 0 {
-		blockMeta[waveobj.MetaKey_CmdEnv] = envMap
-	}
-	if RpcContext.Conn != "" {
-		blockMeta[waveobj.MetaKey_Connection] = RpcContext.Conn
-	}
+	blockMeta := buildSessionBlockMeta(command, cmdArgs, cwd, envMap, RpcContext.Conn)
 	oref, err := wshclient.CreateBlockCommand(RpcClient, wshrpc.CommandCreateBlockData{
 		TabId:    tabId,
 		BlockDef: &waveobj.BlockDef{Meta: blockMeta},
@@ -208,6 +193,29 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	out, _ := json.Marshal(map[string]string{"tabid": tabId, "blockid": oref.OID})
 	WriteStdout("%s\n", string(out))
 	return nil
+}
+
+// buildSessionBlockMeta is the whole description of the program block. cmd:shell is false and the arguments are a list,
+// so the program receives every argument exactly as given.
+func buildSessionBlockMeta(command string, cmdArgs []string, cwd string, env map[string]any, conn string) map[string]any {
+	meta := map[string]any{
+		waveobj.MetaKey_View:            "term",
+		waveobj.MetaKey_Controller:      "cmd",
+		waveobj.MetaKey_Cmd:             command,
+		waveobj.MetaKey_CmdArgs:         cmdArgs,
+		waveobj.MetaKey_CmdShell:        false,
+		waveobj.MetaKey_CmdCwd:          cwd,
+		waveobj.MetaKey_CmdRunOnce:      true,
+		waveobj.MetaKey_CmdRunOnStart:   true,
+		waveobj.MetaKey_CmdClearOnStart: true,
+	}
+	if len(env) > 0 {
+		meta[waveobj.MetaKey_CmdEnv] = env
+	}
+	if conn != "" {
+		meta[waveobj.MetaKey_Connection] = conn
+	}
+	return meta
 }
 
 // buildSessionStyleMeta reuses the tab style rules; both values are optional here.
@@ -297,20 +305,16 @@ func sessionCloseRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return err
 	}
-	if !sessionForce {
-		tabs, err := collectSessionTabs()
-		if err != nil {
-			return err
-		}
-		for _, t := range tabs {
-			if t.TabId == tabId && t.Running {
-				return fmt.Errorf("tab %s still has a running program; wait for it to end or use --force", tabId)
-			}
-		}
-	}
-	err = wshclient.ElectronCloseTabCommand(RpcClient, wshrpc.CommandElectronTabData{WorkspaceId: wsId, TabId: tabId}, &wshrpc.RpcOpts{Timeout: 15000, Route: wshutil.ElectronRoute})
+	// The check and the delete are one backend call. A block with no controller status counts as not finished.
+	rtn, err := wshclient.SessionCloseTabCommand(RpcClient, wshrpc.CommandSessionCloseTabData{WorkspaceId: wsId, TabId: tabId, Force: sessionForce}, &wshrpc.RpcOpts{Timeout: 15000})
 	if err != nil {
-		return fmt.Errorf("closing tab: %w", err)
+		return fmt.Errorf("not closed: %w", err)
+	}
+	err = wshclient.ElectronTabClosedCommand(RpcClient, wshrpc.CommandElectronTabClosedData{
+		WorkspaceId: wsId, TabId: tabId, NewActiveTabId: rtn.NewActiveTabId, CloseWindow: rtn.CloseWindow,
+	}, &wshrpc.RpcOpts{Timeout: 15000, Route: wshutil.ElectronRoute})
+	if err != nil {
+		return fmt.Errorf("tab %s was closed but the window could not be told: %w", tabId, err)
 	}
 	WriteStdout("tab closed\n")
 	return nil

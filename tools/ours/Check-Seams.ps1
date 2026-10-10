@@ -81,7 +81,7 @@ $seams = @(
     @('window-set-active-tab', 'emain/emain-window.ts', 'async setActiveTab(tabId: string, setInBackend: boolean, primaryStartupTab = false)', 'electron tab switch'),
     @('window-queue-close-tab', 'emain/emain-window.ts', 'async queueCloseTab(tabId: string)', 'electron tab close'),
     @('layout-rootnode-any', 'pkg/waveobj/wtype.go', 'RootNode any `json:"rootnode,omitempty"`', 'layout tree is opaque to the back end (stack node spike)'),
-    @('layout-node-type', 'frontend/layout/lib/types.ts', 'export interface LayoutNode { id: string; data?: TabLayoutData; children?: LayoutNode[]; flexDirection: FlexDirection; size: number; }', 'node shape'),
+    @('layout-node-type', 'frontend/layout/lib/types.ts', 'export interface LayoutNode { id: string; data?: TabLayoutData; children?: LayoutNode[]; flexDirection: FlexDirection; size: number; kind?: "stack"; activeChildId?: string; }', 'node shape'),
     @('layout-focus-reducer', 'frontend/layout/lib/layoutTree.ts', 'export function focusNode(layoutState: LayoutTreeState, action: LayoutTreeFocusNodeAction) {', 'single place that must activate a stack member'),
     @('layout-update-helper', 'frontend/layout/lib/layoutModel.ts', 'private updateTreeHelper( node: LayoutNode, additionalPropsMap: Record<string, LayoutNodeAdditionalProps>, leafs: LayoutNode[], resizeHandleSizePx: number, magnifiedNodeSizePct: number, boundingRect: Dimensions, resizeAction?: LayoutTreeResizeNodeAction ) {', 'rectangle maths for the stack node'),
     @('layout-balance', 'frontend/layout/lib/layoutNode.ts', 'export function balanceNode( node: LayoutNode, beforeWalkCallback?: (node: LayoutNode) => void, afterWalkCallback?: (node: LayoutNode) => void ): LayoutNode {', 'silently rewrites the tree; guard for stacks'),

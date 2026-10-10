@@ -25,7 +25,9 @@ import {
     resizeNode,
     splitHorizontal,
     splitVertical,
+    stackNodes,
     swapNode,
+    unstackNode,
 } from "./layoutTree";
 import {
     ContentRenderer,
@@ -47,8 +49,10 @@ import {
     LayoutTreeSetPendingAction,
     LayoutTreeSplitHorizontalAction,
     LayoutTreeSplitVerticalAction,
+    LayoutTreeStackAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
+    LayoutTreeUnstackAction,
     NavigateDirection,
     NavigationResult,
     NodeModel,
@@ -685,6 +689,22 @@ export class LayoutModel {
                 break;
             case LayoutTreeActionType.SplitVertical:
                 splitVertical(this.treeState, action as LayoutTreeSplitVerticalAction);
+                break;
+            case LayoutTreeActionType.Stack:
+                if (
+                    stackNodes(this.treeState, action as LayoutTreeStackAction) &&
+                    ((action as LayoutTreeStackAction).focused ?? true)
+                ) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
+                break;
+            case LayoutTreeActionType.Unstack:
+                if (
+                    unstackNode(this.treeState, action as LayoutTreeUnstackAction) &&
+                    ((action as LayoutTreeUnstackAction).focused ?? true)
+                ) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
                 break;
             default:
                 console.error("Invalid reducer action", this.treeState, action);

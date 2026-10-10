@@ -6,6 +6,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -24,7 +25,10 @@ var slotCommand = &cobra.Command{
 	Long: `Slots give blocks a fixed place by name (left, middle, right-top, right-bottom by default).
 "wsh slot open middle web url=http://127.0.0.1:18766/" always lands in the middle: it replaces what is
 there, or opens next to the nearest filled slot. "wsh slot close middle" gives the space back.
-The slot names and how each one finds its neighbour are data (--layout-file).`,
+The slot names and how each one finds its neighbour are data (--layout-file).
+Limits: two agents opening the same empty slot at the same instant are not prevented; the smaller block id
+keeps the slot and the other call removes its own block and fails. A slot is never placed by splitting one
+block of a two-block column (it would not be full height); that case is refused with a message.`,
 	PersistentPreRunE: preRunSetupRpcClient,
 }
 
@@ -61,22 +65,41 @@ func init() {
 
 type slotOps interface {
 	SlotBlocks(tabId string) (map[string]string, error)
+	SlotOwners(tabId string, slot string) ([]string, error)
 	CreateBlock(data wshrpc.CommandCreateBlockData) (string, error)
 	DeleteBlock(blockId string) error
 }
 
+// The RPC calls are variables so tests can see the requests wsh slot sends.
+var (
+	blocksListRPC = func() ([]wshrpc.BlocksListEntry, error) {
+		return wshclient.BlocksListCommand(RpcClient, wshrpc.BlocksListRequest{}, &wshrpc.RpcOpts{Timeout: 10000})
+	}
+	deleteBlockRPC = func(blockId string) error {
+		return wshclient.DeleteBlockCommand(RpcClient, wshrpc.CommandDeleteBlockData{BlockId: blockId}, nil)
+	}
+)
+
 type rpcSlotOps struct{}
 
 func (rpcSlotOps) SlotBlocks(tabId string) (map[string]string, error) {
-	blocks, err := wshclient.BlocksListCommand(RpcClient, wshrpc.BlocksListRequest{}, &wshrpc.RpcOpts{Timeout: 10000})
+	blocks, err := blocksListRPC()
 	if err != nil {
 		return nil, fmt.Errorf("listing blocks: %w", err)
 	}
 	return slotsFromBlocks(blocks, tabId), nil
 }
 
+func (rpcSlotOps) SlotOwners(tabId string, slot string) ([]string, error) {
+	blocks, err := blocksListRPC()
+	if err != nil {
+		return nil, fmt.Errorf("listing blocks: %w", err)
+	}
+	return slotOwnersFromBlocks(blocks, tabId, slot), nil
+}
+
 func (rpcSlotOps) CreateBlock(data wshrpc.CommandCreateBlockData) (string, error) {
-	oref, err := wshclient.CreateBlockCommand(RpcClient, data, nil)
+	oref, err := createBlockRPC(data)
 	if err != nil {
 		return "", err
 	}
@@ -84,7 +107,7 @@ func (rpcSlotOps) CreateBlock(data wshrpc.CommandCreateBlockData) (string, error
 }
 
 func (rpcSlotOps) DeleteBlock(blockId string) error {
-	return wshclient.DeleteBlockCommand(RpcClient, wshrpc.CommandDeleteBlockData{BlockId: blockId}, nil)
+	return deleteBlockRPC(blockId)
 }
 
 // slotsFromBlocks keeps the first block found for each slot of the tab.
@@ -100,6 +123,18 @@ func slotsFromBlocks(blocks []wshrpc.BlocksListEntry, tabId string) map[string]s
 		}
 		out[name] = b.BlockId
 	}
+	return out
+}
+
+// slotOwnersFromBlocks lists every block of the tab that claims the slot, smallest id first.
+func slotOwnersFromBlocks(blocks []wshrpc.BlocksListEntry, tabId string, slot string) []string {
+	var out []string
+	for _, b := range blocks {
+		if b.TabId == tabId && b.Meta.GetString(SlotMetaKey, "") == slot {
+			out = append(out, b.BlockId)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -135,6 +170,18 @@ func openInSlot(ops slotOps, layout *slotLayout, tabId string, slot string, view
 	blockId, err := ops.CreateBlock(data)
 	if err != nil {
 		return nil, fmt.Errorf("creating block in slot %q: %w", slot, err)
+	}
+	// Two callers can both see the slot empty and both create. Not atomic: the smallest block id
+	// keeps the slot and the other caller removes its own block, so every caller agrees on the winner.
+	owners, err := ops.SlotOwners(tabId, slot)
+	if err != nil {
+		return nil, fmt.Errorf("checking slot %q after creating block %s: %w", slot, blockId, err)
+	}
+	if len(owners) > 1 && owners[0] != blockId {
+		if delErr := ops.DeleteBlock(blockId); delErr != nil {
+			return nil, fmt.Errorf("slot %q was taken by block %s at the same time and removing our block %s failed: %w", slot, owners[0], blockId, delErr)
+		}
+		return nil, fmt.Errorf("slot %q was taken by block %s at the same time; our block %s was removed", slot, owners[0], blockId)
 	}
 	action := plan.Action
 	if action == "" {

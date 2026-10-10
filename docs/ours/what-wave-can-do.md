@@ -191,5 +191,5 @@ replace), so no RPC, frontend or backend change.
   whether the siblings then fill the freed space (size weights) is NOT verified; `webview.tsx` loads a new `url` meta into the open web view
   (`metaUrl` effect). Not yet seen in a window: where the blocks really land, whether the right column keeps its
   shape when middle opens and closes, focus staying put.
-- **Limit:** opening `middle` while only the right column exists splits the column's top block, which nests one
+- **Limit:** opening a slot never splits one block of a two-block column (refused with a message); with a single right block it nests one
   level deeper than a flat row.

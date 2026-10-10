@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -18,6 +19,8 @@ type fakeSlotOps struct {
 	deleted []string
 	next    int
 	failOn  string
+	// rival, when set, is a block another agent created in the same slot while we were creating ours.
+	rival map[string]string
 }
 
 func newFakeSlotOps() *fakeSlotOps {
@@ -29,6 +32,18 @@ func (f *fakeSlotOps) SlotBlocks(tabId string) (map[string]string, error) {
 	for k, v := range f.blocks {
 		out[k] = v
 	}
+	return out, nil
+}
+
+func (f *fakeSlotOps) SlotOwners(tabId string, slot string) ([]string, error) {
+	var out []string
+	if id := f.blocks[slot]; id != "" {
+		out = append(out, id)
+	}
+	if id := f.rival[slot]; id != "" {
+		out = append(out, id)
+	}
+	sort.Strings(out)
 	return out, nil
 }
 
@@ -239,5 +254,85 @@ func TestCustomLayoutNamesAreData(t *testing.T) {
 	got, err := planSlotPlacement(l, "side", map[string]string{"main": "m1"})
 	if err != nil || got.Action != SlotActionSplitRight || got.TargetBlockId != "m1" {
 		t.Errorf("plan = %+v, %v", got, err)
+	}
+}
+
+func TestConcurrentOpenKeepsOneBlockAndRemovesTheLoser(t *testing.T) {
+	l := mustDefaultLayout(t)
+	ops := newFakeSlotOps()
+	ops.rival = map[string]string{"middle": "a-rival"}
+	_, err := openInSlot(ops, l, "tab1", "middle", "web", nil, false)
+	if err == nil || !strings.Contains(err.Error(), "a-rival") {
+		t.Fatalf("err = %v, want the loser told who holds the slot", err)
+	}
+	if len(ops.deleted) != 1 || ops.deleted[0] != "b1" {
+		t.Errorf("deleted = %v, want our own block b1 removed", ops.deleted)
+	}
+}
+
+func TestConcurrentOpenWinnerKeepsItsBlock(t *testing.T) {
+	l := mustDefaultLayout(t)
+	ops := newFakeSlotOps()
+	ops.rival = map[string]string{"middle": "z-rival"}
+	res, err := openInSlot(ops, l, "tab1", "middle", "web", nil, false)
+	if err != nil || res.BlockId != "b1" {
+		t.Fatalf("res = %+v, err = %v; b1 sorts first and must keep the slot", res, err)
+	}
+	if len(ops.deleted) != 0 {
+		t.Errorf("winner deleted %v", ops.deleted)
+	}
+}
+
+func TestMiddleRefusedWhenOnlyATwoBlockColumnIsThere(t *testing.T) {
+	l := mustDefaultLayout(t)
+	_, err := planSlotPlacement(l, "middle", map[string]string{"right-top": "a", "right-bottom": "b"})
+	if err == nil || !strings.Contains(err.Error(), "full-height") {
+		t.Fatalf("err = %v, want a clear refusal", err)
+	}
+	got, err := planSlotPlacement(l, "middle", map[string]string{"left": "l", "right-top": "a", "right-bottom": "b"})
+	if err != nil || got.TargetBlockId != "l" || got.Action != SlotActionSplitRight {
+		t.Errorf("with left present: %+v, %v; want split right of left", got, err)
+	}
+	one, err := planSlotPlacement(l, "middle", map[string]string{"right-top": "a"})
+	if err != nil || one.TargetBlockId != "a" {
+		t.Errorf("single right block: %+v, %v; still allowed", one, err)
+	}
+}
+
+func TestSlotOpenCommandSendsNoFocusPayload(t *testing.T) {
+	t.Setenv("WAVETERM_TABID", "tab-1")
+	var created []wshrpc.CommandCreateBlockData
+	oldC, oldL, oldNF, oldTab, oldFile := createBlockRPC, blocksListRPC, noFocus, slotTab, slotLayoutFile
+	defer func() {
+		createBlockRPC, blocksListRPC, noFocus, slotTab, slotLayoutFile = oldC, oldL, oldNF, oldTab, oldFile
+	}()
+	slotTab, slotLayoutFile, noFocus = "", "", false
+	createBlockRPC = func(d wshrpc.CommandCreateBlockData) (waveobj.ORef, error) {
+		created = append(created, d)
+		return waveobj.ORef{OType: waveobj.OType_Block, OID: "new1"}, nil
+	}
+	blocksListRPC = func() ([]wshrpc.BlocksListEntry, error) {
+		entries := []wshrpc.BlocksListEntry{{TabId: "tab-1", BlockId: "left1", Meta: waveobj.MetaMapType{SlotMetaKey: "left"}}}
+		for _, c := range created {
+			entries = append(entries, wshrpc.BlocksListEntry{TabId: "tab-1", BlockId: "new1", Meta: waveobj.MetaMapType(c.BlockDef.Meta)})
+		}
+		return entries, nil
+	}
+	if err := slotOpenCmd.Flags().Set(noFocusFlagName, "true"); err != nil {
+		t.Fatal(err)
+	}
+	defer slotOpenCmd.Flags().Set(noFocusFlagName, "false")
+	if err := slotOpenRun(slotOpenCmd, []string{"middle", "web", "url=http://127.0.0.1:18766/"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(created) != 1 {
+		t.Fatalf("created %d", len(created))
+	}
+	d := created[0]
+	if d.Focused || d.TabId != "tab-1" || d.TargetBlockId != "left1" || d.TargetAction != SlotActionSplitRight {
+		t.Errorf("payload = %+v", d)
+	}
+	if d.BlockDef.Meta[SlotMetaKey] != "middle" || d.BlockDef.Meta["url"] != "http://127.0.0.1:18766/" || d.BlockDef.Meta["view"] != "web" {
+		t.Errorf("meta = %v", d.BlockDef.Meta)
 	}
 }

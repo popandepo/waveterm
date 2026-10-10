@@ -25,18 +25,22 @@ const (
 // defaultSlotLayoutJSON is data, not code: a slot opens next to the first anchor whose slot is
 // occupied. Replace it with --layout-file to use other names or another arrangement.
 //
+// "unless" skips an anchor while any listed slot is filled. Splitting a block that sits in a
+// two-block column only cuts that one block, not the column, so the right-column anchors of the
+// outer slots are skipped when both right slots are filled.
+//
 // Wanted picture: left | middle | right-top over right-bottom. Build left, right-top, right-bottom,
 // then open middle on demand; it lands between left and the right column.
 const defaultSlotLayoutJSON = `{
   "slots": [
     {"name": "left", "anchors": [
       {"slot": "middle", "action": "splitleft"},
-      {"slot": "right-top", "action": "splitleft"},
-      {"slot": "right-bottom", "action": "splitleft"}]},
+      {"slot": "right-top", "action": "splitleft", "unless": ["right-bottom"]},
+      {"slot": "right-bottom", "action": "splitleft", "unless": ["right-top"]}]},
     {"name": "middle", "anchors": [
       {"slot": "left", "action": "splitright"},
-      {"slot": "right-top", "action": "splitleft"},
-      {"slot": "right-bottom", "action": "splitleft"}]},
+      {"slot": "right-top", "action": "splitleft", "unless": ["right-bottom"]},
+      {"slot": "right-bottom", "action": "splitleft", "unless": ["right-top"]}]},
     {"name": "right-top", "anchors": [
       {"slot": "right-bottom", "action": "splitup"},
       {"slot": "middle", "action": "splitright"},
@@ -49,8 +53,9 @@ const defaultSlotLayoutJSON = `{
 }`
 
 type slotAnchor struct {
-	Slot   string `json:"slot"`
-	Action string `json:"action"`
+	Slot   string   `json:"slot"`
+	Action string   `json:"action"`
+	Unless []string `json:"unless,omitempty"`
 }
 
 type slotDef struct {
@@ -103,6 +108,11 @@ func parseSlotLayout(data []byte) (*slotLayout, error) {
 			if a.Slot == s.Name {
 				return nil, fmt.Errorf("slot %q is anchored on itself", s.Name)
 			}
+			for _, u := range a.Unless {
+				if !names[u] {
+					return nil, fmt.Errorf("slot %q anchor on %q has unknown unless slot %q", s.Name, a.Slot, u)
+				}
+			}
 			if !isSlotAction(a.Action) {
 				return nil, fmt.Errorf("slot %q anchor on %q has unknown action %q (use splitright, splitleft, splitup or splitdown)", s.Name, a.Slot, a.Action)
 			}
@@ -139,6 +149,15 @@ func (l *slotLayout) names() []string {
 	return out
 }
 
+func firstFilled(names []string, occupied map[string]string) string {
+	for _, n := range names {
+		if occupied[n] != "" {
+			return n
+		}
+	}
+	return ""
+}
+
 // planSlotPlacement decides how to open a block in slot. occupied maps slot name to block id.
 func planSlotPlacement(layout *slotLayout, slot string, occupied map[string]string) (slotPlacement, error) {
 	def := layout.find(slot)
@@ -148,10 +167,20 @@ func planSlotPlacement(layout *slotLayout, slot string, occupied map[string]stri
 	if blockId := occupied[slot]; blockId != "" {
 		return slotPlacement{Action: SlotActionReplace, TargetBlockId: blockId}, nil
 	}
+	var skipped []string
 	for _, a := range def.Anchors {
-		if blockId := occupied[a.Slot]; blockId != "" {
-			return slotPlacement{Action: a.Action, TargetBlockId: blockId}, nil
+		blockId := occupied[a.Slot]
+		if blockId == "" {
+			continue
 		}
+		if blocker := firstFilled(a.Unless, occupied); blocker != "" {
+			skipped = append(skipped, fmt.Sprintf("%s (its column also holds %s)", a.Slot, blocker))
+			continue
+		}
+		return slotPlacement{Action: a.Action, TargetBlockId: blockId}, nil
+	}
+	if len(skipped) > 0 {
+		return slotPlacement{}, fmt.Errorf("cannot place slot %q: the only neighbours are %s, and splitting one of them would not give a full-height block; fill another slot first", slot, strings.Join(skipped, ", "))
 	}
 	return slotPlacement{}, nil
 }

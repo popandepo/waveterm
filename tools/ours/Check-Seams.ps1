@@ -72,6 +72,7 @@ $seams = @(
     @('wsh-badge', 'cmd/wsh/cmd/wshcmd-badge.go', 'if oref.OType != waveobj.OType_Block && oref.OType != waveobj.OType_Tab {', 'badge accepts a tab oref'),
     @('wsh-tab-cmd', 'cmd/wsh/cmd/wshcmd-tab.go', 'var tabCommand = &cobra.Command{', 'existing tab command group we extend'),
     @('create-block-focused', 'pkg/wshrpc/wshrpctypes.go', 'Focused bool `json:"focused,omitempty"`', 'wsh --no-focus sets this field on create-block requests'),
+    @('controller-run-decision', 'pkg/blockcontroller/shellcontroller.go', 'if shouldRunCommand(runOnce, runOnStart, curStatus.ShellProcStatus, force) {', 'wsh session start --restart depends on the controller starting runonstart blocks at init'),
     @('create-block-target', 'pkg/wshrpc/wshrpctypes.go', 'TargetAction string `json:"targetaction,omitempty"`', 'wsh slot places blocks with splitright/splitleft/splitup/splitdown/replace'),
     @('blocks-list-rpc', 'pkg/wshrpc/wshrpctypes.go', 'BlocksListCommand(ctx context.Context, data BlocksListRequest) ([]BlocksListEntry, error)', 'wsh slot finds the block of a slot by its meta'),
     @('delete-block-rpc', 'pkg/wshrpc/wshrpctypes.go', 'DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error', 'wsh slot close'),

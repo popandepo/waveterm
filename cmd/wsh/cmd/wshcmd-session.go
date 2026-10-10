@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -131,23 +132,47 @@ func splitSessionCommand(dashArgs []string, argsFileData []byte) (string, []stri
 var sessionMetaKeyRegexp = regexp.MustCompile(`^session:[A-Za-z0-9._-]+$`)
 
 // validateSessionStart checks everything that can be checked before the first tab is created, so a refused request
-// leaves nothing behind. With --restart Wave starts the SAME command again at every start of the app, so the command
-// must be able to resume its own work: a bare "--session-id <guid>" (Claude) would fail or start an empty session
-// the second time, and is refused. Use a starter that creates the session the first time and resumes it afterwards
+// leaves nothing behind, and returns the parsed session meta. With --restart Wave starts the SAME command again at
+// every start of the app, so the command must be able to resume its own work: a bare "--session-id <guid>" (Claude) would
+// fail or start an empty session the second time. Only literal text can be seen here: the check refuses any argument that
+// contains "--session-id" and any inline shell command (-Command, -c, /c, -EncodedCommand), because the flag could be
+// inside it; it cannot see a value that a variable expands to inside a script. Use a starter script that makes the choice
 // (tools/ours/Start-ResumableSession.ps1).
-func validateSessionStart(restart bool, command string, cmdArgs []string, metaPairs []string) error {
-	if _, err := parseSessionMeta(metaPairs); err != nil {
-		return err
+func validateSessionStart(restart bool, command string, cmdArgs []string, metaPairs []string) (map[string]any, error) {
+	meta, err := parseSessionMeta(metaPairs)
+	if err != nil {
+		return nil, err
 	}
 	if !restart {
-		return nil
+		return meta, nil
 	}
-	for _, a := range append([]string{command}, cmdArgs...) {
-		if a == "--session-id" || strings.HasPrefix(a, "--session-id=") {
-			return fmt.Errorf("--restart cannot be used with a bare --session-id: the second start must resume the session (--resume), not create it again; use a starter that makes that choice, for example tools/ours/Start-ResumableSession.ps1")
+	all := append([]string{command}, cmdArgs...)
+	for _, a := range all {
+		if strings.Contains(a, "--session-id") {
+			return nil, fmt.Errorf("--restart cannot be used with --session-id in the command: the second start must resume the session (--resume), not create it again; use a starter script that makes that choice, for example tools/ours/Start-ResumableSession.ps1")
 		}
 	}
-	return nil
+	if isInlineShellCommand(command, cmdArgs) {
+		return nil, fmt.Errorf("--restart cannot be used with an inline shell command (%s ...): the flags that matter could be hidden inside it; start a script file instead, for example tools/ours/Start-ResumableSession.ps1", command)
+	}
+	return meta, nil
+}
+
+func isInlineShellCommand(command string, args []string) bool {
+	base := strings.ToLower(filepath.Base(command))
+	base = strings.TrimSuffix(base, ".exe")
+	switch base {
+	case "pwsh", "powershell", "cmd", "bash", "sh", "zsh", "fish", "dash", "nu":
+	default:
+		return false
+	}
+	for _, a := range args {
+		switch strings.ToLower(a) {
+		case "-command", "-c", "/c", "/k", "-encodedcommand", "-ec", "-e", "-lc", "-ic", "-cl":
+			return true
+		}
+	}
+	return false
 }
 
 // parseSessionMeta accepts only keys under "session:". The block meta also decides what program runs and where, so
@@ -159,8 +184,10 @@ func parseSessionMeta(pairs []string) (map[string]any, error) {
 		if len(kv) != 2 || !sessionMetaKeyRegexp.MatchString(kv[0]) {
 			return nil, fmt.Errorf("invalid --meta %q: want session:KEY=VALUE", p)
 		}
-		if strings.ContainsAny(kv[1], "\r\n") {
-			return nil, fmt.Errorf("invalid --meta %q: a value cannot contain a line break", kv[0])
+		for _, r := range kv[1] {
+			if r < 0x20 || r == 0x7f {
+				return nil, fmt.Errorf("invalid --meta %q: a value cannot contain control characters (line breaks, tabs, escape sequences)", kv[0])
+			}
 		}
 		if _, dup := meta[kv[0]]; dup {
 			return nil, fmt.Errorf("--meta %s given twice", kv[0])
@@ -213,7 +240,8 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return err
 	}
-	if err := validateSessionStart(sessionRestart, command, cmdArgs, sessionMeta); err != nil {
+	extraMeta, err := validateSessionStart(sessionRestart, command, cmdArgs, sessionMeta)
+	if err != nil {
 		return err
 	}
 	styleMeta, err := buildSessionStyleMeta(sessionColor, sessionSymbol)
@@ -244,10 +272,6 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		if err != nil {
 			return fmt.Errorf("tab %s was created but styling it failed: %w", tabId, err)
 		}
-	}
-	extraMeta, err := parseSessionMeta(sessionMeta)
-	if err != nil {
-		return err
 	}
 	blockMeta := buildSessionBlockMeta(command, cmdArgs, cwd, envMap, RpcContext.Conn)
 	applySessionOptions(blockMeta, sessionRestart, extraMeta)

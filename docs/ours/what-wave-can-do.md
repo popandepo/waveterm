@@ -328,3 +328,11 @@ same command again, so the second start must resume instead of create. The suppo
 checked before the first tab is created. The controller's start decision is a small function with its own test
 (`shouldRunCommand`), but **the restart is not proven until it has been seen in a real window**: whether Wave starts the block
 at its next start, what the kept output looks like, and what happens to a program that crashes at once are READ, not run.
+
+Second review pass on section 21, what the `--restart` check can and cannot see: it looks at literal text only. It refuses any
+argument that contains `--session-id` and any inline shell command (`pwsh -Command`, `-c`, `cmd /c`, `-EncodedCommand`),
+because the flag could sit inside it. It cannot see what a variable expands to inside a script, so a starter script must make
+the choice itself (`tools/ours/Start-ResumableSession.ps1` does, and passes the config folder it searched to Claude). Values of
+`--meta` may not contain control characters (line breaks, tabs, escape sequences, NUL). The controller start decision has a
+test through the controller's own meta reader plus a pin on its call site; the full start path (database and process) is still
+only seen in a real window.

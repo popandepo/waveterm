@@ -36,11 +36,13 @@ function Get-ClaudeArgs {
     return $a
 }
 
-if ($DryRun) { (Get-ClaudeArgs) -join ' '; return }
+if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; return }
 
 Get-ChildItem env: |
     Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
         'GIT_ASKPASS', 'GIT_TERMINAL_PROMPT', 'NoDefaultCurrentDirectoryInExePath' } |
     ForEach-Object { Remove-Item "env:$($_.Name)" -ErrorAction SilentlyContinue }
+# The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
+$env:CLAUDE_CONFIG_DIR = $ConfigDir
 if ($Name) { $Host.UI.RawUI.WindowTitle = $Name }
 & $Command @(Get-ClaudeArgs)

@@ -7,7 +7,9 @@ $null = New-Item -ItemType Directory -Path (Join-Path $root 'projects\some-folde
 $fail = 0
 function Check($label, $ok, $detail) { if ($ok) { "GREEN $label" } else { $script:fail++; "RED   $label : $detail" } }
 
-$first = & $script -SessionId $id -ConfigDir $root -Model m1 -Effort low -PermissionMode auto -Name n1 -Prompt 'hello' -DryRun
+$firstOut = & $script -SessionId $id -ConfigDir $root -Model m1 -Effort low -PermissionMode auto -Name n1 -Prompt 'hello' -DryRun
+$first = $firstOut[0]
+Check 'the folder that is searched is the folder Claude is told to use' ($firstOut[1] -eq "config=$root") ($firstOut -join ' | ')
 Check 'first start creates the session under the id' ($first -match "--session-id $id" -and $first -notmatch '--resume') $first
 Check 'first start carries model, effort, mode, name, prompt' ($first -match '--model m1' -and $first -match '--effort low' -and $first -match '--permission-mode auto' -and $first -match '--remote-control n1' -and $first -match 'hello') $first
 

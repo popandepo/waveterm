@@ -154,15 +154,15 @@ func TestRestartRefusesAProgramThatCannotResume(t *testing.T) {
 		{"claude", "--session-id", "11111111-2222-3333-4444-555555555555"},
 		{"claude-personal", "--session-id=11111111-2222-3333-4444-555555555555", "--model", "x"},
 	} {
-		err := validateSessionStart(true, argv[0], argv[1:], nil)
+		_, err := validateSessionStart(true, argv[0], argv[1:], nil)
 		if err == nil || !strings.Contains(err.Error(), "--session-id") || !strings.Contains(err.Error(), "resume") {
 			t.Fatalf("%v: want a refusal that explains the resume rule, got %v", argv, err)
 		}
 	}
-	if err := validateSessionStart(false, "claude", []string{"--session-id", "x"}, nil); err != nil {
+	if _, err := validateSessionStart(false, "claude", []string{"--session-id", "x"}, nil); err != nil {
 		t.Fatalf("without --restart the program runs once and the flag is fine: %v", err)
 	}
-	if err := validateSessionStart(true, "pwsh", []string{"-File", "Start-ResumableSession.ps1", "-SessionId", "x"}, nil); err != nil {
+	if _, err := validateSessionStart(true, "pwsh", []string{"-File", "Start-ResumableSession.ps1", "-SessionId", "x"}, nil); err != nil {
 		t.Fatalf("a resumable starter is the supported way: %v", err)
 	}
 }
@@ -179,5 +179,47 @@ func TestInvalidSessionOptionsAreRefusedBeforeAnyTabIsCreated(t *testing.T) {
 	err := sessionStartRun(sessionStartCmd, []string{"pwsh", "-NoProfile"})
 	if err == nil || !strings.Contains(err.Error(), "--meta") {
 		t.Fatalf("want the --meta error before any tab or RPC work, got %v", err)
+	}
+}
+
+func TestMetaValuesRefuseControlCharacters(t *testing.T) {
+	for _, bad := range []string{"session:id=a\x1b[31m", "session:id=a\x00b", "session:id=a\tb", "session:id=a\x7fb", "session:id=a\rb"} {
+		if _, err := parseSessionMeta([]string{bad}); err == nil {
+			t.Fatalf("%q should be refused", bad)
+		}
+	}
+	if m, err := parseSessionMeta([]string{"session:name=tether notes (x) æ"}); err != nil || m["session:name"] != "tether notes (x) æ" {
+		t.Fatalf("spaces and ordinary text must pass: %v %v", m, err)
+	}
+}
+
+func TestRestartRefusesShellFormsAndHiddenSessionIdFlags(t *testing.T) {
+	cases := [][]string{
+		{"pwsh", "-Command", "claude --session-id 11111111-2222-3333-4444-555555555555"},
+		{"pwsh", "-NoProfile", "-c", "claude-personal", "--resume"},
+		{"cmd", "/c", "claude --session-id x"},
+		{"bash", "-lc", "claude --session-id x"},
+		{"powershell", "-EncodedCommand", "AAAA"},
+		{"claude", "--model", "x --session-id y"},
+	}
+	for _, argv := range cases {
+		if _, err := validateSessionStart(true, argv[0], argv[1:], nil); err == nil {
+			t.Fatalf("%v should be refused with --restart", argv)
+		}
+	}
+	for _, argv := range cases[:5] {
+		if _, err := validateSessionStart(false, argv[0], argv[1:], nil); err != nil {
+			t.Fatalf("%v without --restart must stay allowed: %v", argv, err)
+		}
+	}
+	if _, err := validateSessionStart(true, "pwsh", []string{"-NoProfile", "-File", "start.ps1", "-SessionId", "x"}, nil); err != nil {
+		t.Fatalf("a script starter is the supported form: %v", err)
+	}
+}
+
+func TestValidateReturnsTheParsedMetaSoItIsParsedOnce(t *testing.T) {
+	meta, err := validateSessionStart(false, "pwsh", nil, []string{"session:id=a", "session:model=m"})
+	if err != nil || meta["session:id"] != "a" || meta["session:model"] != "m" {
+		t.Fatalf("got %v %v", meta, err)
 	}
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Block } from "@/app/block/block";
+import { StackTabLabel } from "@/app/tab/stacktablabel";
 import { CenteredDiv } from "@/element/quickelems";
 import { ContentRenderer, NodeModel, PreviewRenderer, TileLayout } from "@/layout/index";
 import { TileLayoutContents } from "@/layout/lib/types";
@@ -34,6 +35,8 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
             return <Block key={nodeModel.blockId} nodeModel={nodeModel} preview={true} />;
         };
 
+        const renderStackTabLabel = (blockId: string) => <StackTabLabel key={blockId} blockId={blockId} />;
+
         function onNodeDelete(data: TabLayoutData) {
             return services.ObjectService.DeleteBlock(data.blockId);
         }
@@ -41,6 +44,7 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
         return {
             renderContent,
             renderPreview,
+            renderStackTabLabel,
             tabId,
             onNodeDelete,
             gapSizePx: tileGapSize,
@@ -67,7 +71,9 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
     }
 
     return (
-        <div className={`flex flex-row flex-grow min-h-0 w-full items-center justify-center overflow-hidden relative ${noTopPadding ? "" : "pt-[3px]"} pr-[3px]`}>
+        <div
+            className={`flex flex-row flex-grow min-h-0 w-full items-center justify-center overflow-hidden relative ${noTopPadding ? "" : "pt-[3px]"} pr-[3px]`}
+        >
             {innerContent}
         </div>
     );

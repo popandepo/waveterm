@@ -236,3 +236,16 @@ Checks: `ours_defaults_test.go` (shipped defaults), `ours_ping_test.go`, and thr
 (`telemetry-default-off`, `autoupdate-default-off`, `ping-gated-on-telemetry`).
 **READ, not run:** the update check and Wave AI rows come from reading `emain/updater.ts` and the AI panel code, not
 from a network capture.
+
+## 16. Stack UI, steps 1 and 2 (fork feature in progress; the purpose of the fork, see README.md)
+
+A stack is one tile with several terminals as tabs. Steps 1-2: the tile lays all members out at one rectangle below a
+28 px strip, shows only the active member (the others stay mounted and keep the same size, so a terminal is not
+resized when its tab is hidden), and draws a strip with one tab per member: click to switch, x to close the member and
+its terminal. Hidden members are not drop targets and are skipped by directional focus.
+- **RAN** (`npx vitest run frontend/layout`, `npx tsc --noEmit` at the baseline of 17 errors): the geometry, the props
+  map and the strip model, including "hidden members keep the visible size", "unknown active member falls back to the
+  first", "a rectangle shorter than the strip never gives a negative body".
+- **READ, not run:** the React strip and the wiring in `layoutModel.updateTreeHelper` and `TileLayout`: nothing in
+  a window yet, because nothing can create a stack from outside until step 3 (`wsh group`, the `stack` layout
+  action). Whether hidden terminals keep their size and process in the live app is the step 4 window check.

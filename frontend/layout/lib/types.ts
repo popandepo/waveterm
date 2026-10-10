@@ -347,6 +347,9 @@ export type WritableLayoutTreeStateAtom = WritableAtom<LayoutTreeState, [value: 
 
 export type ContentRenderer = (nodeModel: NodeModel) => React.ReactNode;
 
+/** Renders the label of one member in the tab strip of a stack. */
+export type StackTabLabelRenderer = (blockId: string) => React.ReactNode;
+
 export type PreviewRenderer = (nodeModel: NodeModel) => React.ReactElement;
 
 export const DefaultNodeSize = 10;
@@ -376,6 +379,10 @@ export interface TileLayoutContents {
      */
     renderContent: ContentRenderer;
     /**
+     * A callback that returns the label of a member in the tab strip of a stack.
+     */
+    renderStackTabLabel?: StackTabLabelRenderer;
+    /**
      * A callback that accepts the data from the leaf node and returns a preview that can be shown when the user drags a node.
      */
     renderPreview?: PreviewRenderer;
@@ -400,8 +407,16 @@ export interface ResizeHandleProps {
     flexDirection: FlexDirection;
 }
 
+export interface StackLayoutProps {
+    strip: Dimensions;
+    activeId: string;
+    order: string[];
+}
+
 export interface LayoutNodeAdditionalProps {
     treeKey: string;
+    isHidden?: boolean;
+    stack?: StackLayoutProps;
     transform?: CSSProperties;
     rect?: Dimensions;
     pixelToSizeRatio?: number;
@@ -420,6 +435,7 @@ export interface NodeModel {
     isResizing: Atom<boolean>;
     isFocused: Atom<boolean>;
     isMagnified: Atom<boolean>;
+    isHidden: Atom<boolean>;
     anyMagnified: Atom<boolean>;
     isEphemeral: Atom<boolean>;
     ready: Atom<boolean>;

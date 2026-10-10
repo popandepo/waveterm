@@ -21,6 +21,8 @@ import { debounce, throttle } from "throttle-debounce";
 import { useDevicePixelRatio } from "use-device-pixel-ratio";
 import { LayoutModel } from "./layoutModel";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
+import "./stackstrip.scss";
+import { StackStrips } from "./stacktabstrip";
 import "./tilelayout.scss";
 import {
     LayoutNode,
@@ -126,6 +128,7 @@ function TileLayoutComponent({ tabAtom, contents, getCursorPoint }: TileLayoutPr
                 <div key="display" ref={layoutModel.displayContainerRef} className="display-container">
                     <ResizeHandleWrapper layoutModel={layoutModel} />
                     <DisplayNodesWrapper layoutModel={layoutModel} />
+                    <StackStrips layoutModel={layoutModel} />
                     <NodeBackdrops layoutModel={layoutModel} />
                 </div>
                 <Placeholder key="placeholder" layoutModel={layoutModel} style={{ top: 10000, ...overlayTransform }} />
@@ -229,6 +232,7 @@ const DisplayNode = ({ layoutModel, node }: DisplayNodeProps) => {
     const devicePixelRatio = useDevicePixelRatio();
     const isEphemeral = useAtomValue(nodeModel.isEphemeral);
     const isMagnified = useAtomValue(nodeModel.isMagnified);
+    const isHidden = useAtomValue(nodeModel.isHidden);
 
     const [{ isDragging }, drag, dragPreview] = useDrag(
         () => ({
@@ -304,11 +308,16 @@ const DisplayNode = ({ layoutModel, node }: DisplayNodeProps) => {
         <div
             className={clsx("tile-node", {
                 dragging: isDragging,
+                "stack-hidden": isHidden,
             })}
             key={node.id}
             ref={tileNodeRef}
             id={node.id}
-            style={addlProps?.transform}
+            style={
+                isHidden
+                    ? { ...addlProps?.transform, visibility: "hidden", pointerEvents: "none" }
+                    : addlProps?.transform
+            }
             onPointerEnter={generatePreviewImage}
             onPointerOver={(event) => event.stopPropagation()}
         >
@@ -324,14 +333,17 @@ interface OverlayNodeWrapperProps {
 
 const OverlayNodeWrapper = memo(({ layoutModel }: OverlayNodeWrapperProps) => {
     const leafs = useAtomValue(layoutModel.leafs);
+    const additionalProps = useAtomValue(layoutModel.additionalProps);
     const overlayTransform = useAtomValue(layoutModel.overlayTransform);
 
     const overlayNodes = useMemo(
         () =>
-            leafs.map((node) => {
-                return <OverlayNode key={node.id} layoutModel={layoutModel} node={node} />;
-            }),
-        [leafs]
+            leafs
+                .filter((node) => !additionalProps[node.id]?.isHidden)
+                .map((node) => {
+                    return <OverlayNode key={node.id} layoutModel={layoutModel} node={node} />;
+                }),
+        [leafs, additionalProps]
     );
 
     return (

@@ -29,6 +29,7 @@ import {
     swapNode,
     unstackNode,
 } from "./layoutTree";
+import { applyStackLayout, canLayoutAsStack } from "./stackgeometry";
 import {
     ContentRenderer,
     FlexDirection,
@@ -58,6 +59,7 @@ import {
     NodeModel,
     PreviewRenderer,
     ResizeHandleProps,
+    StackTabLabelRenderer,
     TileLayoutContents,
 } from "./types";
 import { getCenter, navigateDirectionToOffset, setTransform } from "./utils";
@@ -118,6 +120,11 @@ export class LayoutModel {
      * Callback that is invoked to render the drag preview for a leaf node.
      */
     renderPreview?: PreviewRenderer;
+
+    /**
+     * Callback that renders the label of one member in the tab strip of a stack.
+     */
+    renderStackTabLabel?: StackTabLabelRenderer;
     /**
      * Callback that is invoked when a node is closed.
      */
@@ -604,6 +611,7 @@ export class LayoutModel {
     registerTileLayout(contents: TileLayoutContents) {
         this.renderContent = contents.renderContent;
         this.renderPreview = contents.renderPreview;
+        this.renderStackTabLabel = contents.renderStackTabLabel;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {
             this.setter(this.gapSizePx, contents.gapSizePx);
@@ -835,6 +843,21 @@ export class LayoutModel {
                 } else if (this.lastEphemeralNodeId === node.id) {
                     addlProps.transform.zIndex = "var(--zindex-layout-last-ephemeral-node)";
                 }
+            }
+            return;
+        }
+
+        if (canLayoutAsStack(node)) {
+            const stackRect: Dimensions =
+                node.id === this.treeState.rootNode.id ? boundingRect : additionalPropsMap[node.id]?.rect;
+            if (stackRect) {
+                if (node.id === this.treeState.rootNode.id) {
+                    additionalPropsMap[node.id] = {
+                        ...(additionalPropsMap[node.id] ?? { treeKey: "0" }),
+                        rect: stackRect,
+                    };
+                }
+                applyStackLayout(node, stackRect, additionalPropsMap);
             }
             return;
         }
@@ -1094,6 +1117,7 @@ export class LayoutModel {
                     const treeState = get(this.localTreeStateAtom);
                     return treeState.magnifiedNodeId === nodeid;
                 }),
+                isHidden: atom((get) => get(addlPropsAtom)?.isHidden ?? false),
                 anyMagnified: atom((get) => {
                     const treeState = get(this.localTreeStateAtom);
                     return treeState.magnifiedNodeId != null;
@@ -1148,6 +1172,9 @@ export class LayoutModel {
         const leafs = this.getter(this.leafs);
         const addlProps = this.getter(this.additionalProps);
         for (const leaf of leafs) {
+            if (addlProps[leaf.id]?.isHidden) {
+                continue;
+            }
             const pos = addlProps[leaf.id]?.rect;
             if (pos) {
                 nodePositions.set(leaf.id, pos);

@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Block } from "@/app/block/block";
+import { ContextMenuModel } from "@/app/store/contextmenu";
+import { globalStore } from "@/app/store/jotaiStore";
+import { stackAddEntries } from "@/app/tab/stackaddmenu";
 import { StackTabLabel } from "@/app/tab/stacktablabel";
 import { CenteredDiv } from "@/element/quickelems";
 import { ContentRenderer, NodeModel, PreviewRenderer, TileLayout } from "@/layout/index";
 import { TileLayoutContents } from "@/layout/lib/types";
-import { atoms, getApi } from "@/store/global";
+import { atoms, createBlockInStack, getApi } from "@/store/global";
 import * as services from "@/store/services";
 import * as WOS from "@/store/wos";
+import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import * as React from "react";
 import { useMemo } from "react";
@@ -37,6 +41,18 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
 
         const renderStackTabLabel = (blockId: string) => <StackTabLabel key={blockId} blockId={blockId} />;
 
+        const onStackAdd = (targetBlockId: string, ev: React.MouseEvent<any>) => {
+            const widgets = globalStore.get(atoms.fullConfigAtom)?.widgets;
+            const entries = stackAddEntries(widgets, globalStore.get(atoms.workspaceId));
+            const menu: ContextMenuItem[] = entries.map((entry) => ({
+                label: entry.label,
+                click: () => {
+                    fireAndForget(() => createBlockInStack(entry.blockdef, targetBlockId));
+                },
+            }));
+            ContextMenuModel.getInstance().showContextMenu(menu, ev);
+        };
+
         function onNodeDelete(data: TabLayoutData) {
             return services.ObjectService.DeleteBlock(data.blockId);
         }
@@ -45,6 +61,7 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
             renderContent,
             renderPreview,
             renderStackTabLabel,
+            onStackAdd,
             tabId,
             onNodeDelete,
             gapSizePx: tileGapSize,

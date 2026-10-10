@@ -197,3 +197,16 @@ describe("review points on PR 15", () => {
         expect(() => addStackMember(newStackNode([a]), 0, inner)).toThrow();
     });
 });
+
+describe("stack size for the menu", () => {
+    test("each member knows how many members its stack has, so the menu can offer the right items", () => {
+        const [a, b, c] = [leaf("a"), leaf("b"), leaf("c")];
+        const stack = newStackNode([a, b, c], a.id);
+        const map: Record<string, LayoutNodeAdditionalProps> = { [stack.id]: { treeKey: "0", rect } };
+        applyStackLayout(stack, rect, map);
+        expect([a, b, c].map((n) => map[n.id].stackSize)).toEqual([3, 3, 3]);
+        stack.children = [a];
+        applyStackLayout(stack, rect, map);
+        expect(map[a.id].stackSize).toBe(1);
+    });
+});

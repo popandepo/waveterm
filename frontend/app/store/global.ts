@@ -13,6 +13,7 @@ import {
     LayoutTreeReplaceNodeAction,
     LayoutTreeSplitHorizontalAction,
     LayoutTreeSplitVerticalAction,
+    LayoutTreeStackInsertAction,
 } from "@/layout/lib/types";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { fetch } from "@/util/fetchutil";
@@ -405,6 +406,24 @@ async function createBlockSplitVertically(
     return newBlockId;
 }
 
+async function createBlockInStack(blockDef: BlockDef, targetBlockId: string): Promise<string> {
+    const layoutModel = getLayoutModelForStaticTab();
+    const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
+    const newBlockId = await ObjectService.CreateBlock(blockDef, rtOpts);
+    const targetNodeId = layoutModel.getNodeByBlockId(targetBlockId)?.id;
+    if (targetNodeId == null) {
+        throw new Error(`targetNodeId not found for blockId: ${targetBlockId}`);
+    }
+    const stackInsertAction: LayoutTreeStackInsertAction = {
+        type: LayoutTreeActionType.StackInsert,
+        node: newLayoutNode(undefined, undefined, undefined, { blockId: newBlockId }),
+        targetNodeId: targetNodeId,
+        focused: true,
+    };
+    layoutModel.treeReducer(stackInsertAction);
+    return newBlockId;
+}
+
 async function createBlock(blockDef: BlockDef, magnified = false, ephemeral = false): Promise<string> {
     const layoutModel = getLayoutModelForStaticTab();
     const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
@@ -676,6 +695,7 @@ function recordTEvent(event: string, props?: TEventProps) {
 export {
     atoms,
     createBlock,
+    createBlockInStack,
     createBlockSplitHorizontally,
     createBlockSplitVertically,
     createTab,

@@ -81,6 +81,7 @@ export function applyStackLayout(
             transform: setTransform(member.rect),
             treeKey: own.treeKey + i,
             isHidden: member.hidden,
+            stackSize: layout.order.length,
         };
     });
     additionalPropsMap[stack.id] = {

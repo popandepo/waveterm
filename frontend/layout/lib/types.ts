@@ -78,6 +78,8 @@ export enum LayoutTreeActionType {
     Stack = "stack",
     Unstack = "unstack",
     StackInsert = "stackinsert",
+    TurnIntoStack = "turnintostack",
+    TurnStackOff = "turnstackoff",
     Activate = "activate",
     SetPendingAction = "setpending",
     CommitPendingAction = "commitpending",
@@ -303,6 +305,14 @@ export interface LayoutTreeActivateAction extends LayoutTreeAction {
     nodeId: string;
 }
 
+/**
+ * Turns a plain tile into a stack of one, or gives the plain tile back when one member is left.
+ */
+export interface LayoutTreeStackModeAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.TurnIntoStack | LayoutTreeActionType.TurnStackOff;
+    nodeId: string;
+}
+
 export interface LayoutTreeFocusNodeAction extends LayoutTreeAction {
     type: LayoutTreeActionType.FocusNode;
 
@@ -401,6 +411,10 @@ export interface TileLayoutContents {
      */
     renderStackTabLabel?: StackTabLabelRenderer;
     /**
+     * Called when the + on the tab strip of a stack is clicked; targetBlockId is the block shown in the stack.
+     */
+    onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>) => void;
+    /**
      * A callback that accepts the data from the leaf node and returns a preview that can be shown when the user drags a node.
      */
     renderPreview?: PreviewRenderer;
@@ -434,6 +448,7 @@ export interface StackLayoutProps {
 export interface LayoutNodeAdditionalProps {
     treeKey: string;
     isHidden?: boolean;
+    stackSize?: number;
     stack?: StackLayoutProps;
     transform?: CSSProperties;
     rect?: Dimensions;
@@ -454,6 +469,11 @@ export interface NodeModel {
     isFocused: Atom<boolean>;
     isMagnified: Atom<boolean>;
     isHidden: Atom<boolean>;
+    /** Number of members of the stack this tile belongs to, 0 for a plain tile. */
+    stackSize: Atom<number>;
+    turnIntoStack: () => void;
+    turnStackOff: () => void;
+    takeOutOfStack: () => void;
     anyMagnified: Atom<boolean>;
     isEphemeral: Atom<boolean>;
     ready: Atom<boolean>;

@@ -64,6 +64,16 @@ const StackStrip = memo(({ layoutModel, stackId, props }: StackStripProps) => {
                     </button>
                 </div>
             ))}
+            <button
+                className="stack-tab-add cursor-pointer"
+                title="Add a block to this stack"
+                onClick={(e) => {
+                    const active = tabs.find((t) => t.active) ?? tabs[tabs.length - 1];
+                    layoutModel.onStackAdd?.(active.blockId, e);
+                }}
+            >
+                <i className="fa-sharp fa-solid fa-plus" />
+            </button>
         </div>
     );
 });

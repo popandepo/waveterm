@@ -282,6 +282,7 @@ odeId out of its stack and places it next to the stack.
 export interface LayoutTreeUnstackAction extends LayoutTreeAction {
     type: LayoutTreeActionType.Unstack;
     nodeId: string;
+    focused?: boolean;
 }
 
 export interface LayoutTreeFocusNodeAction extends LayoutTreeAction {

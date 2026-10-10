@@ -583,7 +583,9 @@ export function splitVertical(layoutState: LayoutTreeState, action: LayoutTreeSp
 
 /**
  * Groups leaves into a stack (tab group): `nodeId` joins the stack that contains `targetNodeId`, or the two leaves
- * become a new stack where the target was. The moved leaf becomes the active member.
+ * become a new stack where the target was. The moved leaf becomes the active member and takes focus, unless
+ * `focused` is false: then nothing the user is looking at is hidden or refocused (the focused leaf stays the visible
+ * member).
  */
 export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStackAction) {
     const root = layoutState.rootNode;
@@ -617,8 +619,13 @@ export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStack
         console.error("stackNodes: the root leaf cannot be moved into another node", nodeId);
         return;
     }
+    const wantFocus = action.focused ?? true;
+    const nodeWasFocused = layoutState.focusedNodeId === nodeId;
+    const activateMoved = wantFocus || nodeWasFocused;
     if (stack && oldParent === stack) {
-        setFocusedNode(layoutState, nodeId);
+        if (wantFocus) {
+            setFocusedNode(layoutState, nodeId);
+        }
         return;
     }
     const removedIndex = oldParent.children.indexOf(node);
@@ -626,9 +633,9 @@ export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStack
     activateNeighbourAfterRemoval(oldParent, nodeId, removedIndex);
     if (stack) {
         const after = stack.children.findIndex((c) => c.id === targetNodeId);
-        addStackMember(stack, after >= 0 ? after + 1 : stack.children.length, node, true);
+        addStackMember(stack, after >= 0 ? after + 1 : stack.children.length, node, activateMoved);
     } else {
-        const newStack = newStackNode([target, node], nodeId, target.size);
+        const newStack = newStackNode([target, node], activateMoved ? nodeId : targetNodeId, target.size);
         const parentNow = findParent(layoutState.rootNode, targetNodeId);
         if (parentNow) {
             const idx = parentNow.children.findIndex((c) => c.id === targetNodeId);
@@ -639,13 +646,13 @@ export function stackNodes(layoutState: LayoutTreeState, action: LayoutTreeStack
         }
         stack = newStack;
     }
-    if (action.focused ?? true) {
+    if (wantFocus) {
         setFocusedNode(layoutState, nodeId);
     }
 }
 
 /**
- * Takes a leaf out of its stack and puts it next to the stack, focused.
+ * Takes a leaf out of its stack and puts it next to the stack, focused unless `focused` is false.
  */
 export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnstackAction) {
     const root = layoutState.rootNode;
@@ -670,5 +677,7 @@ export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnst
         node.flexDirection = FlexDirection.Column;
         layoutState.rootNode = group;
     }
-    setFocusedNode(layoutState, node.id);
+    if (action.focused ?? true) {
+        setFocusedNode(layoutState, node.id);
+    }
 }

@@ -221,6 +221,61 @@ describe("stackNodes and unstackNode", () => {
     });
 });
 
+describe("stacking without taking focus", () => {
+    test("stacking onto the focused leaf with focused=false keeps that leaf visible and focused", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        state.focusedNodeId = a.id;
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id, focused: false });
+        const stack = findParent(state.rootNode, a.id)!;
+        assert.isTrue(isStackNode(stack));
+        assert.equal(stack.activeChildId, a.id, "the leaf he is looking at stays the visible member");
+        assert.equal(state.focusedNodeId, a.id);
+    });
+
+    test("stacking two leaves away from the focused one leaves focus alone", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        state.focusedNodeId = c.id;
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id, focused: false });
+        assert.equal(state.focusedNodeId, c.id);
+    });
+
+    test("moving the focused leaf into a stack with focused=false keeps it active and focused", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        state.focusedNodeId = b.id;
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id, focused: false });
+        const stack = findParent(state.rootNode, b.id)!;
+        assert.equal(stack.activeChildId, b.id);
+        assert.equal(state.focusedNodeId, b.id);
+    });
+
+    test("joining an existing stack with focused=false does not change its active member", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        setFocusedNode(state, a.id);
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: c.id, focused: false });
+        const stack = findParent(state.rootNode, a.id)!;
+        assert.equal(stack.children!.length, 3);
+        assert.equal(stack.activeChildId, a.id);
+        assert.equal(state.focusedNodeId, a.id);
+    });
+
+    test("default (no focused field) still activates and focuses the moved leaf", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        state.focusedNodeId = a.id;
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        assert.equal(findParent(state.rootNode, b.id)!.activeChildId, b.id);
+        assert.equal(state.focusedNodeId, b.id);
+    });
+
+    test("unstack with focused=false leaves focus where it was", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        state.focusedNodeId = c.id;
+        unstackNode(state, { type: LayoutTreeActionType.Unstack, nodeId: b.id, focused: false });
+        assert.equal(state.focusedNodeId, c.id);
+    });
+});
+
 describe("focus brings a hidden member to the front", () => {
     function stackedState() {
         const { state, a, b, c } = treeWithThreeLeaves();

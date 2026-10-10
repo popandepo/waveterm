@@ -692,11 +692,15 @@ export class LayoutModel {
                 break;
             case LayoutTreeActionType.Stack:
                 stackNodes(this.treeState, action as LayoutTreeStackAction);
-                FocusManager.getInstance().requestNodeFocus();
+                if ((action as LayoutTreeStackAction).focused ?? true) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
                 break;
             case LayoutTreeActionType.Unstack:
                 unstackNode(this.treeState, action as LayoutTreeUnstackAction);
-                FocusManager.getInstance().requestNodeFocus();
+                if ((action as LayoutTreeUnstackAction).focused ?? true) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
                 break;
             default:
                 console.error("Invalid reducer action", this.treeState, action);

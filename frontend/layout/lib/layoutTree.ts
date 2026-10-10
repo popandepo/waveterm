@@ -244,15 +244,16 @@ export function computeMoveNode(layoutState: LayoutTreeState, computeInsertActio
             }
             break;
         case DropDirection.Center:
+            // Fork rule: the middle of a tile means "stack with it", not "swap". swapNode stays in the code, unused.
             if (nodeId !== rootNode.id && nodeToMoveId !== rootNode.id) {
-                const swapAction: LayoutTreeSwapNodeAction = {
-                    type: LayoutTreeActionType.Swap,
-                    node1Id: nodeId,
-                    node2Id: nodeToMoveId,
+                const stackAction: LayoutTreeStackAction = {
+                    type: LayoutTreeActionType.Stack,
+                    nodeId: nodeToMoveId,
+                    targetNodeId: nodeId,
                 };
-                return swapAction;
+                return stackAction;
             } else {
-                console.warn("cannot swap");
+                console.warn("cannot stack with the root");
             }
             break;
         default:

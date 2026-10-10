@@ -1156,9 +1156,12 @@ export class LayoutModel {
                     }
                     break;
                 }
-                case LayoutTreeActionType.Swap: {
-                    const action = pendingAction as LayoutTreeSwapNodeAction;
-                    const targetNodeId = action.node1Id;
+                case LayoutTreeActionType.Swap:
+                case LayoutTreeActionType.Stack: {
+                    const targetNodeId =
+                        pendingAction.type === LayoutTreeActionType.Stack
+                            ? (pendingAction as LayoutTreeStackAction).targetNodeId
+                            : (pendingAction as LayoutTreeSwapNodeAction).node1Id;
                     const targetBoundingRect = this.getNodeRectById(targetNodeId);
                     const placeholderDimensions: Dimensions = {
                         top: targetBoundingRect.top,

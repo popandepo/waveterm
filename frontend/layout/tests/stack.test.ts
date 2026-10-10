@@ -16,6 +16,7 @@ import {
 } from "../lib/layoutNode";
 import {
     activateStackMember,
+    computeMoveNode,
     deleteNode,
     focusNode,
     insertNode,
@@ -28,7 +29,7 @@ import {
     turnStackOff,
     unstackNode,
 } from "../lib/layoutTree";
-import { FlexDirection, LayoutNode, LayoutTreeActionType, LayoutTreeState } from "../lib/types";
+import { DropDirection, FlexDirection, LayoutNode, LayoutTreeActionType, LayoutTreeState } from "../lib/types";
 import { newLayoutTreeState } from "./model";
 
 function leaf(blockId: string, dir = FlexDirection.Column): LayoutNode {
@@ -579,5 +580,53 @@ describe("stack mode on a single tile", () => {
         assert.isTrue(turnStackOff(state, only.id));
         assert.isFalse(isStackNode(state.rootNode));
         assert.equal(state.rootNode.data!.blockId, "only");
+    });
+});
+
+describe("dropping a tile on the middle of another makes a stack", () => {
+    test("the centre zone computes a stack action, not a swap", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        const action = computeMoveNode(state, {
+            type: LayoutTreeActionType.ComputeMove,
+            nodeId: a.id,
+            nodeToMoveId: b.id,
+            direction: DropDirection.Center,
+        });
+        assert.equal(action?.type, LayoutTreeActionType.Stack);
+        assert.equal((action as any).nodeId, b.id);
+        assert.equal((action as any).targetNodeId, a.id);
+    });
+
+    test("a drop on a member means its stack, so the dragged tile joins the stack", () => {
+        const { state, a, b, c } = treeWithThreeLeaves();
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
+        const stack = findParent(state.rootNode, a.id)!;
+        const action = computeMoveNode(state, {
+            type: LayoutTreeActionType.ComputeMove,
+            nodeId: b.id,
+            nodeToMoveId: c.id,
+            direction: DropDirection.Center,
+        });
+        assert.equal((action as any).targetNodeId, stack.id);
+        stackNodes(state, action as any);
+        assert.equal(stack.children!.length, 3);
+    });
+
+    test("dropping the root or onto itself is refused and the edge zones still move tiles", () => {
+        const { state, a, b } = treeWithThreeLeaves();
+        const rootDrop = computeMoveNode(state, {
+            type: LayoutTreeActionType.ComputeMove,
+            nodeId: state.rootNode.id,
+            nodeToMoveId: a.id,
+            direction: DropDirection.Center,
+        });
+        assert.notEqual(rootDrop?.type, LayoutTreeActionType.Stack, "the root is never stacked with");
+        const edge = computeMoveNode(state, {
+            type: LayoutTreeActionType.ComputeMove,
+            nodeId: a.id,
+            nodeToMoveId: b.id,
+            direction: DropDirection.Left,
+        });
+        assert.equal(edge?.type, LayoutTreeActionType.Move);
     });
 });

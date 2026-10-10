@@ -40,13 +40,18 @@ func WriteTokenFile(dir string, token string) error {
 		os.Remove(tmpName)
 		return fmt.Errorf("writing token file: %v %v", werr, cerr)
 	}
-	if err := restrictFile(tmpName); err != nil {
+	if err := verifyPrivateFn(tmpName, false); err != nil {
 		os.Remove(tmpName)
-		return err
+		return fmt.Errorf("token file is not private: %w", err)
 	}
-	if err := os.Rename(tmpName, filepath.Join(dir, TokenFileName)); err != nil {
+	final := filepath.Join(dir, TokenFileName)
+	if err := os.Rename(tmpName, final); err != nil {
 		os.Remove(tmpName)
 		return fmt.Errorf("moving token file into place: %w", err)
+	}
+	if err := verifyPrivateFn(final, false); err != nil {
+		os.Remove(final)
+		return fmt.Errorf("token file is not private: %w", err)
 	}
 	return nil
 }

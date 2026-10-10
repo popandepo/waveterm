@@ -4,20 +4,36 @@
 package waveapi
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 )
 
 const (
-	MaxBodyBytes = 1 << 20
-	BearerPrefix = "Bearer "
+	MaxBodyBytes  = 1 << 20
+	BearerPrefix  = "Bearer "
+	MaxErrorChars = 64
 )
+
+var (
+	addressKeys = []string{"workspaceid", "tabid", "blockid"}
+	gotoKeys    = []string{"workspaceid", "tabid", "blockid", "window"}
+)
+
+func truncateForError(s string) string {
+	if len(s) <= MaxErrorChars {
+		return s
+	}
+	return s[:MaxErrorChars] + "..."
+}
 
 type gotoRequest struct {
 	Address
@@ -38,6 +54,9 @@ type okResponse struct {
 
 // the digests have equal length, so the comparison time does not depend on how much of the token matched
 func tokenMatches(want string, got string) bool {
+	if want == "" {
+		return false
+	}
 	a := sha256.Sum256([]byte(want))
 	b := sha256.Sum256([]byte(got))
 	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
@@ -85,15 +104,56 @@ func readLimitedBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	return nil, false
 }
 
-// The whole body is read inside the limit and must be exactly one JSON value; Unmarshal refuses
-// anything after it, so a request cannot change state and then carry unread bytes.
-func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
+// The whole body is read inside the limit and must be exactly one JSON object whose keys are all known,
+// spelled exactly, and appear once. Go's decoder alone would take the first value only, fold the case of
+// keys and let the last duplicate win; each of those lets a request mean something other than what a
+// reader of the log sees.
+func strictDecode(data []byte, v any, allowed []string) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		return fmt.Errorf("body is not a json object")
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return fmt.Errorf("body is not valid json")
+		}
+		key, _ := keyTok.(string)
+		if !slices.Contains(allowed, key) {
+			return fmt.Errorf("unknown key %q", truncateForError(key))
+		}
+		if seen[key] {
+			return fmt.Errorf("key %q appears twice", key)
+		}
+		seen[key] = true
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return fmt.Errorf("body is not valid json")
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return fmt.Errorf("body is not valid json")
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return fmt.Errorf("body has more than one json value")
+	}
+	typed := json.NewDecoder(bytes.NewReader(data))
+	typed.DisallowUnknownFields()
+	if err := typed.Decode(v); err != nil {
+		return fmt.Errorf("body does not fit the call: %v", truncateForError(err.Error()))
+	}
+	return nil
+}
+
+func readBody(w http.ResponseWriter, r *http.Request, v any, allowed []string) bool {
 	data, ok := readLimitedBody(w, r)
 	if !ok {
 		return false
 	}
-	if err := json.Unmarshal(data, v); err != nil {
-		writeJson(w, http.StatusBadRequest, errorResponse{Error: "body is not exactly one json value"})
+	if err := strictDecode(data, v, allowed); err != nil {
+		writeJson(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return false
 	}
 	return true
@@ -102,8 +162,16 @@ func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
 func MakeHandler(token string, svc *Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/list", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := readLimitedBody(w, r); !ok {
+		var none struct{}
+		data, ok := readLimitedBody(w, r)
+		if !ok {
 			return
+		}
+		if len(bytes.TrimSpace(data)) > 0 {
+			if err := strictDecode(data, &none, nil); err != nil {
+				writeJson(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+				return
+			}
 		}
 		tree, err := svc.List(r.Context())
 		if err != nil {
@@ -114,7 +182,7 @@ func MakeHandler(token string, svc *Service) http.Handler {
 	})
 	mux.HandleFunc("/v1/focus", func(w http.ResponseWriter, r *http.Request) {
 		var req Address
-		if !readBody(w, r, &req) {
+		if !readBody(w, r, &req, addressKeys) {
 			return
 		}
 		if err := svc.Focus(r.Context(), req); err != nil {
@@ -125,7 +193,7 @@ func MakeHandler(token string, svc *Service) http.Handler {
 	})
 	mux.HandleFunc("/v1/goto", func(w http.ResponseWriter, r *http.Request) {
 		var req gotoRequest
-		if !readBody(w, r, &req) {
+		if !readBody(w, r, &req, gotoKeys) {
 			return
 		}
 		if err := svc.Goto(r.Context(), req.Address, req.Window); err != nil {

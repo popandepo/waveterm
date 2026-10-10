@@ -98,7 +98,7 @@ func checkId(id string, required bool) error {
 		return nil
 	}
 	if !idRegexp.MatchString(id) {
-		return fmt.Errorf("%w: %q is not a lowercase uuid", ErrBadId, id)
+		return fmt.Errorf("%w: %q is not a lowercase uuid", ErrBadId, truncateForError(id))
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/waveapi"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -26,6 +27,7 @@ const (
 	ApiDirName     = "api"
 	rpcTimeoutMs   = 3000
 	tabRoutePrefix = "tab:"
+	StartWarnAfter = 10 * time.Second
 )
 
 type Backend struct{}
@@ -90,14 +92,35 @@ func (b *Backend) SetBlockFocus(ctx context.Context, tabId string, blockId strin
 	return wshclient.SetBlockFocusCommand(wshserver.GetMainRpcClient(), blockId, opts)
 }
 
-// Start is not fatal when it fails: wavesrv keeps running without the local API.
-func Start() *waveapi.Server {
-	dir := filepath.Join(wavebase.GetWaveDataDir(), ApiDirName)
-	srv, err := waveapi.StartServer(dir, &waveapi.Service{B: MakeBackend()})
-	if err != nil {
-		log.Printf("local api not started: %v\n", err)
-		return nil
-	}
-	log.Printf("local api listening in %s\n", dir)
-	return srv
+// The local API is optional, so it must never hold wavesrv back: it starts in the background, and a start
+// that takes longer than StartWarnAfter is logged. A failed start is only logged too.
+func Start() {
+	startInBackground(func() (*waveapi.Server, error) {
+		dir := filepath.Join(wavebase.GetWaveDataDir(), ApiDirName)
+		srv, err := waveapi.StartServer(dir, &waveapi.Service{B: MakeBackend()})
+		if err == nil {
+			log.Printf("local api listening in %s\n", dir)
+		}
+		return srv, err
+	}, StartWarnAfter)
+}
+
+func startInBackground(start func() (*waveapi.Server, error), warnAfter time.Duration) chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("local api start panicked: %v\n", r)
+			}
+		}()
+		warn := time.AfterFunc(warnAfter, func() {
+			log.Printf("local api is slow to start (more than %v); wavesrv is not waiting for it\n", warnAfter)
+		})
+		defer warn.Stop()
+		if _, err := start(); err != nil {
+			log.Printf("local api not started: %v\n", err)
+		}
+	}()
+	return done
 }

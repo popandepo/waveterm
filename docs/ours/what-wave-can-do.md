@@ -224,11 +224,17 @@ only what exists.
 - **Transport.** A unix socket `wave-api.sock` in the folder `api` of the Wave data directory. No TCP listener, so
   nothing on the LAN. wavesrv writes a new random token (32 bytes, hex) to `api/api-token` at every start; every
   call needs `Authorization: Bearer <token>`. Token compare is constant time.
-- **Folder access.** On Windows the folder gets an explicit ACL (reset, inheritance removed, current user only; earlier explicit entries are dropped) before the
-  token is written; the token file is written to a temp name and renamed. A test lists the ACL with `icacls`
-  and is red if Everyone, Users or Authenticated Users appear. Not covered: another process of the SAME user can
-  read the token; that is the model.
-- **Calls** (POST only, one JSON value, body limit 1 MiB on every endpoint, `/v1/...`): `list` (workspaces > tabs > blocks, ids, names, view, slot, controller,
+- **Folder access.** No child process is started. On Windows the `api` folder is created with its final security
+  descriptor in one call (owner = current user, protected DACL with exactly one allow entry for that user, full
+  control, inherited by children); an existing folder is only taken over when it is a plain folder (no junction)
+  owned by the current user, and its DACL is replaced. The owner and DACL of the folder, the socket and the token
+  file are then read back, and the server refuses to start unless each is exactly that. Order: lock and verify the
+  folder, check no live server owns the socket, listen, verify the socket, then write the token (temp file, verify,
+  rename, verify). A second start on a live socket is refused. The socket path must be at most 100 characters.
+  On other systems the folder is mode 0700 and owned by the user. Not covered: another process of the SAME user can
+  read the token (that is the model; the next slice needs a per-caller grant before `send` exists); a folder owned
+  by another user was only tested through the descriptor check, since no second account exists here.
+- **Calls** (POST only; the body is one JSON object with known, exactly spelled, non-repeated keys inside 1 MiB, `list` takes none or `{}`; `/v1/...`): `list` (workspaces > tabs > blocks, ids, names, view, slot, controller,
   connection, title, url cut to scheme and host), `focus` (a block in the active tab, or make a tab active; never changes
   workspace or window), `goto` (workspace + tab [+ block]; the whole address is checked before the first change;
   the OS window is raised only with `window=true`). Ids must be lowercase full uuids. Block meta is allow-listed:
@@ -236,9 +242,12 @@ only what exists.
 - **wsh.** `wsh api list [--json]`, `wsh api focus --block|--tab`, `wsh api goto --tab [--workspace] [--block]
   [--window]`; the workspace defaults to `WAVETERM_WORKSPACEID`; the folder is found with the `path` RPC or `--dir`.
 - **RAN** (`go test ./pkg/waveapi/... ./cmd/wsh/cmd/`): service rules with a fake backend, handler and token checks,
-  the Windows ACL listing, and a round trip over a real unix socket (list, goto, a refused mismatch, wrong token,
-  old token after restart). Four guards were removed one at a time and each made a test go red (token check,
-  window flag, ACL call, block-in-tab check).
+  strict JSON, the security descriptor of the folder, token file and a pre-existing folder with broad entries, the
+  refusal to serve when the lock, the socket check or the token write fails, and a round trip over a real unix
+  socket. Mutation checks: `tools\Mutate-WaveApi.ps1` (private, not in this repository) changes one production line
+  at a time; 23 of 24 go red, the 24th (`DisallowUnknownFields` removed) is an equivalent mutant because the key list
+  already refuses unknown keys. Timing of the token compare cannot be unit tested; a test only pins that
+  `subtle.ConstantTimeCompare` and `crypto/rand` are used.
 - **READ, not run:** the wavesrv backend (`pkg/waveapi/wavesrvapi`): it reads the object store and sends
   FocusWindow, ElectronSetActiveTab and SetBlockFocus, the same calls wsh already uses. It has not been run in a
   live app, so whether `goto` leaves the OS foreground window alone is unverified until a window test.

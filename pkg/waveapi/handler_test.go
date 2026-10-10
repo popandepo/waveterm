@@ -9,11 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
-	"os/user"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -152,7 +149,10 @@ func TestTokenIsRandom(t *testing.T) {
 }
 
 func TestWriteTokenFileLeavesOnlyTheToken(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "api")
+	if err := PrepareApiDir(dir); err != nil {
+		t.Fatal(err)
+	}
 	if err := WriteTokenFile(dir, testToken); err != nil {
 		t.Fatal(err)
 	}
@@ -169,51 +169,14 @@ func TestWriteTokenFileLeavesOnlyTheToken(t *testing.T) {
 	}
 }
 
-// ACL check (C3): after the folder and token file are locked down, only the current user may have an
-// allow entry. Red if Everyone, Users or Authenticated Users appear.
-func TestWindowsAclIsUserOnly(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("windows only")
-	}
-	dir := filepath.Join(t.TempDir(), "api")
-	if err := PrepareApiDir(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteTokenFile(dir, testToken); err != nil {
-		t.Fatal(err)
-	}
-	cur, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range []string{dir, filepath.Join(dir, TokenFileName)} {
-		out, err := exec.Command("icacls", p).CombinedOutput()
-		if err != nil {
-			t.Fatalf("icacls %s: %v: %s", p, err, out)
-		}
-		text := string(out)
-		for _, bad := range []string{"Everyone", "BUILTIN\\Users", "Authenticated Users"} {
-			if strings.Contains(text, bad) {
-				t.Fatalf("%s grants %s:\n%s", p, bad, text)
-			}
-		}
-		if !strings.Contains(strings.ToLower(text), strings.ToLower(cur.Username)) {
-			t.Fatalf("%s does not name the current user %s:\n%s", p, cur.Username, text)
-		}
-		if p == dir && strings.Contains(text, "(I)") {
-			t.Fatalf("%s still inherits entries from its parent:\n%s", p, text)
-		}
-	}
-}
-
 // the real thing end to end: a listener on a unix socket in a locked-down folder, the client reading
 // the token file, list and goto and a refused call
 func TestSocketRoundTrip(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "api")
+	dir := shortApiDir(t)
 	svc, fb := newSvc()
 	srv, err := StartServer(dir, svc)
 	if err != nil {
-		t.Skipf("cannot listen on a unix socket here: %v", err)
+		t.Fatalf("StartServer must work here: %v", err)
 	}
 	defer srv.Close()
 
@@ -251,11 +214,11 @@ func TestSocketRoundTrip(t *testing.T) {
 
 // a restart writes a new token; the old one stops working
 func TestNewTokenAtEveryStart(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "api")
+	dir := shortApiDir(t)
 	svc, _ := newSvc()
 	srv1, err := StartServer(dir, svc)
 	if err != nil {
-		t.Skipf("cannot listen on a unix socket here: %v", err)
+		t.Fatalf("StartServer must work here: %v", err)
 	}
 	old, _ := ReadTokenFile(dir)
 	srv1.Close()
@@ -271,42 +234,6 @@ func TestNewTokenAtEveryStart(t *testing.T) {
 	c := &Client{Dir: dir, Token: old}
 	if _, err := c.List(context.Background()); err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("the old token must be refused, got %v", err)
-	}
-}
-
-// Codex finding 1: a pre-existing folder with explicit broad access must end up user-only
-func TestAclReplacesPreExistingBroadEntries(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("windows only")
-	}
-	dir := filepath.Join(t.TempDir(), "api")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, who := range []string{"Everyone", "*S-1-5-32-545", "*S-1-5-11"} {
-		out, err := exec.Command("icacls", dir, "/grant", who+":(OI)(CI)R").CombinedOutput()
-		if err != nil {
-			t.Fatalf("setting up %s: %v: %s", who, err, out)
-		}
-	}
-	if err := PrepareApiDir(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteTokenFile(dir, testToken); err != nil {
-		t.Fatal(err)
-	}
-	cur, _ := user.Current()
-	for _, p := range []string{dir, filepath.Join(dir, TokenFileName)} {
-		out, _ := exec.Command("icacls", p).CombinedOutput()
-		text := string(out)
-		for _, bad := range []string{"Everyone", `BUILTIN\Users`, "Authenticated Users"} {
-			if strings.Contains(text, bad) {
-				t.Fatalf("%s still grants %s:\n%s", p, bad, text)
-			}
-		}
-		if !strings.Contains(strings.ToLower(text), strings.ToLower(cur.Username)) {
-			t.Fatalf("%s lost the current user:\n%s", p, text)
-		}
 	}
 }
 

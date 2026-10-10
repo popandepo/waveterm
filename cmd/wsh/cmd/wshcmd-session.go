@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -84,7 +84,7 @@ func init() {
 	f.StringArrayVar(&sessionEnv, "env", nil, "KEY=VALUE for the program, repeatable")
 	f.StringVar(&sessionArgsFile, "args-file", "", "JSON array of strings: the command and its arguments")
 	f.StringVar(&sessionWorkspace, "workspace", "", "workspace id (defaults to WAVETERM_WORKSPACEID)")
-	f.BoolVar(&sessionRestart, "restart", false, "start the program again every time Wave starts; the command must resume its own work (a bare --session-id is refused)")
+	f.BoolVar(&sessionRestart, "restart", false, "start the program again every time Wave starts; the command must resume its own work. Best effort: --session-id and inline code (pwsh -Command, node -e, python -c, wsl ...) are refused, what a script file does cannot be checked")
 	f.StringArrayVar(&sessionMeta, "meta", nil, "session:KEY=VALUE written on the block for outside tools (session:id, session:model ...), repeatable")
 	f.BoolVar(&sessionActivate, "activate", false, "switch to the new tab (default: leave the active tab alone)")
 	sessionCloseCmd.Flags().BoolVar(&sessionForce, "force", false, "close even if a program is still running")
@@ -158,18 +158,45 @@ func validateSessionStart(restart bool, command string, cmdArgs []string, metaPa
 	return meta, nil
 }
 
+// inlineCodeFlags lists, per interpreter, the flags that make it run code given on the command line. Best effort: these
+// are the common ones, not every interpreter there is, and nothing here can see what a script file does.
+var inlineCodeFlags = map[string][]string{
+	"pwsh":       {"-command", "-c", "-encodedcommand", "-ec", "-e", "-commandwithargs", "-cwa"},
+	"powershell": {"-command", "-c", "-encodedcommand", "-ec", "-e", "-commandwithargs", "-cwa"},
+	"cmd":        {"/c", "/k"},
+	"bash":       {"-c", "-lc", "-ic", "-cl"},
+	"sh":         {"-c", "-lc", "-ic", "-cl"},
+	"zsh":        {"-c", "-lc", "-ic", "-cl"},
+	"fish":       {"-c", "-lc", "-ic", "-cl"},
+	"dash":       {"-c"},
+	"nu":         {"-c", "--commands"},
+	"node":       {"-e", "--eval", "-p", "--print"},
+	"python":     {"-c"},
+	"python3":    {"-c"},
+	"py":         {"-c"},
+	"ruby":       {"-e"},
+	"perl":       {"-e", "-E"},
+}
+
+// wsl runs any Linux command line it is given, so with --restart it is refused whatever its arguments are.
 func isInlineShellCommand(command string, args []string) bool {
-	base := strings.ToLower(filepath.Base(command))
+	base := strings.ToLower(command)
+	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
+		base = base[idx+1:]
+	}
 	base = strings.TrimSuffix(base, ".exe")
-	switch base {
-	case "pwsh", "powershell", "cmd", "bash", "sh", "zsh", "fish", "dash", "nu":
-	default:
+	if base == "wsl" {
+		return true
+	}
+	flags, ok := inlineCodeFlags[base]
+	if !ok {
 		return false
 	}
 	for _, a := range args {
-		switch strings.ToLower(a) {
-		case "-command", "-c", "/c", "/k", "-encodedcommand", "-ec", "-e", "-lc", "-ic", "-cl":
-			return true
+		for _, f := range flags {
+			if strings.EqualFold(a, f) {
+				return true
+			}
 		}
 	}
 	return false
@@ -185,7 +212,7 @@ func parseSessionMeta(pairs []string) (map[string]any, error) {
 			return nil, fmt.Errorf("invalid --meta %q: want session:KEY=VALUE", p)
 		}
 		for _, r := range kv[1] {
-			if r < 0x20 || r == 0x7f {
+			if unicode.IsControl(r) || r == 0x2028 || r == 0x2029 {
 				return nil, fmt.Errorf("invalid --meta %q: a value cannot contain control characters (line breaks, tabs, escape sequences)", kv[0])
 			}
 		}

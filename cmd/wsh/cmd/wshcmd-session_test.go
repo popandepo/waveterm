@@ -171,7 +171,9 @@ func TestInvalidSessionOptionsAreRefusedBeforeAnyTabIsCreated(t *testing.T) {
 	t.Setenv("WAVETERM_WORKSPACEID", "11111111-1111-1111-1111-111111111111")
 	oldMeta, oldRestart, oldName := sessionMeta, sessionRestart, sessionName
 	oldFile := sessionArgsFile
-	defer func() { sessionMeta, sessionRestart, sessionName, sessionArgsFile = oldMeta, oldRestart, oldName, oldFile }()
+	defer func() {
+		sessionMeta, sessionRestart, sessionName, sessionArgsFile = oldMeta, oldRestart, oldName, oldFile
+	}()
 	sessionArgsFile = ""
 	sessionName = "t"
 	sessionMeta = []string{"cmd=evil"}
@@ -221,5 +223,47 @@ func TestValidateReturnsTheParsedMetaSoItIsParsedOnce(t *testing.T) {
 	meta, err := validateSessionStart(false, "pwsh", nil, []string{"session:id=a", "session:model=m"})
 	if err != nil || meta["session:id"] != "a" || meta["session:model"] != "m" {
 		t.Fatalf("got %v %v", meta, err)
+	}
+}
+
+func TestRestartAlsoRefusesTheCommonInlineInterpreterForms(t *testing.T) {
+	for _, argv := range [][]string{
+		{"node", "-e", "require('child_process')"},
+		{"node", "--eval", "x"},
+		{"node", "-p", "1"},
+		{"python", "-c", "import os"},
+		{"python3", "-c", "x"},
+		{"py", "-c", "x"},
+		{"wsl", "claude", "--resume", "x"},
+		{"wsl.exe", "-e", "claude"},
+		{"pwsh", "-CommandWithArgs", "x"},
+		{"pwsh", "-cwa", "x"},
+		{"ruby", "-e", "x"},
+		{"perl", "-e", "x"},
+		{`C:\Program Files\nodejs\node.exe`, "-e", "x"},
+	} {
+		if _, err := validateSessionStart(true, argv[0], argv[1:], nil); err == nil {
+			t.Fatalf("%v should be refused with --restart", argv)
+		}
+		if _, err := validateSessionStart(false, argv[0], argv[1:], nil); err != nil {
+			t.Fatalf("%v without --restart stays allowed: %v", argv, err)
+		}
+	}
+	for _, argv := range [][]string{
+		{"node", "start-session.js"},
+		{"python", "start_session.py", "--id", "x"},
+		{"pwsh", "-File", "x.ps1"},
+	} {
+		if _, err := validateSessionStart(true, argv[0], argv[1:], nil); err != nil {
+			t.Fatalf("a script file is the supported form: %v %v", argv, err)
+		}
+	}
+}
+
+func TestMetaValuesRefuseUnicodeControlCharactersToo(t *testing.T) {
+	for _, bad := range []string{"session:id=a\u0085b", "session:id=a\u009bb", "session:id=a\u2028b", "session:id=a\u2029b", "session:id=a\u0080"} {
+		if _, err := parseSessionMeta([]string{bad}); err == nil {
+			t.Fatalf("%q should be refused", bad)
+		}
 	}
 }

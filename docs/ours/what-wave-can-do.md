@@ -336,3 +336,12 @@ the choice itself (`tools/ours/Start-ResumableSession.ps1` does, and passes the 
 `--meta` may not contain control characters (line breaks, tabs, escape sequences, NUL). The controller start decision has a
 test through the controller's own meta reader plus a pin on its call site; the full start path (database and process) is still
 only seen in a real window.
+
+Third review pass on section 21: the `--restart` check also refuses the common inline-code forms of other interpreters
+(`node -e/--eval/-p`, `python -c`, `ruby -e`, `perl -e`, `pwsh -CommandWithArgs`) and `wsl` in any form; this is **best effort**,
+not every interpreter is covered and what a script file does cannot be checked. Values of `--meta` refuse all Unicode
+control characters (C0 and C1, DEL, line and paragraph separators). The starter's self test now launches a stub that records
+its arguments and environment: it proves that the searched config folder is the one the program receives, that the inherited
+`CLAUDE*` markers and `NO_COLOR` are gone, and that the resume arguments arrive (this test found that the arguments were
+passed as one array instead of splatted: fixed). The source pin on the controller's call site can be bypassed by a rewrite;
+the window restart check is what proves the restart.

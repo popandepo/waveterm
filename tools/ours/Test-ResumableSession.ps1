@@ -23,5 +23,33 @@ $other = & $script -SessionId '99999999-2222-3333-4444-555555555555' -ConfigDir 
 Check 'another id is not mistaken for it' ($other -match '--session-id 99999999') $other
 $threw = $false; try { & $script -SessionId 'not-a-guid' -ConfigDir $root -DryRun } catch { $threw = $true }
 Check 'a session id that is not a guid is refused' $threw ''
+
+
+# The launch itself: a stub stands in for claude and records its arguments and the environment it was started with.
+$stub = Join-Path $root 'stub.ps1'
+$rec = Join-Path $root 'record.txt'
+Set-Content $stub @'
+param()
+$lines = @("ARGS: " + ($args -join ' '))
+Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR' } | ForEach-Object { $lines += "ENV: $($_.Name)=$($_.Value)" }
+Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
+'@
+$saved = @{}
+foreach ($n in 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE', 'NO_COLOR', 'RESUMABLE_TEST_RECORD') { $saved[$n] = [Environment]::GetEnvironmentVariable($n) }
+try {
+    $env:CLAUDE_CONFIG_DIR = 'C:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
+    $env:RESUMABLE_TEST_RECORD = $rec
+    & $script -SessionId $id -ConfigDir $root -Command $stub -Model m1
+    $recorded = @(Get-Content -LiteralPath $rec)
+} finally {
+    foreach ($n in $saved.Keys) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }
+}
+Check 'the launched program gets the searched config folder, not the inherited one' ($recorded -contains "ENV: CLAUDE_CONFIG_DIR=$root") ($recorded -join ' | ')
+Check 'the inherited child-session markers are gone' (-not ($recorded -match 'ENV: (CLAUDE_CODE_CHILD_SESSION|CLAUDECODE)=')) ($recorded -join ' | ')
+Check 'NO_COLOR is gone' (-not ($recorded -match 'ENV: NO_COLOR=')) ($recorded -join ' | ')
+Check 'the launched program gets the resume arguments' (($recorded -join ' ') -match "ARGS: --resume $id") ($recorded -join ' | ')
+Remove-Item $stub, $rec -ErrorAction SilentlyContinue
+if ($fail -gt 0) { exit 1 }
+Remove-Item $stub, $rec -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $root "projects\some-folder\$id.jsonl"), (Join-Path $root 'projects\some-folder'), (Join-Path $root 'projects'), $root
 if ($fail -gt 0) { exit 1 }

@@ -45,4 +45,5 @@ Get-ChildItem env: |
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
 if ($Name) { $Host.UI.RawUI.WindowTitle = $Name }
-& $Command @(Get-ClaudeArgs)
+$claudeArgs = @(Get-ClaudeArgs)
+& $Command @claudeArgs

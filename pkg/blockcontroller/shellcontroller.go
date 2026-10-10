@@ -277,7 +277,7 @@ func (sc *ShellController) run(logCtx context.Context, bdata *waveobj.Block, blo
 	}
 	runOnce := getBoolFromMeta(blockMeta, waveobj.MetaKey_CmdRunOnce, false)
 	runOnStart := getBoolFromMeta(blockMeta, waveobj.MetaKey_CmdRunOnStart, true)
-	if ((runOnStart || runOnce) && curStatus.ShellProcStatus == Status_Init) || force {
+	if shouldRunCommand(runOnce, runOnStart, curStatus.ShellProcStatus, force) {
 		if getBoolFromMeta(blockMeta, waveobj.MetaKey_CmdClearOnStart, false) {
 			err := HandleTruncateBlockFile(sc.BlockId)
 			if err != nil {
@@ -909,4 +909,10 @@ func setTermSizeInDB(blockId string, termSize waveobj.TermSize) error {
 	updates := waveobj.ContextGetUpdatesRtn(ctx)
 	wps.Broker.SendUpdateEvents(updates)
 	return nil
+}
+
+// shouldRunCommand is the decision whether the controller starts the block's program now. It is a function of its own
+// because `wsh session start --restart` depends on it (runonstart, not run once, status init at every app start).
+func shouldRunCommand(runOnce bool, runOnStart bool, procStatus string, force bool) bool {
+	return ((runOnStart || runOnce) && procStatus == Status_Init) || force
 }

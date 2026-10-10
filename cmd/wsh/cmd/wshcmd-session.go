@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -68,6 +70,8 @@ var (
 	sessionArgsFile  string
 	sessionWorkspace string
 	sessionActivate  bool
+	sessionRestart   bool
+	sessionMeta      []string
 	sessionForce     bool
 )
 
@@ -80,6 +84,8 @@ func init() {
 	f.StringArrayVar(&sessionEnv, "env", nil, "KEY=VALUE for the program, repeatable")
 	f.StringVar(&sessionArgsFile, "args-file", "", "JSON array of strings: the command and its arguments")
 	f.StringVar(&sessionWorkspace, "workspace", "", "workspace id (defaults to WAVETERM_WORKSPACEID)")
+	f.BoolVar(&sessionRestart, "restart", false, "start the program again every time Wave starts; the command must resume its own work. Best effort: --session-id and inline code (pwsh -Command, node -e, python -c, wsl ...) are refused, what a script file does cannot be checked")
+	f.StringArrayVar(&sessionMeta, "meta", nil, "session:KEY=VALUE written on the block for outside tools (session:id, session:model ...), repeatable")
 	f.BoolVar(&sessionActivate, "activate", false, "switch to the new tab (default: leave the active tab alone)")
 	sessionCloseCmd.Flags().BoolVar(&sessionForce, "force", false, "close even if a program is still running")
 	sessionCommand.AddCommand(sessionStartCmd)
@@ -123,6 +129,115 @@ func splitSessionCommand(dashArgs []string, argsFileData []byte) (string, []stri
 	return dashArgs[0], dashArgs[1:], nil
 }
 
+var sessionMetaKeyRegexp = regexp.MustCompile(`^session:[A-Za-z0-9._-]+$`)
+
+// validateSessionStart checks everything that can be checked before the first tab is created, so a refused request
+// leaves nothing behind, and returns the parsed session meta. With --restart Wave starts the SAME command again at
+// every start of the app, so the command must be able to resume its own work: a bare "--session-id <guid>" (Claude) would
+// fail or start an empty session the second time. Only literal text can be seen here: the check refuses any argument that
+// contains "--session-id" and any inline shell command (-Command, -c, /c, -EncodedCommand), because the flag could be
+// inside it; it cannot see a value that a variable expands to inside a script. Use a starter script that makes the choice
+// (tools/ours/Start-ResumableSession.ps1).
+func validateSessionStart(restart bool, command string, cmdArgs []string, metaPairs []string) (map[string]any, error) {
+	meta, err := parseSessionMeta(metaPairs)
+	if err != nil {
+		return nil, err
+	}
+	if !restart {
+		return meta, nil
+	}
+	all := append([]string{command}, cmdArgs...)
+	for _, a := range all {
+		if strings.Contains(a, "--session-id") {
+			return nil, fmt.Errorf("--restart cannot be used with --session-id in the command: the second start must resume the session (--resume), not create it again; use a starter script that makes that choice, for example tools/ours/Start-ResumableSession.ps1")
+		}
+	}
+	if isInlineShellCommand(command, cmdArgs) {
+		return nil, fmt.Errorf("--restart cannot be used with an inline shell command (%s ...): the flags that matter could be hidden inside it; start a script file instead, for example tools/ours/Start-ResumableSession.ps1", command)
+	}
+	return meta, nil
+}
+
+// inlineCodeFlags lists, per interpreter, the flags that make it run code given on the command line. Best effort: these
+// are the common ones, not every interpreter there is, and nothing here can see what a script file does.
+var inlineCodeFlags = map[string][]string{
+	"pwsh":       {"-command", "-c", "-encodedcommand", "-ec", "-e", "-commandwithargs", "-cwa"},
+	"powershell": {"-command", "-c", "-encodedcommand", "-ec", "-e", "-commandwithargs", "-cwa"},
+	"cmd":        {"/c", "/k"},
+	"bash":       {"-c", "-lc", "-ic", "-cl"},
+	"sh":         {"-c", "-lc", "-ic", "-cl"},
+	"zsh":        {"-c", "-lc", "-ic", "-cl"},
+	"fish":       {"-c", "-lc", "-ic", "-cl"},
+	"dash":       {"-c"},
+	"nu":         {"-c", "--commands"},
+	"node":       {"-e", "--eval", "-p", "--print"},
+	"python":     {"-c"},
+	"python3":    {"-c"},
+	"py":         {"-c"},
+	"ruby":       {"-e"},
+	"perl":       {"-e", "-E"},
+}
+
+// wsl runs any Linux command line it is given, so with --restart it is refused whatever its arguments are.
+func isInlineShellCommand(command string, args []string) bool {
+	base := strings.ToLower(command)
+	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
+		base = base[idx+1:]
+	}
+	base = strings.TrimSuffix(base, ".exe")
+	if base == "wsl" {
+		return true
+	}
+	flags, ok := inlineCodeFlags[base]
+	if !ok {
+		return false
+	}
+	for _, a := range args {
+		for _, f := range flags {
+			if strings.EqualFold(a, f) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// parseSessionMeta accepts only keys under "session:". The block meta also decides what program runs and where, so
+// no other key may be set from here.
+func parseSessionMeta(pairs []string) (map[string]any, error) {
+	meta := make(map[string]any)
+	for _, p := range pairs {
+		kv := strings.SplitN(p, "=", 2)
+		if len(kv) != 2 || !sessionMetaKeyRegexp.MatchString(kv[0]) {
+			return nil, fmt.Errorf("invalid --meta %q: want session:KEY=VALUE", p)
+		}
+		for _, r := range kv[1] {
+			if unicode.IsControl(r) || r == 0x2028 || r == 0x2029 {
+				return nil, fmt.Errorf("invalid --meta %q: a value cannot contain control characters (line breaks, tabs, escape sequences)", kv[0])
+			}
+		}
+		if _, dup := meta[kv[0]]; dup {
+			return nil, fmt.Errorf("--meta %s given twice", kv[0])
+		}
+		meta[kv[0]] = kv[1]
+	}
+	return meta, nil
+}
+
+// applySessionOptions adds the optional parts to the block meta. Restart mode makes Wave start the program at every
+// start of the app (the controller runs a block whose runonstart is true and which is not marked run once) and keeps
+// the earlier output instead of clearing it.
+func applySessionOptions(meta map[string]any, restart bool, extra map[string]any) {
+	if restart {
+		meta[waveobj.MetaKey_CmdRunOnce] = false
+		meta[waveobj.MetaKey_CmdRunOnStart] = true
+		meta[waveobj.MetaKey_CmdClearOnStart] = false
+	}
+	for k, v := range extra {
+		meta[k] = v
+	}
+}
+
 func parseSessionEnv(pairs []string) (map[string]any, error) {
 	env := make(map[string]any)
 	for _, p := range pairs {
@@ -149,6 +264,10 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	}
 	cmdArgsAfterDash := args
 	command, cmdArgs, err := splitSessionCommand(cmdArgsAfterDash, fileData)
+	if err != nil {
+		return err
+	}
+	extraMeta, err := validateSessionStart(sessionRestart, command, cmdArgs, sessionMeta)
 	if err != nil {
 		return err
 	}
@@ -182,6 +301,7 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		}
 	}
 	blockMeta := buildSessionBlockMeta(command, cmdArgs, cwd, envMap, RpcContext.Conn)
+	applySessionOptions(blockMeta, sessionRestart, extraMeta)
 	oref, err := wshclient.CreateBlockCommand(RpcClient, wshrpc.CommandCreateBlockData{
 		TabId:    tabId,
 		BlockDef: &waveobj.BlockDef{Meta: blockMeta},

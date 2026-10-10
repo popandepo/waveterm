@@ -344,3 +344,43 @@ confirmed; keyboard focus moves only with `--focus`.
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
+
+## 21. A session block that comes back after Wave restarts (`wsh session start --restart --meta`)
+
+`wsh session start --restart` marks the block so that Wave starts its program again at every start of the app (the
+controller runs a block whose `cmd:runonstart` is true and which is not marked run once) and keeps the earlier output.
+`--meta session:KEY=VALUE` (repeatable, only `session:*` keys, no line breaks) writes facts on the block for outside
+tools, for example `session:id`, `session:model`, `session:effort`; Wave itself never reads them. A running process always
+dies with the app: "coming back" means the same command is started again in the same block, so the command must resume
+its own work. For a Claude session that is: first start `--session-id <guid>`, every later start `--resume <guid>`.
+- **RAN:** Go tests for the meta rules (only `session:*`, no duplicates, no line breaks) and for restart mode (run once off,
+  start with Wave on, output kept; a mutation of the run-once line turned the test red); a real throwaway check outside Wave
+  with a cheap model: a session created with `--session-id <guid>` and resumed with `--resume <guid>` answered with the
+  word it had been given in the first start.
+- **READ, not run:** Wave actually starting the block at its next start (needs the restart in a window); the claude TUI
+  (the check used print mode).
+
+Review notes on section 21: `--restart` is refused for a command line that contains a bare `--session-id`: Wave starts the
+same command again, so the second start must resume instead of create. The supported way is a starter that decides:
+`tools/ours/Start-ResumableSession.ps1` (first start `--session-id <guid>`, later starts `--resume <guid>`; self test
+`tools/ours/Test-ResumableSession.ps1`). All `--meta` input (keys and values, plain `session:` keys only) and this rule are
+checked before the first tab is created. The controller's start decision is a small function with its own test
+(`shouldRunCommand`), but **the restart is not proven until it has been seen in a real window**: whether Wave starts the block
+at its next start, what the kept output looks like, and what happens to a program that crashes at once are READ, not run.
+
+Second review pass on section 21, what the `--restart` check can and cannot see: it looks at literal text only. It refuses any
+argument that contains `--session-id` and any inline shell command (`pwsh -Command`, `-c`, `cmd /c`, `-EncodedCommand`),
+because the flag could sit inside it. It cannot see what a variable expands to inside a script, so a starter script must make
+the choice itself (`tools/ours/Start-ResumableSession.ps1` does, and passes the config folder it searched to Claude). Values of
+`--meta` may not contain control characters (line breaks, tabs, escape sequences, NUL). The controller start decision has a
+test through the controller's own meta reader plus a pin on its call site; the full start path (database and process) is still
+only seen in a real window.
+
+Third review pass on section 21: the `--restart` check also refuses the common inline-code forms of other interpreters
+(`node -e/--eval/-p`, `python -c`, `ruby -e`, `perl -e`, `pwsh -CommandWithArgs`) and `wsl` in any form; this is **best effort**,
+not every interpreter is covered and what a script file does cannot be checked. Values of `--meta` refuse all Unicode
+control characters (C0 and C1, DEL, line and paragraph separators). The starter's self test now launches a stub that records
+its arguments and environment: it proves that the searched config folder is the one the program receives, that the inherited
+`CLAUDE*` markers and `NO_COLOR` are gone, and that the resume arguments arrive (this test found that the arguments were
+passed as one array instead of splatted: fixed). The source pin on the controller's call site can be bypassed by a rewrite;
+the window restart check is what proves the restart.

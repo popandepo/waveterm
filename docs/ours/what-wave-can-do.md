@@ -301,3 +301,7 @@ confirmed; keyboard focus moves only with `--focus`.
 - **READ, not run:** the page applying `stackmove`. **Seen in a window after this PR:** `wsh stack move --from 2 --to 1`
   puts block 2 (or its whole group) into the group of block 1.
 - **Not handled, for the window check:** audio or video in a web block of a hidden tab keeps playing.
+
+Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
+window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
+from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.

@@ -21,7 +21,6 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
-    moveIntoStack,
     placeholderTargetId,
     magnifyNodeToggle,
     moveIntoStack,

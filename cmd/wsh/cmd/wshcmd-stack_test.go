@@ -214,3 +214,22 @@ func TestStackMoveNeedsBothEnds(t *testing.T) {
 		t.Fatalf("a refused command sent a request")
 	}
 }
+
+func TestBlockRefMustBeABlock(t *testing.T) {
+	good := waveobj.ORef{OType: waveobj.OType_Block, OID: stackTargetFull}
+	if id, err := blockIdOfORef(good); err != nil || id != stackTargetFull {
+		t.Fatalf("a block ref should pass: %q %v", id, err)
+	}
+	for _, otype := range []string{waveobj.OType_Tab, waveobj.OType_Workspace, waveobj.OType_Window} {
+		_, err := blockIdOfORef(waveobj.ORef{OType: otype, OID: stackTargetFull})
+		if err == nil || !strings.Contains(err.Error(), "not a block") || !strings.Contains(err.Error(), "same tab") {
+			t.Fatalf("a %s target must be refused with a clear message, got %v", otype, err)
+		}
+	}
+}
+
+func TestStackMoveHelpSaysSameTabOnly(t *testing.T) {
+	if !strings.Contains(stackMoveCmd.Long, "same tab") || !strings.Contains(stackMoveCmd.Long, "not supported") {
+		t.Fatalf("the help must say that another tab is not supported yet")
+	}
+}

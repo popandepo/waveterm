@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -28,12 +29,21 @@ var stackBlockRPC = func(data wshrpc.CommandStackBlockData) error {
 	return wshclient.StackBlockCommand(RpcClient, data, nil)
 }
 
+// Only blocks can be moved or stacked. A tab or workspace reference is refused here with a plain message:
+// moving into another tab is not supported yet.
+func blockIdOfORef(oref waveobj.ORef) (string, error) {
+	if oref.OType != waveobj.OType_Block {
+		return "", fmt.Errorf("%s:%s is not a block; groups work between blocks of the same tab (a tab as target is not supported yet)", oref.OType, oref.OID)
+	}
+	return oref.OID, nil
+}
+
 var resolveBlockRef = func(ref string) (string, error) {
 	oref, err := resolveSimpleId(ref)
 	if err != nil {
 		return "", err
 	}
-	return oref.OID, nil
+	return blockIdOfORef(*oref)
 }
 
 func addStackFlag(c *cobra.Command) {
@@ -178,7 +188,8 @@ var stackMoveCmd = &cobra.Command{
 	Short: "Move everything from FROM into the group at TO",
 	Long: `FROM is a block, or any member of a group (then the whole group moves, in its order). TO is a block or a
 group (or a member of one). Everything from FROM ends up as members of the group at TO, appended at the end; if TO is
-a plain block the two become a new group. Both must be in the same tab. The change is queued for the page of that tab
+a plain block the two become a new group. Both must be in the same tab (a tab as target is not supported
+yet: it is refused with a message). The change is queued for the page of that tab
 and is not confirmed. Keyboard focus moves only with --focus.`,
 	Args:    cobra.NoArgs,
 	RunE:    stackMoveRun,

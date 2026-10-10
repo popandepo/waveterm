@@ -80,6 +80,9 @@ Not covered: what you did not run or read
 Fixes needed: numbered, each with the file
 ```
 
-DO NOT MERGE if questions 1 or 4 FAIL, or question 3 shows a collision. A disagreement with the maker, a large
+DO NOT MERGE if any of these holds: question 1 FAIL; question 2 FAIL (a replayed commit changed meaning, or one
+could not be shown to have the same meaning); question 3 shows a collision, or an overlap that is not resolved
+(each WATCH hit must be explained as harmless or turned into a named change to one of our commits before merge);
+question 4 FAIL. UNCLEAR on any question is not a pass: say what is missing and use MERGE AFTER FIXES at best. A disagreement with the maker, a large
 upstream range (more than about 100 commits), or anything touching access, security or installs goes to
 the owner for review through the manager session rather than to a merge.

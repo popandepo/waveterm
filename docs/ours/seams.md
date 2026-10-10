@@ -1,13 +1,16 @@
 # Seams: upstream interfaces our changes lean on
 
 Each row is a place where our code (or our update tooling) depends on something upstream owns. If one moves,
-our code can break without a merge conflict. `tools/ours/Check-Seams.ps1` checks every row below and exits 1
-when a literal text is no longer in its file; the list in that script is the source of truth, this file explains
-it. Add a row here and in the script in the same commit as any change that starts depending on something new.
+our code can break without a merge conflict. `tools/ours/Check-Seams.ps1` checks every row below against the
+working tree and exits 1 when the declaration is no longer in the active code of its file. Comments are removed
+and whitespace collapsed before matching, and most rows are full signatures, so a rename that leaves the old
+name in a comment, or a changed argument list or return type, turns it red. The list in that script is the source
+of truth, this file explains it. Add a row here and in the script in the same commit as any change that starts depending on something new.
 
 Check: `tools\ours\Check-Seams.ps1` (exit 0 ok, exit 1 a seam moved; WATCH lines never fail the run).
-What would have made it red: a rename or removal of the symbol or text in the listed file. Not covered: a
-seam whose text is still present but whose behaviour changed. That is what the update review is for
+What would have made it red: a rename, removal or signature change of the declaration in the listed file (tested by
+renaming one function while leaving the old declaration in a comment, and by adding an argument to another).
+Not covered: a seam whose declaration is unchanged but whose behaviour changed. That is what the update review is for
 (`docs/ours/update-review.md`).
 
 ## Tab colour and symbol (feature a)
@@ -18,7 +21,7 @@ seam whose text is still present but whose behaviour changed. That is what the u
 | colour read and validation | `frontend/app/tab/tab.tsx` | reads `tab:flagcolor`, `validateCssColor` | colour is drawn from here |
 | symbol drawing | `frontend/app/tab/tabbadges.tsx` | `TabBadges`, `icon: "flag"` | where the symbol is drawn |
 | badge source | `frontend/app/tab/tab.tsx` | `getTabBadgeAtom` | badges stay transient; ours is persistent |
-| badge store | `pkg/wcore/badge.go` | in-memory `BadgeStore` | explains why a persistent symbol is new |
+| badge store | `pkg/wcore/badge.go` | `transient map[string]baseds.Badge` | explains why a persistent symbol is new |
 | tab menu | `frontend/app/tab/tabcontextmenu.ts` | `buildTabContextMenu` | menu entry for colour and symbol |
 
 ## wsh commands (features a and b)
@@ -67,17 +70,22 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 
 ## Watch list (collision with upstream features)
 
-These are not seams but tripwires. A hit means upstream may now ship something that overlaps one of our
-features. The run still exits 0; the update review decides.
+These are not seams but tripwires. They look only at upstream content: `git grep` on the new upstream head
+(`-Ref`, default `upstream/main`), and only for hits that were not already present at the previously synced point
+(`-BaseRef`, default the merge-base of `origin/Master` and `-Ref`). Our own commits are never scanned, so our own
+tab feature is never reported as upstream's. A hit means upstream may now ship something that overlaps one of our
+features. The run still exits 0; the update review decides, and an unresolved overlap blocks the merge.
 
-| Id | Looks for | Would mean |
+| Id | Looks for (new in the upstream range) | Would mean |
 |---|---|---|
-| upstream-tab-icon | `tab:icon` in `frontend/app/tab/*` | upstream has its own tab icon key |
-| upstream-tab-color | `tab:color`, `tab:accent` in `pkg/waveobj/*.go` | a second tab colour key |
-| upstream-tab-rename-cmd | `Use: "rename|new|create|close|switch|select"` in `cmd/wsh/cmd/*.go` | upstream has wsh tab management |
-| upstream-tab-group | `tabgroup`, `TabGroup`, `"stack"` in `frontend/*` | tab groups or a stack concept |
-| upstream-layout-kind | `kind`, `nodeType`, `activeChildId` in layout `types.ts` | layout nodes gained a kind |
-| upstream-tab-bar-model | icon, symbol, emoji in `tabbar-model.ts` | tab bar model changed around icons |
+| upstream-tab-icon | `tab:icon`, `tab:symbol` in `frontend/app/tab` | upstream has its own tab icon or symbol key |
+| upstream-tab-color | `"tab:color"`, `"tab:accent"`, `"tab:symbol"`, `"tab:icon"` in `pkg/waveobj` | another tab colour or symbol key |
+| upstream-tab-commands | `tabCommand.AddCommand` or a `Use:` of rename, new, create, close, switch, select in `cmd/wsh/cmd` | wsh tab management |
+| upstream-tab-files | new files `cmd/wsh/cmd/wshcmd-tab*.go`, `wshcmd-workspace*.go` | wsh tab or workspace commands, however registered |
+| upstream-electron-tab-rpc | `ElectronCreateTab`, `ElectronSetActiveTab`, `ElectronCloseTab`, `Tab(Create|Close|Switch|Rename)Command` in `pkg/wshrpc` | tab RPCs that collide with ours |
+| upstream-tab-group | `tabgroup`, `TabGroup`, `activeChildId` in `frontend` | tab grouping or a stack concept |
+| upstream-layout-kind | `kind`, `nodeType` in layout `types.ts` | layout nodes gained a kind |
+| upstream-tab-bar-icons | icon, symbol, emoji in `tabbar-model.ts` | tab bar model changed around icons |
 
-Once one of our own features lands, the watch entry for it will hit on our own code on every run. Change that
-entry in the same PR to match upstream only (for example by excluding the files we own) and say so here.
+Rehearsed by planting a tab command file and a `tab:icon` line in a throwaway commit and scanning that commit
+against its parent: both reported.

@@ -232,6 +232,10 @@ func collectSessionTabs() ([]sessionTabInfo, error) {
 		if w.WorkspaceData == nil {
 			continue
 		}
+		blocks, err := wshclient.BlocksListCommand(RpcClient, wshrpc.BlocksListRequest{WorkspaceId: w.WorkspaceData.OID}, &wshrpc.RpcOpts{Timeout: 5000})
+		if err != nil {
+			return nil, fmt.Errorf("listing blocks of workspace %s: %w", w.WorkspaceData.OID, err)
+		}
 		for _, tabId := range w.WorkspaceData.TabIds {
 			tab, err := wshclient.GetTabCommand(RpcClient, tabId, &wshrpc.RpcOpts{Timeout: 2000})
 			if err != nil {
@@ -244,11 +248,10 @@ func collectSessionTabs() ([]sessionTabInfo, error) {
 			if s, ok := tab.Meta[TabMetaSymbol].(string); ok {
 				info.Symbol = s
 			}
-			blocks, err := wshclient.BlocksListCommand(RpcClient, wshrpc.BlocksListRequest{TabId: tabId}, &wshrpc.RpcOpts{Timeout: 5000})
-			if err != nil {
-				return nil, fmt.Errorf("listing blocks of tab %s: %w", tabId, err)
-			}
 			for _, b := range blocks {
+				if b.TabId != tabId {
+					continue
+				}
 				view, _ := b.Meta[waveobj.MetaKey_View].(string)
 				bi := sessionBlockInfo{BlockId: b.BlockId, View: view}
 				if view == "term" {

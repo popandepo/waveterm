@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -29,6 +30,13 @@ func TestBuildTabStyleMeta(t *testing.T) {
 		{name: "bad hex", color: "#12345", wantErr: true},
 		{name: "markup in symbol", symbol: "<img src=x>", wantErr: true},
 		{name: "long text symbol", symbol: "abcdefghijk!", wantErr: true},
+		{name: "bidi override", symbol: "a\u202eb", wantErr: true},
+		{name: "bidi isolate", symbol: "\u2066x", wantErr: true},
+		{name: "control char", symbol: "a\x07", wantErr: true},
+		{name: "line separator", symbol: "a\u2028", wantErr: true},
+		{name: "combining marks pile", symbol: "e" + strings.Repeat("\u0301", 40), wantErr: true},
+		{name: "long icon name", symbol: strings.Repeat("a", 41), wantErr: true},
+		{name: "zwj emoji family", symbol: "\U0001F468\u200d\U0001F469\u200d\U0001F467", want: map[string]any{"tab:symbol": "\U0001F468\u200d\U0001F469\u200d\U0001F467"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

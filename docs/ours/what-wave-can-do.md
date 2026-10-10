@@ -158,3 +158,18 @@ Checks on the unmodified base:
 - `controllerinput`, `captureblockscreenshot`, events, remote connections, WSL, Wave AI.
 - Memory and CPU cost of the dev app; many-terminal behaviour.
 - Linux and macOS.
+
+## 11. Styling another tab by reference is deliberate
+
+`wsh tab style --tab <ref>` accepts any tab reference, including a full `tab:<uuid>` or bare uuid of a tab in
+another workspace or window. The command checks that the reference resolves to a tab object. The RPC it calls,
+`SetMetaCommand` (`pkg/wshrpc/wshserver/wshserver.go`), checks nothing about ownership: any caller with a valid
+token can set meta on any object it can name (**READ**; the same is true of `wsh setmeta -b <anything>` that
+shipped upstream). We keep it that way on purpose: there is one user, and the manager session styles the tabs of
+the sessions it runs. Wave has no multi-user boundary for this to cross. `tab:<n>` is relative to the caller's
+own workspace. If Wave ever gains such a boundary, the check belongs in `SetMetaCommand`, not in the command.
+
+The stored symbol is validated twice: by the command before writing, and by `parseTabSymbol` before drawing,
+because any block can write tab meta directly. Both refuse control, bidirectional and invisible format
+characters (the zero width joiner is allowed for emoji sequences) and bound the value (icon names 40 characters,
+text 32 bytes and two graphemes in the tab bar; the command is stricter and takes at most 8 runes).

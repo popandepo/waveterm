@@ -29,6 +29,25 @@ describe("parseTabSymbol", () => {
         expect(parseTabSymbol("<img src=x>")).toBeNull();
         expect(parseTabSymbol("ABC!")).toBeNull();
     });
+
+    it("rejects control, bidirectional and invisible format characters", () => {
+        expect(parseTabSymbol("a\u202Eb")).toBeNull();
+        expect(parseTabSymbol("\u2066x")).toBeNull();
+        expect(parseTabSymbol("\u200Ex")).toBeNull();
+        expect(parseTabSymbol("a\u0007")).toBeNull();
+        expect(parseTabSymbol("a\u2028")).toBeNull();
+    });
+
+    it("keeps emoji sequences that need the zero width joiner", () => {
+        const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+        expect(parseTabSymbol(family)).toEqual({ kind: "text", value: family });
+    });
+
+    it("bounds a single grapheme stacked with many combining marks, and long icon names", () => {
+        expect(parseTabSymbol("e" + "\u0301".repeat(2000))).toBeNull();
+        expect(parseTabSymbol("a".repeat(41))).toBeNull();
+        expect(parseTabSymbol("a".repeat(40))).toEqual({ kind: "icon", value: "a".repeat(40) });
+    });
 });
 
 describe("TabBadges with a symbol", () => {
@@ -63,6 +82,19 @@ describe("TabBadges with a symbol", () => {
     it("keeps the flag when there is no symbol", () => {
         const markup = renderToStaticMarkup(<TabBadges flagColor="#ff8800" />);
         expect(markup).toContain("fa-flag");
+    });
+
+    it("a higher priority badge hides a text symbol without leaving a flag glyph", () => {
+        const markup = renderToStaticMarkup(
+            <TabBadges
+                flagColor="#ff8800"
+                symbol={"\u{1F451}"}
+                badges={[{ badgeid: "b1", icon: "bell", color: "#4ade80", priority: 5 }]}
+            />
+        );
+        expect(markup).toContain("fa-bell");
+        expect(markup).not.toContain("fa-flag");
+        expect(markup).not.toContain("\u{1F451}");
     });
 
     it("lets a higher priority badge win over the symbol", () => {

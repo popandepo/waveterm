@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -14,8 +15,12 @@ import (
 )
 
 const (
-	TabMetaFlagColor = "tab:flagcolor"
-	TabMetaSymbol    = "tab:symbol"
+	TabMetaFlagColor        = "tab:flagcolor"
+	TabMetaSymbol           = "tab:symbol"
+	MaxTabSymbolTextBytes   = 32
+	MaxTabSymbolTextRunes   = 8
+	MaxTabSymbolIconNameLen = 40
+	zeroWidthJoiner         = 0x200d
 )
 
 var tabStyleCmd = &cobra.Command{
@@ -55,6 +60,9 @@ func init() {
 
 // buildTabStyleMeta returns the meta update for the given options. A nil value deletes the key.
 func buildTabStyleMeta(color string, symbol string, clear bool) (map[string]any, error) {
+	if hasHiddenOrDirectionalRunes(symbol) {
+		return nil, fmt.Errorf("invalid symbol: control, bidirectional and invisible format characters are not allowed")
+	}
 	color = strings.TrimSpace(color)
 	symbol = strings.TrimSpace(symbol)
 	if clear {
@@ -101,12 +109,30 @@ func isIconName(s string) bool {
 	return true
 }
 
+func hasHiddenOrDirectionalRunes(s string) bool {
+	for _, r := range s {
+		if r == zeroWidthJoiner {
+			continue
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateTabSymbol(symbol string) error {
+	if hasHiddenOrDirectionalRunes(symbol) {
+		return fmt.Errorf("invalid symbol: control, bidirectional and invisible format characters are not allowed")
+	}
 	if isIconName(symbol) {
+		if len(symbol) > MaxTabSymbolIconNameLen {
+			return fmt.Errorf("invalid symbol: icon names are limited to %d characters", MaxTabSymbolIconNameLen)
+		}
 		return nil
 	}
-	if len([]rune(symbol)) > 8 || strings.ContainsAny(symbol, "<>&\"'`\\") {
-		return fmt.Errorf("invalid symbol %q: use a Font Awesome icon name (lowercase, digits, dashes) or one or two characters such as an emoji", symbol)
+	if len(symbol) > MaxTabSymbolTextBytes || len([]rune(symbol)) > MaxTabSymbolTextRunes || strings.ContainsAny(symbol, "<>&\"'`\\") {
+		return fmt.Errorf("invalid symbol %q: use a Font Awesome icon name (lowercase, digits, dashes) or one or two characters such as an emoji (at most %d bytes)", symbol, MaxTabSymbolTextBytes)
 	}
 	return nil
 }

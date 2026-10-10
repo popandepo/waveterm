@@ -33,6 +33,7 @@ func init() {
 	flags.IntP("delay", "", 2000, "if -x, delay in milliseconds before closing block")
 	flags.BoolP("paused", "p", false, "create block in paused state")
 	flags.String("cwd", "", "set working directory for command")
+	addStackFlag(runCmd)
 	flags.BoolP("append", "a", false, "append output on restart instead of clearing")
 	addNoFocusFlag(runCmd)
 	rootCmd.AddCommand(runCmd)
@@ -152,6 +153,9 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		Focused:   newBlockFocused(),
 	}
 
+	if err := applyStackTarget(&createBlockData); err != nil {
+		return err
+	}
 	oref, err := createBlockRPC(createBlockData)
 	if err != nil {
 		return fmt.Errorf("creating new run block: %w", err)

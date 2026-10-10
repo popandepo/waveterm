@@ -41,6 +41,14 @@ function handleHeaderContextMenu(
     e.preventDefault();
     e.stopPropagation();
     const magnified = globalStore.get(nodeModel.isMagnified);
+    const stackSize = globalStore.get(nodeModel.stackSize);
+    const stackItems: ContextMenuItem[] =
+        stackSize === 0
+            ? [{ label: "Turn into a stack", click: () => nodeModel.turnIntoStack() }]
+            : [
+                  ...(stackSize > 1 ? [{ label: "Take out of stack", click: () => nodeModel.takeOutOfStack() }] : []),
+                  ...(stackSize === 1 ? [{ label: "Turn stack off", click: () => nodeModel.turnStackOff() }] : []),
+              ];
     const menu: ContextMenuItem[] = [
         {
             label: magnified ? "Un-Magnify Block" : "Magnify Block",
@@ -48,6 +56,7 @@ function handleHeaderContextMenu(
                 nodeModel.toggleMagnify();
             },
         },
+        ...stackItems,
         { type: "separator" },
         {
             label: "Copy BlockId",

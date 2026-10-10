@@ -312,6 +312,14 @@ func (ws *WshServer) ResolveIdsCommand(ctx context.Context, data wshrpc.CommandR
 func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.CommandCreateBlockData) (*waveobj.ORef, error) {
 	ctx = waveobj.ContextWithUpdates(ctx)
 	tabId := data.TabId
+	if data.TargetAction == wshrpc.CreateBlockAction_Stack {
+		err := checkStackTargetInTab(tabId, data.TargetBlockId, func(blockId string) (string, error) {
+			return wstore.DBFindTabForBlockId(ctx, blockId)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
 	blockData, err := wcore.CreateBlock(ctx, tabId, data.BlockDef, data.RtOpts)
 	if err != nil {
 		return nil, fmt.Errorf("error creating block: %w", err)
@@ -361,6 +369,11 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 				TargetBlockId: data.TargetBlockId,
 				Position:      "after",
 				Focused:       data.Focused,
+			}
+		case wshrpc.CreateBlockAction_Stack:
+			layoutAction, err = planCreateInStack(blockData.OID, data.TargetBlockId, data.Focused)
+			if err != nil {
+				return nil, err
 			}
 		default:
 			return nil, fmt.Errorf("invalid target action: %s", data.TargetAction)

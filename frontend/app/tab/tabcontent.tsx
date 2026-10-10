@@ -2,12 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Block } from "@/app/block/block";
+import { ContextMenuModel } from "@/app/store/contextmenu";
+import { globalStore } from "@/app/store/jotaiStore";
+import { stackAddEntries } from "@/app/tab/stackaddmenu";
+import { entryStillAllowed } from "@/app/tab/stackcreate";
+import { StackTabLabel } from "@/app/tab/stacktablabel";
 import { CenteredDiv } from "@/element/quickelems";
 import { ContentRenderer, NodeModel, PreviewRenderer, TileLayout } from "@/layout/index";
+import type { LayoutModel } from "@/layout/lib/layoutModel";
 import { TileLayoutContents } from "@/layout/lib/types";
-import { atoms, getApi } from "@/store/global";
+import { atoms, createBlockInStack, getApi } from "@/store/global";
 import * as services from "@/store/services";
 import * as WOS from "@/store/wos";
+import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import * as React from "react";
 import { useMemo } from "react";
@@ -34,6 +41,24 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
             return <Block key={nodeModel.blockId} nodeModel={nodeModel} preview={true} />;
         };
 
+        const renderStackTabLabel = (blockId: string) => <StackTabLabel key={blockId} blockId={blockId} />;
+
+        const onStackAdd = (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => {
+            const widgets = globalStore.get(atoms.fullConfigAtom)?.widgets;
+            const workspaceIdAtOpen = globalStore.get(atoms.workspaceId);
+            const entries = stackAddEntries(widgets, workspaceIdAtOpen);
+            const menu: ContextMenuItem[] = entries.map((entry) => ({
+                label: entry.label,
+                click: () => {
+                    if (!entryStillAllowed(workspaceIdAtOpen, globalStore.get(atoms.workspaceId))) {
+                        return;
+                    }
+                    fireAndForget(() => createBlockInStack(entry.blockdef, targetBlockId, layoutModel));
+                },
+            }));
+            ContextMenuModel.getInstance().showContextMenu(menu, ev);
+        };
+
         function onNodeDelete(data: TabLayoutData) {
             return services.ObjectService.DeleteBlock(data.blockId);
         }
@@ -41,6 +66,8 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
         return {
             renderContent,
             renderPreview,
+            renderStackTabLabel,
+            onStackAdd,
             tabId,
             onNodeDelete,
             gapSizePx: tileGapSize,
@@ -67,7 +94,9 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
     }
 
     return (
-        <div className={`flex flex-row flex-grow min-h-0 w-full items-center justify-center overflow-hidden relative ${noTopPadding ? "" : "pt-[3px]"} pr-[3px]`}>
+        <div
+            className={`flex flex-row flex-grow min-h-0 w-full items-center justify-center overflow-hidden relative ${noTopPadding ? "" : "pt-[3px]"} pr-[3px]`}
+        >
             {innerContent}
         </div>
     );

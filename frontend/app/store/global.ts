@@ -13,6 +13,7 @@ import {
     LayoutTreeReplaceNodeAction,
     LayoutTreeSplitHorizontalAction,
     LayoutTreeSplitVerticalAction,
+    LayoutTreeStackInsertAction,
 } from "@/layout/lib/types";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { fetch } from "@/util/fetchutil";
@@ -30,6 +31,8 @@ import {
 import { atom, Atom, PrimitiveAtom, useAtomValue } from "jotai";
 import { setupBadgesSubscription } from "./badge";
 import { atoms, blockComponentModelMap, ConnStatusMapAtom, initGlobalAtoms, orefAtomCache } from "./global-atoms";
+import { createIntoStack } from "@/app/tab/stackcreate";
+import type { LayoutModel } from "@/layout/lib/layoutModel";
 import { globalStore } from "./jotaiStore";
 import { modalsModel } from "./modalmodel";
 import { ClientService, ObjectService } from "./services";
@@ -405,6 +408,24 @@ async function createBlockSplitVertically(
     return newBlockId;
 }
 
+async function createBlockInStack(blockDef: BlockDef, targetBlockId: string, layoutModel: LayoutModel): Promise<string> {
+    const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
+    return createIntoStack(targetBlockId, {
+        findTargetNodeId: (blockId) => layoutModel.getNodeByBlockId(blockId)?.id ?? null,
+        createBlock: () => ObjectService.CreateBlock(blockDef, rtOpts),
+        deleteBlock: (blockId) => ObjectService.DeleteBlock(blockId),
+        insert: (newBlockId, targetNodeId) => {
+            const stackInsertAction: LayoutTreeStackInsertAction = {
+                type: LayoutTreeActionType.StackInsert,
+                node: newLayoutNode(undefined, undefined, undefined, { blockId: newBlockId }),
+                targetNodeId: targetNodeId,
+                focused: true,
+            };
+            layoutModel.treeReducer(stackInsertAction);
+        },
+    });
+}
+
 async function createBlock(blockDef: BlockDef, magnified = false, ephemeral = false): Promise<string> {
     const layoutModel = getLayoutModelForStaticTab();
     const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
@@ -676,6 +697,7 @@ function recordTEvent(event: string, props?: TEventProps) {
 export {
     atoms,
     createBlock,
+    createBlockInStack,
     createBlockSplitHorizontally,
     createBlockSplitVertically,
     createTab,

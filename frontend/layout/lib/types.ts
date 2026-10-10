@@ -3,6 +3,7 @@
 
 import { Atom, WritableAtom } from "jotai";
 import { CSSProperties } from "react";
+import type { LayoutModel } from "./layoutModel";
 
 export enum NavigateDirection {
     Up = 0,
@@ -77,6 +78,11 @@ export enum LayoutTreeActionType {
     Swap = "swap",
     Stack = "stack",
     Unstack = "unstack",
+    StackInsert = "stackinsert",
+    StackMove = "stackmove",
+    TurnIntoStack = "turnintostack",
+    TurnStackOff = "turnstackoff",
+    Activate = "activate",
     SetPendingAction = "setpending",
     CommitPendingAction = "commitpending",
     ClearPendingAction = "clearpending",
@@ -265,8 +271,7 @@ export interface LayoutTreeResizeNodeAction extends LayoutTreeAction {
  * Action for focusing a node from the layout tree.
  */
 /**
- * Puts the node 
-odeId into the stack that contains 	argetNodeId, or makes a new stack of the two leaves.
+ * Puts the node nodeId into the stack that contains targetNodeId, or makes a new stack of the two leaves.
  */
 export interface LayoutTreeStackAction extends LayoutTreeAction {
     type: LayoutTreeActionType.Stack;
@@ -276,13 +281,48 @@ export interface LayoutTreeStackAction extends LayoutTreeAction {
 }
 
 /**
- * Takes the leaf 
-odeId out of its stack and places it next to the stack.
+ * Takes the leaf nodeId out of its stack and places it next to the stack.
  */
 export interface LayoutTreeUnstackAction extends LayoutTreeAction {
     type: LayoutTreeActionType.Unstack;
     nodeId: string;
     focused?: boolean;
+}
+
+/**
+ * Puts a new leaf (not in the tree yet) into the stack of targetNodeId, or makes a stack of the two.
+ */
+export interface LayoutTreeStackInsertAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.StackInsert;
+    node: LayoutNode;
+    targetNodeId: string;
+    focused?: boolean;
+}
+
+/**
+ * Shows a stack member without asking for keyboard focus.
+ */
+export interface LayoutTreeActivateAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.Activate;
+    nodeId: string;
+}
+
+/**
+ * Moves everything from fromNodeId (a tile, or a stack) into the stack at toNodeId.
+ */
+export interface LayoutTreeStackMoveAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.StackMove;
+    fromNodeId: string;
+    toNodeId: string;
+    focused?: boolean;
+}
+
+/**
+ * Turns a plain tile into a stack of one, or gives the plain tile back when one member is left.
+ */
+export interface LayoutTreeStackModeAction extends LayoutTreeAction {
+    type: LayoutTreeActionType.TurnIntoStack | LayoutTreeActionType.TurnStackOff;
+    nodeId: string;
 }
 
 export interface LayoutTreeFocusNodeAction extends LayoutTreeAction {
@@ -347,6 +387,9 @@ export type WritableLayoutTreeStateAtom = WritableAtom<LayoutTreeState, [value: 
 
 export type ContentRenderer = (nodeModel: NodeModel) => React.ReactNode;
 
+/** Renders the label of one member in the tab strip of a stack. */
+export type StackTabLabelRenderer = (blockId: string) => React.ReactNode;
+
 export type PreviewRenderer = (nodeModel: NodeModel) => React.ReactElement;
 
 export const DefaultNodeSize = 10;
@@ -376,6 +419,14 @@ export interface TileLayoutContents {
      */
     renderContent: ContentRenderer;
     /**
+     * A callback that returns the label of a member in the tab strip of a stack.
+     */
+    renderStackTabLabel?: StackTabLabelRenderer;
+    /**
+     * Called when the + on the tab strip of a stack is clicked; targetBlockId is the block shown in the stack.
+     */
+    onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
+    /**
      * A callback that accepts the data from the leaf node and returns a preview that can be shown when the user drags a node.
      */
     renderPreview?: PreviewRenderer;
@@ -400,8 +451,17 @@ export interface ResizeHandleProps {
     flexDirection: FlexDirection;
 }
 
+export interface StackLayoutProps {
+    strip: Dimensions;
+    activeId: string;
+    order: string[];
+}
+
 export interface LayoutNodeAdditionalProps {
     treeKey: string;
+    isHidden?: boolean;
+    stackSize?: number;
+    stack?: StackLayoutProps;
     transform?: CSSProperties;
     rect?: Dimensions;
     pixelToSizeRatio?: number;
@@ -420,6 +480,12 @@ export interface NodeModel {
     isResizing: Atom<boolean>;
     isFocused: Atom<boolean>;
     isMagnified: Atom<boolean>;
+    isHidden: Atom<boolean>;
+    /** Number of members of the stack this tile belongs to, 0 for a plain tile. */
+    stackSize: Atom<number>;
+    turnIntoStack: () => void;
+    turnStackOff: () => void;
+    takeOutOfStack: () => void;
     anyMagnified: Atom<boolean>;
     isEphemeral: Atom<boolean>;
     ready: Atom<boolean>;

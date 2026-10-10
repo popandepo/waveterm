@@ -16,6 +16,7 @@ import {
     DropDirection,
     FlexDirection,
     LayoutNode,
+    LayoutTreeAction,
     LayoutTreeActionType,
     LayoutTreeComputeMoveNodeAction,
     LayoutTreeDeleteNodeAction,
@@ -37,6 +38,8 @@ import {
     LayoutTreeSplitHorizontalAction,
     LayoutTreeSplitVerticalAction,
     LayoutTreeStackAction,
+    LayoutTreeStackInsertAction,
+    LayoutTreeStackMoveAction,
     LayoutTreeUnstackAction,
 } from "./types";
 
@@ -79,6 +82,52 @@ function activateNeighbourAfterRemoval(stack: LayoutNode, removedId: string, rem
         return;
     }
     stack.activeChildId = stack.children[Math.min(removedIndex, stack.children.length - 1)].id;
+}
+
+/**
+ * What a drop on the middle of a tile does, or nothing. Nothing when the tile is dropped on itself or on its own
+ * stack (no action means no outline). A whole stack that is dropped merges all its members into the target in order;
+ * one member (or a plain tile) is stacked with the target.
+ */
+function centreDropAction(rootNode: LayoutNode, targetId: string, movedId: string): LayoutTreeAction | undefined {
+    const moved = findNode(rootNode, movedId);
+    if (!moved || targetId === movedId) {
+        return undefined;
+    }
+    const movedParent = findParent(rootNode, movedId);
+    const movedStack = isStackNode(moved) ? moved : movedParent && isStackNode(movedParent) ? movedParent : null;
+    if (movedStack && (targetId === movedStack.id || movedStack.children?.some((c) => c.id === targetId))) {
+        return undefined;
+    }
+    if (isStackNode(moved)) {
+        const mergeAction: LayoutTreeStackMoveAction = {
+            type: LayoutTreeActionType.StackMove,
+            fromNodeId: movedId,
+            toNodeId: targetId,
+        };
+        return mergeAction;
+    }
+    const stackAction: LayoutTreeStackAction = {
+        type: LayoutTreeActionType.Stack,
+        nodeId: movedId,
+        targetNodeId: targetId,
+    };
+    return stackAction;
+}
+
+/**
+ * The tile that the outline of a pending drop is drawn over.
+ */
+export function placeholderTargetId(action: LayoutTreeAction): string | undefined {
+    switch (action?.type) {
+        case LayoutTreeActionType.Swap:
+            return (action as LayoutTreeSwapNodeAction).node1Id;
+        case LayoutTreeActionType.Stack:
+            return (action as LayoutTreeStackAction).targetNodeId;
+        case LayoutTreeActionType.StackMove:
+            return (action as LayoutTreeStackMoveAction).toNodeId;
+    }
+    return undefined;
 }
 
 export function computeMoveNode(layoutState: LayoutTreeState, computeInsertAction: LayoutTreeComputeMoveNodeAction) {
@@ -243,15 +292,11 @@ export function computeMoveNode(layoutState: LayoutTreeState, computeInsertActio
             }
             break;
         case DropDirection.Center:
+            // Fork rule: the middle of a tile means "stack with it", not "swap". swapNode stays in the code, unused.
             if (nodeId !== rootNode.id && nodeToMoveId !== rootNode.id) {
-                const swapAction: LayoutTreeSwapNodeAction = {
-                    type: LayoutTreeActionType.Swap,
-                    node1Id: nodeId,
-                    node2Id: nodeToMoveId,
-                };
-                return swapAction;
+                return centreDropAction(rootNode, nodeId, nodeToMoveId);
             } else {
-                console.warn("cannot swap");
+                console.warn("cannot stack with the root");
             }
             break;
         default:
@@ -682,4 +727,158 @@ export function unstackNode(layoutState: LayoutTreeState, action: LayoutTreeUnst
         setFocusedNode(layoutState, node.id);
     }
     return true;
+}
+
+/**
+ * Puts a node that is not in the tree yet straight into the stack of the target leaf, or makes a stack of the
+ * target and the new node. Nothing else moves, so a new terminal that is meant to be a tab never appears as a tile.
+ */
+export function insertNodeIntoStack(layoutState: LayoutTreeState, action: LayoutTreeStackInsertAction): boolean {
+    const root = layoutState.rootNode;
+    const { node, targetNodeId } = action;
+    if (!root || !node || node.children || !node.data) {
+        console.error("insertNodeIntoStack: the new node must be a leaf");
+        return false;
+    }
+    const target = findNode(root, targetNodeId);
+    if (!target || (target.children && !isStackNode(target)) || (!target.children && !target.data)) {
+        console.error("insertNodeIntoStack: the target must be a leaf or a stack", targetNodeId);
+        return false;
+    }
+    const wantFocus = action.focused ?? true;
+    const targetParent = findParent(root, targetNodeId);
+    const stack = isStackNode(target) ? target : targetParent && isStackNode(targetParent) ? targetParent : null;
+    if (stack) {
+        const after = stack.children.findIndex((c) => c.id === targetNodeId);
+        addStackMember(stack, after >= 0 ? after + 1 : stack.children.length, node, wantFocus);
+    } else {
+        const newStack = newStackNode([target, node], wantFocus ? node.id : target.id, target.size);
+        newStack.flexDirection = target.flexDirection;
+        if (targetParent) {
+            const idx = targetParent.children.findIndex((c) => c.id === targetNodeId);
+            targetParent.children[idx] = newStack;
+        } else {
+            layoutState.rootNode = newStack;
+        }
+    }
+    if (wantFocus) {
+        setFocusedNode(layoutState, node.id);
+    }
+    return true;
+}
+
+/**
+ * Shows a member of a stack without asking for keyboard focus. If the focused node is a member of the same stack the
+ * focus moves with the tab, because keystrokes must never go to a terminal nobody can see.
+ */
+export function activateStackMember(layoutState: LayoutTreeState, nodeId: string): boolean {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, nodeId) : undefined;
+    const stack = node ? findParent(root, nodeId) : undefined;
+    if (!node || !stack || !isStackNode(stack)) {
+        return false;
+    }
+    stack.activeChildId = nodeId;
+    if (layoutState.focusedNodeId && stack.children.some((c) => c.id === layoutState.focusedNodeId)) {
+        layoutState.focusedNodeId = nodeId;
+    }
+    return true;
+}
+
+/**
+ * Turns a plain tile into a stack of one: same place, same size. Stack mode then stays on (strip and plus) until
+ * turnStackOff, even when members are closed down to one.
+ */
+export function turnIntoStack(layoutState: LayoutTreeState, nodeId: string): boolean {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, nodeId) : undefined;
+    if (!node || node.children || !node.data) {
+        return false;
+    }
+    const parent = findParent(root, nodeId);
+    if (parent && isStackNode(parent)) {
+        return false;
+    }
+    const stack = newStackNode([node], node.id, node.size);
+    stack.flexDirection = node.flexDirection;
+    if (parent) {
+        parent.children[parent.children.indexOf(node)] = stack;
+    } else {
+        layoutState.rootNode = stack;
+    }
+    return true;
+}
+
+/**
+ * Gives the plain tile back when the stack has exactly one member. nodeId may be the stack or its member.
+ */
+export function turnStackOff(layoutState: LayoutTreeState, nodeId: string): boolean {
+    const root = layoutState.rootNode;
+    const node = root ? findNode(root, nodeId) : undefined;
+    const stack = node && isStackNode(node) ? node : node ? findParent(root, nodeId) : undefined;
+    if (!stack || !isStackNode(stack) || stack.children.length !== 1) {
+        return false;
+    }
+    const only = stack.children[0];
+    only.size = stack.size;
+    only.flexDirection = stack.flexDirection;
+    const parent = findParent(root, stack.id);
+    if (parent) {
+        parent.children[parent.children.indexOf(stack)] = only;
+    } else {
+        layoutState.rootNode = only;
+    }
+    return true;
+}
+
+/**
+ * Moves everything from one place into the stack at another: fromNodeId is a tile or any member of a stack (then the
+ * whole stack moves, in its order), toNodeId is a tile or a stack (or a member of one). All of it ends up as members
+ * of the target stack, appended at the end; the old stack is left empty and removed by the next balance.
+ */
+export function moveIntoStack(layoutState: LayoutTreeState, action: LayoutTreeStackMoveAction): boolean {
+    const root = layoutState.rootNode;
+    const from = root ? findNode(root, action.fromNodeId) : undefined;
+    const to = root ? findNode(root, action.toNodeId) : undefined;
+    if (!from || !to || from.id === root.id || to.id === from.id) {
+        return false;
+    }
+    const fromParent = findParent(root, from.id);
+    const fromStack = isStackNode(from) ? from : fromParent && isStackNode(fromParent) ? fromParent : null;
+    const members = fromStack ? [...fromStack.children] : [from];
+    if (members.some((m) => m.children || !m.data)) {
+        return false;
+    }
+    const toParent = findParent(root, to.id);
+    const toStack = isStackNode(to) ? to : toParent && isStackNode(toParent) ? toParent : null;
+    if (members.some((m) => m.id === to.id) || (toStack && fromStack && toStack.id === fromStack.id)) {
+        return false;
+    }
+    if (!toStack && (to.children || !to.data)) {
+        return false;
+    }
+    const activeMemberId = fromStack?.activeChildId ?? from.id;
+    let targetId = toStack ? toStack.id : to.id;
+    let moved = false;
+    for (const member of members) {
+        if (
+            !stackNodes(layoutState, {
+                type: LayoutTreeActionType.Stack,
+                nodeId: member.id,
+                targetNodeId: targetId,
+                focused: false,
+            })
+        ) {
+            break;
+        }
+        moved = true;
+        const nowParent = findParent(layoutState.rootNode, member.id);
+        if (nowParent && isStackNode(nowParent)) {
+            targetId = nowParent.id;
+        }
+    }
+    if (moved && (action.focused ?? false)) {
+        setFocusedNode(layoutState, activeMemberId);
+    }
+    return moved;
 }

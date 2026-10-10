@@ -166,6 +166,9 @@ func sendDiagnosticPing() bool {
 	}
 	clientId := wstore.GetClientId()
 	usageTelemetry := telemetry.IsTelemetryEnabled()
+	if !wcloud.DiagnosticPingAllowed(usageTelemetry) {
+		return true
+	}
 	wcloud.SendDiagnosticPing(ctx, clientId, usageTelemetry)
 	return true
 }

@@ -253,3 +253,94 @@ only what exists.
   live app, so whether `goto` leaves the OS foreground window alone is unverified until a window test.
 - **Upstream files touched:** one line in `cmd/server/main-server.go` (`wavesrvapi.Start()`); seam rows
   `api-*` in `tools/ours/Check-Seams.ps1`.
+
+## 15. Nothing goes to the network before the user opts in (fork rule)
+
+Found when a fresh test profile showed the first-run screen with telemetry switched on. In the fork the shipped
+defaults are `telemetry:enabled: false` and `autoupdate:enabled: false`, and the daily diagnostic ping is only sent
+when telemetry is on. The onboarding toggle follows the setting, so it starts off.
+
+| What | When | Where | Default in the fork |
+|---|---|---|---|
+| Usage events (`tevents`) | 10 s after start, then every 4 h | `<endpoint>/tevents` | off (setting) |
+| Old-style activity upload | same loop | `<endpoint>/telemetry` | off (setting) |
+| "no-telemetry" notice | when the user switches telemetry off | `<endpoint>/no-telemetry` | sent only on that change |
+| Diagnostic ping (client id, version, arch, date) | 5 min after start, then daily | ping endpoint | off unless telemetry is on |
+| Auto-update check | at start and every `autoupdate:intervalms` | update feed of the build | off; the menu item "Check for updates" still works |
+| Wave AI cloud mode | on use | Wave's AI proxy | needs telemetry on, so off |
+
+Dev builds need `WCLOUD_*` endpoint variables to start; those point at the upstream dev hosts, which is why test
+runs of a build with telemetry on reach `api-dev.waveterm.dev`. Setting `WAVETERM_NOPING` also stops the ping.
+Checks: `ours_defaults_test.go` (shipped defaults), `ours_ping_test.go`, and three `Check-Seams.ps1` rows
+(`telemetry-default-off`, `autoupdate-default-off`, `ping-gated-on-telemetry`).
+**READ, not run:** the update check and Wave AI rows come from reading `emain/updater.ts` and the AI panel code, not
+from a network capture.
+
+## 16. Stack UI, steps 1 and 2 (fork feature in progress; the purpose of the fork, see README.md)
+
+A stack is one tile with several terminals as tabs. Steps 1-2: the tile lays all members out at one rectangle below a
+28 px strip, shows only the active member (the others stay mounted and keep the same size, so a terminal is not
+resized when its tab is hidden), and draws a strip with one tab per member: click to switch, x to close the member and
+its terminal. Hidden members are not drop targets and are skipped by directional focus.
+- **RAN** (`npx vitest run frontend/layout`, `npx tsc --noEmit` at the baseline of 17 errors): the geometry, the props
+  map and the strip model, including "hidden members keep the visible size", "unknown active member falls back to the
+  first", "a rectangle shorter than the strip never gives a negative body".
+- **READ, not run:** the React strip and the wiring in `layoutModel.updateTreeHelper` and `TileLayout`: nothing in
+  a window yet, because nothing can create a stack from outside until step 3 (`wsh group`, the `stack` layout
+  action). Whether hidden terminals keep their size and process in the live app is the step 4 window check.
+
+## 17. Stack from the command line (step 3)
+
+`wsh group add --to <block>` (the block is `-b`, default the calling block) puts a block into the tab group of another
+block or makes a group of the two; `wsh group remove` takes it out and places it next to the group; `wsh group
+activate` shows its tab without taking focus. `wsh createblock|term|run|web open --stack <block>` creates a new block
+straight into a group (never as a tile first). Blocks must be in the same tab. Nothing takes keyboard focus unless
+`--focus` (group) or no `--no-focus` (create), as before. Every member keeps its own block id.
+- **RAN** (`go test ./cmd/wsh/cmd ./pkg/wshrpc/...`, `npx vitest run`, tsc at 17): the planning of each request
+  (same tab, no self-stack, no unknown action), the payload of each command, the tree functions `insertNodeIntoStack` and
+  `activateStackMember` (including "focus follows the tab when the focused member would be hidden").
+- **READ, not run:** the back end queueing the layout actions and the page applying them in `handleBackendAction`;
+  `pkg/wcore` has two failing tests (`TestListWorkspaces_*`) that fail the same way on Master without this PR.
+- **Seen in a window:** this is the first change after which a stack can be made without touching the code: run
+  `wsh group add --to` on two terminals in one tab and the tile shows a tab strip. The window check is step 4.
+
+## 18. Stack from the window: menu, one-member stacks, + (step A)
+
+Block menu (the dots / right-click on the header): "Turn into a stack" on a plain tile (it then shows a strip with one tab and a +),
+"Take out of stack" on a member of a stack with two or more members, "Turn stack off" on a stack with one member. A
+stack of one stays a stack until it is turned off or its last member is closed; the strip is never shown on a plain tile, so a
+tile that is not a stack keeps its full height. The + opens the widget bar's list (terminals first, hidden widgets
+left out) and adds the chosen block type to the stack as a new tab, so a stack can mix terminals, web and files.
+- **RAN:** vitest for turnIntoStack / turnStackOff / one-member balancing / closing members, the menu list
+  (`stackaddmenu.test.ts`), stack size for the menu. tsc stays at 17.
+- **READ, not run:** the React wiring (menu items, + button, create path), and that a web or preview block does not
+  reload or keep playing while hidden: hidden members stay mounted with `visibility: hidden`, which a web view does not
+  treat as a reload; media in a hidden tab keeps playing, which is not handled yet and is part of the window check.
+- **Seen in a window after this PR:** a tile can be turned into a stack from its menu, the + adds a block of any widget type.
+
+## 19. Drop on the middle makes a stack (step B)
+
+Dragging a tile over the middle of another tile now outlines the target and, on drop, puts the dragged tile into the
+target's stack, or makes a stack of the two; dropping on a member means its stack. The upstream swap action and its
+code are unchanged but no longer reachable from the mouse (the owner never uses swap). Edge zones still move tiles
+as before. Leaving a stack: drag the active member's header to an edge zone (the move takes it out), or "Take out of
+stack" in its menu.
+- **RAN:** vitest (centre = stack action, member target = its stack, root refused, edge zones still move).
+- **READ, not run:** the outline (the Swap placeholder case now also draws for Stack) and the drag itself.
+- **Seen in a window after this PR:** drag a tile onto the middle of another: outline, drop, a tab strip with both.
+
+## 20. Move everything into a group: wsh stack move (step C)
+
+`wsh stack move --from <block|group> --to <block|group>`: FROM is a block, or any member of a group (then the whole
+group moves, in its order); TO is a block or group; everything from FROM ends up as members of the group at TO
+(appended at the end, or a new group when TO is a plain block). Same tab only. It is queued for the page and not
+confirmed; keyboard focus moves only with `--focus`.
+- **RAN:** vitest (`moveIntoStack`: tile to tile, group to tile, group to group in order, same group is a no-op, unknown
+  nodes and the root refused, focus only when asked), Go (request planning, payloads, refusals).
+- **READ, not run:** the page applying `stackmove`. **Seen in a window after this PR:** `wsh stack move --from 2 --to 1`
+  puts block 2 (or its whole group) into the group of block 1.
+- **Not handled, for the window check:** audio or video in a web block of a hidden tab keeps playing.
+
+Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
+window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
+from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.

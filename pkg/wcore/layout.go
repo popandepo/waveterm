@@ -23,6 +23,11 @@ const (
 	LayoutActionDataType_SplitHorizontal = "splithorizontal"
 	LayoutActionDataType_SplitVertical   = "splitvertical"
 	LayoutActionDataType_CleanupOrphaned = "cleanuporphaned"
+	LayoutActionDataType_Stack           = "stack"
+	LayoutActionDataType_StackInsert     = "stackinsert"
+	LayoutActionDataType_Unstack         = "unstack"
+	LayoutActionDataType_StackMove       = "stackmove"
+	LayoutActionDataType_Activate        = "activate"
 )
 
 type PortableLayout []struct {

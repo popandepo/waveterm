@@ -25,6 +25,7 @@ var termCmd = &cobra.Command{
 }
 
 func init() {
+	addStackFlag(termCmd)
 	termCmd.Flags().BoolVarP(&termMagnified, "magnified", "m", false, "open view in magnified mode")
 	addNoFocusFlag(termCmd)
 	rootCmd.AddCommand(termCmd)
@@ -76,6 +77,9 @@ func termRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		},
 		Magnified: termMagnified,
 		Focused:   newBlockFocused(),
+	}
+	if err := applyStackTarget(&createBlockData); err != nil {
+		return err
 	}
 	oref, err := createBlockRPC(createBlockData)
 	if err != nil {

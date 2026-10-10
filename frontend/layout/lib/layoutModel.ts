@@ -13,13 +13,17 @@ import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
+    activateStackMember,
     clearTree,
     computeMoveNode,
     deleteNode,
     focusNode,
     insertNode,
     insertNodeAtIndex,
+    insertNodeIntoStack,
+    placeholderTargetId,
     magnifyNodeToggle,
+    moveIntoStack,
     moveNode,
     replaceNode,
     resizeNode,
@@ -27,8 +31,11 @@ import {
     splitVertical,
     stackNodes,
     swapNode,
+    turnIntoStack,
+    turnStackOff,
     unstackNode,
 } from "./layoutTree";
+import { applyStackLayout, canLayoutAsStack } from "./stackgeometry";
 import {
     ContentRenderer,
     FlexDirection,
@@ -36,6 +43,7 @@ import {
     LayoutNodeAdditionalProps,
     LayoutTreeAction,
     LayoutTreeActionType,
+    LayoutTreeActivateAction,
     LayoutTreeClearTreeAction,
     LayoutTreeComputeMoveNodeAction,
     LayoutTreeDeleteNodeAction,
@@ -50,6 +58,9 @@ import {
     LayoutTreeSplitHorizontalAction,
     LayoutTreeSplitVerticalAction,
     LayoutTreeStackAction,
+    LayoutTreeStackInsertAction,
+    LayoutTreeStackModeAction,
+    LayoutTreeStackMoveAction,
     LayoutTreeState,
     LayoutTreeSwapNodeAction,
     LayoutTreeUnstackAction,
@@ -58,6 +69,7 @@ import {
     NodeModel,
     PreviewRenderer,
     ResizeHandleProps,
+    StackTabLabelRenderer,
     TileLayoutContents,
 } from "./types";
 import { getCenter, navigateDirectionToOffset, setTransform } from "./utils";
@@ -118,6 +130,16 @@ export class LayoutModel {
      * Callback that is invoked to render the drag preview for a leaf node.
      */
     renderPreview?: PreviewRenderer;
+
+    /**
+     * Callback that renders the label of one member in the tab strip of a stack.
+     */
+    renderStackTabLabel?: StackTabLabelRenderer;
+
+    /**
+     * Callback for the + on the tab strip of a stack.
+     */
+    onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
     /**
      * Callback that is invoked when a node is closed.
      */
@@ -567,6 +589,98 @@ export class LayoutModel {
                 this.treeReducer(splitAction, false);
                 break;
             }
+            case LayoutTreeActionType.Stack: {
+                const node = this?.getNodeByBlockId(action.blockid);
+                const target = this?.getNodeByBlockId(action.targetblockid);
+                if (!node || !target) {
+                    console.error(
+                        "Cannot apply eventbus layout action Stack, block not found",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.Stack,
+                        nodeId: node.id,
+                        targetNodeId: target.id,
+                        focused: action.focused,
+                    } as LayoutTreeStackAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.StackMove: {
+                const from = this?.getNodeByBlockId(action.blockid);
+                const to = this?.getNodeByBlockId(action.targetblockid);
+                if (!from || !to) {
+                    console.error(
+                        "Cannot apply eventbus layout action StackMove, block not found",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.StackMove,
+                        fromNodeId: from.id,
+                        toNodeId: to.id,
+                        focused: action.focused,
+                    } as LayoutTreeStackMoveAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.StackInsert: {
+                const target = this?.getNodeByBlockId(action.targetblockid);
+                if (!target) {
+                    console.error(
+                        "Cannot apply eventbus layout action StackInsert, target not found",
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.StackInsert,
+                        node: newLayoutNode(undefined, undefined, undefined, { blockId: action.blockid }),
+                        targetNodeId: target.id,
+                        focused: action.focused,
+                    } as LayoutTreeStackInsertAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.Unstack: {
+                const node = this?.getNodeByBlockId(action.blockid);
+                if (!node) {
+                    console.error("Cannot apply eventbus layout action Unstack, block not found", action.blockid);
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.Unstack,
+                        nodeId: node.id,
+                        focused: action.focused,
+                    } as LayoutTreeUnstackAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.Activate: {
+                const node = this?.getNodeByBlockId(action.blockid);
+                if (!node) {
+                    console.error("Cannot apply eventbus layout action Activate, block not found", action.blockid);
+                    break;
+                }
+                this.treeReducer(
+                    { type: LayoutTreeActionType.Activate, nodeId: node.id } as LayoutTreeActivateAction,
+                    false
+                );
+                break;
+            }
             case "cleanuporphaned": {
                 await this.cleanupOrphanedBlocks();
                 break;
@@ -604,6 +718,8 @@ export class LayoutModel {
     registerTileLayout(contents: TileLayoutContents) {
         this.renderContent = contents.renderContent;
         this.renderPreview = contents.renderPreview;
+        this.renderStackTabLabel = contents.renderStackTabLabel;
+        this.onStackAdd = contents.onStackAdd;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {
             this.setter(this.gapSizePx, contents.gapSizePx);
@@ -697,6 +813,31 @@ export class LayoutModel {
                 ) {
                     FocusManager.getInstance().requestNodeFocus();
                 }
+                break;
+            case LayoutTreeActionType.StackInsert:
+                if (
+                    insertNodeIntoStack(this.treeState, action as LayoutTreeStackInsertAction) &&
+                    ((action as LayoutTreeStackInsertAction).focused ?? true)
+                ) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
+                break;
+            case LayoutTreeActionType.StackMove:
+                if (
+                    moveIntoStack(this.treeState, action as LayoutTreeStackMoveAction) &&
+                    ((action as LayoutTreeStackMoveAction).focused ?? false)
+                ) {
+                    FocusManager.getInstance().requestNodeFocus();
+                }
+                break;
+            case LayoutTreeActionType.TurnIntoStack:
+                turnIntoStack(this.treeState, (action as LayoutTreeStackModeAction).nodeId);
+                break;
+            case LayoutTreeActionType.TurnStackOff:
+                turnStackOff(this.treeState, (action as LayoutTreeStackModeAction).nodeId);
+                break;
+            case LayoutTreeActionType.Activate:
+                activateStackMember(this.treeState, (action as LayoutTreeActivateAction).nodeId);
                 break;
             case LayoutTreeActionType.Unstack:
                 if (
@@ -835,6 +976,21 @@ export class LayoutModel {
                 } else if (this.lastEphemeralNodeId === node.id) {
                     addlProps.transform.zIndex = "var(--zindex-layout-last-ephemeral-node)";
                 }
+            }
+            return;
+        }
+
+        if (canLayoutAsStack(node)) {
+            const stackRect: Dimensions =
+                node.id === this.treeState.rootNode.id ? boundingRect : additionalPropsMap[node.id]?.rect;
+            if (stackRect) {
+                if (node.id === this.treeState.rootNode.id) {
+                    additionalPropsMap[node.id] = {
+                        ...(additionalPropsMap[node.id] ?? { treeKey: "0" }),
+                        rect: stackRect,
+                    };
+                }
+                applyStackLayout(node, stackRect, additionalPropsMap);
             }
             return;
         }
@@ -1033,9 +1189,10 @@ export class LayoutModel {
                     }
                     break;
                 }
-                case LayoutTreeActionType.Swap: {
-                    const action = pendingAction as LayoutTreeSwapNodeAction;
-                    const targetNodeId = action.node1Id;
+                case LayoutTreeActionType.Swap:
+                case LayoutTreeActionType.Stack:
+                case LayoutTreeActionType.StackMove: {
+                    const targetNodeId = placeholderTargetId(pendingAction);
                     const targetBoundingRect = this.getNodeRectById(targetNodeId);
                     const placeholderDimensions: Dimensions = {
                         top: targetBoundingRect.top,
@@ -1094,6 +1251,20 @@ export class LayoutModel {
                     const treeState = get(this.localTreeStateAtom);
                     return treeState.magnifiedNodeId === nodeid;
                 }),
+                isHidden: atom((get) => get(addlPropsAtom)?.isHidden ?? false),
+                stackSize: atom((get) => get(addlPropsAtom)?.stackSize ?? 0),
+                turnIntoStack: () =>
+                    this.treeReducer({
+                        type: LayoutTreeActionType.TurnIntoStack,
+                        nodeId: nodeid,
+                    } as LayoutTreeStackModeAction),
+                turnStackOff: () =>
+                    this.treeReducer({
+                        type: LayoutTreeActionType.TurnStackOff,
+                        nodeId: nodeid,
+                    } as LayoutTreeStackModeAction),
+                takeOutOfStack: () =>
+                    this.treeReducer({ type: LayoutTreeActionType.Unstack, nodeId: nodeid } as LayoutTreeUnstackAction),
                 anyMagnified: atom((get) => {
                     const treeState = get(this.localTreeStateAtom);
                     return treeState.magnifiedNodeId != null;
@@ -1148,6 +1319,9 @@ export class LayoutModel {
         const leafs = this.getter(this.leafs);
         const addlProps = this.getter(this.additionalProps);
         for (const leaf of leafs) {
+            if (addlProps[leaf.id]?.isHidden) {
+                continue;
+            }
             const pos = addlProps[leaf.id]?.rect;
             if (pos) {
                 nodePositions.set(leaf.id, pos);

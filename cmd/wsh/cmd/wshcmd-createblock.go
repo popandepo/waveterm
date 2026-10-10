@@ -23,6 +23,7 @@ var createBlockCmd = &cobra.Command{
 }
 
 func init() {
+	addStackFlag(createBlockCmd)
 	createBlockCmd.Flags().BoolVarP(&createBlockMagnified, "magnified", "m", false, "create block in magnified mode")
 	addNoFocusFlag(createBlockCmd)
 	rootCmd.AddCommand(createBlockCmd)
@@ -50,6 +51,9 @@ func createBlockRun(cmd *cobra.Command, args []string) error {
 		},
 		Magnified: createBlockMagnified,
 		Focused:   newBlockFocused(),
+	}
+	if err := applyStackTarget(&data); err != nil {
+		return err
 	}
 	oref, err := createBlockRPC(data)
 	if err != nil {

@@ -26,6 +26,7 @@ const (
 	LayoutActionDataType_Stack           = "stack"
 	LayoutActionDataType_StackInsert     = "stackinsert"
 	LayoutActionDataType_Unstack         = "unstack"
+	LayoutActionDataType_StackMove       = "stackmove"
 	LayoutActionDataType_Activate        = "activate"
 )
 

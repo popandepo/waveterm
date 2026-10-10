@@ -21,9 +21,9 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
-    moveIntoStack,
     placeholderTargetId,
     magnifyNodeToggle,
+    moveIntoStack,
     moveNode,
     replaceNode,
     resizeNode,
@@ -607,6 +607,28 @@ export class LayoutModel {
                         targetNodeId: target.id,
                         focused: action.focused,
                     } as LayoutTreeStackAction,
+                    false
+                );
+                break;
+            }
+            case LayoutTreeActionType.StackMove: {
+                const from = this?.getNodeByBlockId(action.blockid);
+                const to = this?.getNodeByBlockId(action.targetblockid);
+                if (!from || !to) {
+                    console.error(
+                        "Cannot apply eventbus layout action StackMove, block not found",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(
+                    {
+                        type: LayoutTreeActionType.StackMove,
+                        fromNodeId: from.id,
+                        toNodeId: to.id,
+                        focused: action.focused,
+                    } as LayoutTreeStackMoveAction,
                     false
                 );
                 break;

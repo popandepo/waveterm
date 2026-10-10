@@ -21,6 +21,7 @@ func planStackBlock(
 	data wshrpc.CommandStackBlockData,
 	findTab func(blockId string) (string, error),
 	inStack func(tabId string, blockId string) (bool, error),
+	sameStack func(tabId string, blockA string, blockB string) (bool, error),
 ) (string, waveobj.LayoutActionData, error) {
 	var none waveobj.LayoutActionData
 	if data.BlockId == "" {
@@ -31,7 +32,7 @@ func planStackBlock(
 		return "", none, fmt.Errorf("block %s: %w", data.BlockId, err)
 	}
 	switch data.Action {
-	case wshrpc.StackBlockAction_Stack:
+	case wshrpc.StackBlockAction_Stack, wshrpc.StackBlockAction_Move:
 		if data.TargetBlockId == "" {
 			return "", none, fmt.Errorf("a target block is required to stack")
 		}
@@ -45,8 +46,19 @@ func planStackBlock(
 		if targetTab != tabId {
 			return "", none, fmt.Errorf("both blocks must be in the same tab to stack them")
 		}
+		same, err := sameStack(tabId, data.BlockId, data.TargetBlockId)
+		if err != nil {
+			return "", none, fmt.Errorf("looking up the groups: %w", err)
+		}
+		if same {
+			return "", none, fmt.Errorf("both blocks are already in the same group")
+		}
+		actionType := wcore.LayoutActionDataType_Stack
+		if data.Action == wshrpc.StackBlockAction_Move {
+			actionType = wcore.LayoutActionDataType_StackMove
+		}
 		return tabId, waveobj.LayoutActionData{
-			ActionType:    wcore.LayoutActionDataType_Stack,
+			ActionType:    actionType,
 			BlockId:       data.BlockId,
 			TargetBlockId: data.TargetBlockId,
 			Focused:       data.Focused,
@@ -90,12 +102,13 @@ func checkStackTargetInTab(tabId string, targetBlockId string, findTab func(bloc
 	return nil
 }
 
-// blockInStack reads the stored layout tree (decoded JSON) and reports whether the block is a member of a stack.
-// The page saves the tree 100 ms after a change, so this can lag a very recent change by that much.
-func blockInStack(node any, blockId string) bool {
+// stackIdOf reads the stored layout tree (decoded JSON) and returns the id of the stack the block is a member of,
+// or "" for a block that is not in a stack. The page saves the tree 100 ms after a change, so this can lag a very
+// recent change by that much.
+func stackIdOf(node any, blockId string) string {
 	m, ok := node.(map[string]any)
 	if !ok {
-		return false
+		return ""
 	}
 	children, _ := m["children"].([]any)
 	isStack := m["kind"] == "stack"
@@ -105,13 +118,18 @@ func blockInStack(node any, blockId string) bool {
 			continue
 		}
 		if data, ok := cm["data"].(map[string]any); ok && isStack && data["blockId"] == blockId {
-			return true
+			id, _ := m["id"].(string)
+			return id
 		}
-		if blockInStack(c, blockId) {
-			return true
+		if id := stackIdOf(c, blockId); id != "" {
+			return id
 		}
 	}
-	return false
+	return ""
+}
+
+func blockInStack(node any, blockId string) bool {
+	return stackIdOf(node, blockId) != ""
 }
 
 func planCreateInStack(newBlockId string, targetBlockId string, focused bool) (*waveobj.LayoutActionData, error) {
@@ -140,6 +158,17 @@ func (ws *WshServer) StackBlockCommand(ctx context.Context, data wshrpc.CommandS
 			return false, err
 		}
 		return blockInStack(layoutObj.RootNode, blockId), nil
+	}, func(tabId string, blockA string, blockB string) (bool, error) {
+		layoutId, err := wcore.GetLayoutIdForTab(ctx, tabId)
+		if err != nil {
+			return false, err
+		}
+		layoutObj, err := wstore.DBGet[*waveobj.LayoutState](ctx, layoutId)
+		if err != nil {
+			return false, err
+		}
+		a := stackIdOf(layoutObj.RootNode, blockA)
+		return a != "" && a == stackIdOf(layoutObj.RootNode, blockB), nil
 	})
 	if err != nil {
 		return err

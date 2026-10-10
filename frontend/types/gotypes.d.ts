@@ -315,6 +315,13 @@ declare global {
         blockdef: BlockDef;
     };
 
+    // wshrpc.CommandCreateTabData
+    type CommandCreateTabData = {
+        workspaceid: string;
+        name?: string;
+        empty?: boolean;
+    };
+
     // wshrpc.CommandDebugTermData
     type CommandDebugTermData = {
         blockid: string;
@@ -369,6 +376,12 @@ declare global {
     type CommandElectronEncryptRtnData = {
         ciphertext: string;
         storagebackend: string;
+    };
+
+    // wshrpc.CommandElectronTabData
+    type CommandElectronTabData = {
+        workspaceid: string;
+        tabid: string;
     };
 
     // wshrpc.CommandEventReadHistoryData

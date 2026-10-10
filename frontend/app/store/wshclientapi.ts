@@ -192,6 +192,12 @@ export class RpcApiType {
         return client.wshRpcCall("createsubblock", data, opts);
     }
 
+    // command "createtab" [call]
+    CreateTabCommand(client: WshClient, data: CommandCreateTabData, opts?: RpcOpts): Promise<string> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createtab", data, opts);
+        return client.wshRpcCall("createtab", data, opts);
+    }
+
     // command "debugterm" [call]
     DebugTermCommand(client: WshClient, data: CommandDebugTermData, opts?: RpcOpts): Promise<CommandDebugTermRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "debugterm", data, opts);
@@ -240,6 +246,12 @@ export class RpcApiType {
         return client.wshRpcCall("disposesuggestions", data, opts);
     }
 
+    // command "electronclosetab" [call]
+    ElectronCloseTabCommand(client: WshClient, data: CommandElectronTabData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electronclosetab", data, opts);
+        return client.wshRpcCall("electronclosetab", data, opts);
+    }
+
     // command "electrondecrypt" [call]
     ElectronDecryptCommand(client: WshClient, data: CommandElectronDecryptData, opts?: RpcOpts): Promise<CommandElectronDecryptRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electrondecrypt", data, opts);
@@ -250,6 +262,18 @@ export class RpcApiType {
     ElectronEncryptCommand(client: WshClient, data: CommandElectronEncryptData, opts?: RpcOpts): Promise<CommandElectronEncryptRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electronencrypt", data, opts);
         return client.wshRpcCall("electronencrypt", data, opts);
+    }
+
+    // command "electronpreloadtab" [call]
+    ElectronPreloadTabCommand(client: WshClient, data: CommandElectronTabData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electronpreloadtab", data, opts);
+        return client.wshRpcCall("electronpreloadtab", data, opts);
+    }
+
+    // command "electronsetactivetab" [call]
+    ElectronSetActiveTabCommand(client: WshClient, data: CommandElectronTabData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electronsetactivetab", data, opts);
+        return client.wshRpcCall("electronsetactivetab", data, opts);
     }
 
     // command "electronsystembell" [call]

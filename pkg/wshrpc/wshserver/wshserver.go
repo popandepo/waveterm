@@ -165,6 +165,21 @@ func (ws *WshServer) UpdateTabNameCommand(ctx context.Context, tabId string, new
 	return nil
 }
 
+// CreateTabCommand creates a tab in the backend only. It does not activate it and it does not load a view for it;
+// the electron-route commands do that when asked, so creating a tab never changes what the user is looking at.
+func (ws *WshServer) CreateTabCommand(ctx context.Context, data wshrpc.CommandCreateTabData) (string, error) {
+	if data.WorkspaceId == "" {
+		return "", fmt.Errorf("workspaceid is required")
+	}
+	ctx = waveobj.ContextWithUpdates(ctx)
+	tabId, err := wcore.CreateTab(ctx, data.WorkspaceId, data.Name, false, data.Empty)
+	if err != nil {
+		return "", fmt.Errorf("error creating tab: %w", err)
+	}
+	wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx))
+	return tabId, nil
+}
+
 func (ws *WshServer) UpdateWorkspaceTabIdsCommand(ctx context.Context, workspaceId string, tabIds []string) error {
 	oref := waveobj.ORef{OType: waveobj.OType_Workspace, OID: workspaceId}
 	err := wcore.UpdateWorkspaceTabIds(ctx, workspaceId, tabIds)

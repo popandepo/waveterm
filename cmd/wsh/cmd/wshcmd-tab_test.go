@@ -4,7 +4,9 @@
 package cmd
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +99,31 @@ func TestReorderTabIds(t *testing.T) {
 				t.Errorf("length changed: got %d, want %d", len(result), len(tt.tabIds))
 			}
 		})
+	}
+}
+
+func TestTabCloseRefusesATabWithBlocksUnlessForced(t *testing.T) {
+	err := checkTabCloseAllowed(3, nil, false)
+	if err == nil || !strings.Contains(err.Error(), "3 blocks") || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("a tab with 3 blocks must be refused and say how many and how to force: %v", err)
+	}
+	if err := checkTabCloseAllowed(1, nil, false); err == nil || !strings.Contains(err.Error(), "1 block") || strings.Contains(err.Error(), "1 blocks") {
+		t.Fatalf("singular: %v", err)
+	}
+	if err := checkTabCloseAllowed(3, nil, true); err != nil {
+		t.Fatalf("--force closes: %v", err)
+	}
+	if err := checkTabCloseAllowed(0, nil, false); err != nil {
+		t.Fatalf("an empty tab closes without --force: %v", err)
+	}
+}
+
+func TestTabCloseWhenTheCountCannotBeReadIsRefusedUnlessForced(t *testing.T) {
+	cannot := fmt.Errorf("rpc down")
+	if err := checkTabCloseAllowed(0, cannot, false); err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("an unreadable tab must not be closed silently: %v", err)
+	}
+	if err := checkTabCloseAllowed(0, cannot, true); err != nil {
+		t.Fatalf("--force skips the check: %v", err)
 	}
 }

@@ -316,3 +316,14 @@ empty tab asks only when the setting does. If the block count cannot be read the
 - **READ, not run:** the dialog in the main process (`close-tab` handler) in a window. `wsh tab close` and
   `wsh session close` are not questions: they are commands with their own rules.
 - **Not done:** reopening a closed tab (about 2 working days).
+
+Review notes on section 22. **Which routes ask, which refuse, which do nothing:**
+- Tab bar x, vertical tab bar, the close key: all go through the one `close-tab` handler: they ask (asynchronous dialog, the rest
+  of the app keeps running). Only the explicit "Close Tab" answer closes; Escape, a dismissed dialog or any other result keeps the
+  tab. A second close request for the same tab while its dialog is open is ignored. The count is the tab's block list, which
+  includes the members of a stack, hidden ones too. Tested through the handler (`closetabhandler.test.ts`).
+- `wsh tab close <tab>`: **refuses** when the tab holds blocks (the error says how many) unless `--force`; no dialog, because the
+  callers are scripts and agents. The check is in the wsh command: a direct RPC call of `electronclosetab` is not checked.
+- `wsh session close`: has its own rule (a tab whose program is still running needs `--force`).
+- Closing a whole window, deleting a workspace and quitting the app are separate flows with their own settings
+  (`window:confirmclose`); they are NOT covered here.

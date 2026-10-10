@@ -20,7 +20,7 @@ import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
 import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
-import { closeTabPrompt } from "./closetabprompt";
+import { makeCloseTabHandler } from "./closetabhandler";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
@@ -824,35 +824,34 @@ ipcMain.on("set-waveai-open", (event, isOpen: boolean) => {
     }
 });
 
+const closeTabHandler = makeCloseTabHandler<WaveBrowserWindow>({
+    getBlockCount: async (tabId) => {
+        const tab = await RpcApi.GetTabCommand(ElectronWshClient, tabId, { timeout: 3000 });
+        return tab?.blockids?.length ?? null;
+    },
+    showDialog: async (message, ww) => {
+        const result = await dialog.showMessageBox(ww, {
+            type: "question",
+            defaultId: 1, // Enter activates "Close Tab"
+            cancelId: 0, // Esc activates "Cancel"
+            buttons: ["Cancel", "Close Tab"],
+            title: "Confirm",
+            message,
+        });
+        return result.response;
+    },
+    closeTab: async (tabId, ww) => {
+        await ww.queueCloseTab(tabId);
+    },
+});
+
 ipcMain.handle("close-tab", async (event, workspaceId: string, tabId: string, confirmClose: boolean) => {
     const ww = getWaveWindowByWorkspaceId(workspaceId);
     if (ww == null) {
         console.log(`close-tab: no window found for workspace ws=${workspaceId} tab=${tabId}`);
         return false;
     }
-    let blockCount: number | null = null;
-    try {
-        const tab = await RpcApi.GetTabCommand(ElectronWshClient, tabId, { timeout: 3000 });
-        blockCount = tab?.blockids?.length ?? null;
-    } catch (e) {
-        console.log("close-tab: could not read the tab, asking anyway", e);
-    }
-    const prompt = closeTabPrompt(confirmClose, blockCount);
-    if (prompt.ask) {
-        const choice = dialog.showMessageBoxSync(ww, {
-            type: "question",
-            defaultId: 1, // Enter activates "Close Tab"
-            cancelId: 0, // Esc activates "Cancel"
-            buttons: ["Cancel", "Close Tab"],
-            title: "Confirm",
-            message: prompt.message,
-        });
-        if (choice === 0) {
-            return false;
-        }
-    }
-    await ww.queueCloseTab(tabId);
-    return true;
+    return await closeTabHandler(tabId, confirmClose, ww);
 });
 
 ipcMain.on("switch-workspace", (event, workspaceId) => {

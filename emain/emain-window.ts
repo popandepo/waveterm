@@ -20,6 +20,7 @@ import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
 import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
+import { closeTabPrompt } from "./closetabprompt";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
@@ -829,14 +830,22 @@ ipcMain.handle("close-tab", async (event, workspaceId: string, tabId: string, co
         console.log(`close-tab: no window found for workspace ws=${workspaceId} tab=${tabId}`);
         return false;
     }
-    if (confirmClose) {
+    let blockCount: number | null = null;
+    try {
+        const tab = await RpcApi.GetTabCommand(ElectronWshClient, tabId, { timeout: 3000 });
+        blockCount = tab?.blockids?.length ?? null;
+    } catch (e) {
+        console.log("close-tab: could not read the tab, asking anyway", e);
+    }
+    const prompt = closeTabPrompt(confirmClose, blockCount);
+    if (prompt.ask) {
         const choice = dialog.showMessageBoxSync(ww, {
             type: "question",
             defaultId: 1, // Enter activates "Close Tab"
             cancelId: 0, // Esc activates "Cancel"
             buttons: ["Cancel", "Close Tab"],
             title: "Confirm",
-            message: "Are you sure you want to close this tab?",
+            message: prompt.message,
         });
         if (choice === 0) {
             return false;

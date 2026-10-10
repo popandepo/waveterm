@@ -305,3 +305,14 @@ confirmed; keyboard focus moves only with `--focus`.
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
+
+## 22. Closing a tab asks first when it holds blocks
+
+Closing a tab (tab bar x, the close key, the vertical tab bar) deletes it and stops every program in it; upstream has no
+reopen and, with the default setting, no question. In this fork a tab that holds blocks always asks first ("This tab holds
+N blocks. Closing it stops the programs running in them, and it cannot be undone."), whatever `tab:confirmclose` says; an
+empty tab asks only when the setting does. If the block count cannot be read the question is asked anyway.
+- **RAN:** vitest for the rule (`closeTabPrompt`: blocks always ask, singular, empty tab, unknown count). tsc stays at 17.
+- **READ, not run:** the dialog in the main process (`close-tab` handler) in a window. `wsh tab close` and
+  `wsh session close` are not questions: they are commands with their own rules.
+- **Not done:** reopening a closed tab (about 2 working days).

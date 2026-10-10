@@ -21,6 +21,8 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
+    moveIntoStack,
+    placeholderTargetId,
     magnifyNodeToggle,
     moveIntoStack,
     moveNode,
@@ -1189,11 +1191,9 @@ export class LayoutModel {
                     break;
                 }
                 case LayoutTreeActionType.Swap:
-                case LayoutTreeActionType.Stack: {
-                    const targetNodeId =
-                        pendingAction.type === LayoutTreeActionType.Stack
-                            ? (pendingAction as LayoutTreeStackAction).targetNodeId
-                            : (pendingAction as LayoutTreeSwapNodeAction).node1Id;
+                case LayoutTreeActionType.Stack:
+                case LayoutTreeActionType.StackMove: {
+                    const targetNodeId = placeholderTargetId(pendingAction);
                     const targetBoundingRect = this.getNodeRectById(targetNodeId);
                     const placeholderDimensions: Dimensions = {
                         top: targetBoundingRect.top,

@@ -16,6 +16,7 @@ import {
     DropDirection,
     FlexDirection,
     LayoutNode,
+    LayoutTreeAction,
     LayoutTreeActionType,
     LayoutTreeComputeMoveNodeAction,
     LayoutTreeDeleteNodeAction,
@@ -81,6 +82,52 @@ function activateNeighbourAfterRemoval(stack: LayoutNode, removedId: string, rem
         return;
     }
     stack.activeChildId = stack.children[Math.min(removedIndex, stack.children.length - 1)].id;
+}
+
+/**
+ * What a drop on the middle of a tile does, or nothing. Nothing when the tile is dropped on itself or on its own
+ * stack (no action means no outline). A whole stack that is dropped merges all its members into the target in order;
+ * one member (or a plain tile) is stacked with the target.
+ */
+function centreDropAction(rootNode: LayoutNode, targetId: string, movedId: string): LayoutTreeAction | undefined {
+    const moved = findNode(rootNode, movedId);
+    if (!moved || targetId === movedId) {
+        return undefined;
+    }
+    const movedParent = findParent(rootNode, movedId);
+    const movedStack = isStackNode(moved) ? moved : movedParent && isStackNode(movedParent) ? movedParent : null;
+    if (movedStack && (targetId === movedStack.id || movedStack.children?.some((c) => c.id === targetId))) {
+        return undefined;
+    }
+    if (isStackNode(moved)) {
+        const mergeAction: LayoutTreeStackMoveAction = {
+            type: LayoutTreeActionType.StackMove,
+            fromNodeId: movedId,
+            toNodeId: targetId,
+        };
+        return mergeAction;
+    }
+    const stackAction: LayoutTreeStackAction = {
+        type: LayoutTreeActionType.Stack,
+        nodeId: movedId,
+        targetNodeId: targetId,
+    };
+    return stackAction;
+}
+
+/**
+ * The tile that the outline of a pending drop is drawn over.
+ */
+export function placeholderTargetId(action: LayoutTreeAction): string | undefined {
+    switch (action?.type) {
+        case LayoutTreeActionType.Swap:
+            return (action as LayoutTreeSwapNodeAction).node1Id;
+        case LayoutTreeActionType.Stack:
+            return (action as LayoutTreeStackAction).targetNodeId;
+        case LayoutTreeActionType.StackMove:
+            return (action as LayoutTreeStackMoveAction).toNodeId;
+    }
+    return undefined;
 }
 
 export function computeMoveNode(layoutState: LayoutTreeState, computeInsertAction: LayoutTreeComputeMoveNodeAction) {
@@ -247,12 +294,7 @@ export function computeMoveNode(layoutState: LayoutTreeState, computeInsertActio
         case DropDirection.Center:
             // Fork rule: the middle of a tile means "stack with it", not "swap". swapNode stays in the code, unused.
             if (nodeId !== rootNode.id && nodeToMoveId !== rootNode.id) {
-                const stackAction: LayoutTreeStackAction = {
-                    type: LayoutTreeActionType.Stack,
-                    nodeId: nodeToMoveId,
-                    targetNodeId: nodeId,
-                };
-                return stackAction;
+                return centreDropAction(rootNode, nodeId, nodeToMoveId);
             } else {
                 console.warn("cannot stack with the root");
             }
@@ -810,6 +852,9 @@ export function moveIntoStack(layoutState: LayoutTreeState, action: LayoutTreeSt
     const toParent = findParent(root, to.id);
     const toStack = isStackNode(to) ? to : toParent && isStackNode(toParent) ? toParent : null;
     if (members.some((m) => m.id === to.id) || (toStack && fromStack && toStack.id === fromStack.id)) {
+        return false;
+    }
+    if (!toStack && (to.children || !to.data)) {
         return false;
     }
     const activeMemberId = fromStack?.activeChildId ?? from.id;

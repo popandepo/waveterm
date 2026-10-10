@@ -390,6 +390,7 @@ type ConnKeywords struct {
 
 	DisplayHidden *bool   `json:"display:hidden,omitempty"`
 	DisplayOrder  float32 `json:"display:order,omitempty"`
+	DisplayAccent string  `json:"display:accent,omitempty"`
 
 	TermClear      bool    `json:"term:*,omitempty"`
 	TermFontSize   float64 `json:"term:fontsize,omitempty"`

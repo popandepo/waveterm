@@ -62,6 +62,14 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | rectangle maths | `frontend/layout/lib/layoutModel.ts` | `updateTreeHelper` | stack members share one rectangle |
 | silent rewriters | `frontend/layout/lib/layoutNode.ts` | `balanceNode`, `addChildAt` | rewrite the tree on every update; need guards |
 
+## Accent colour
+
+| Seam | File | Symbol | We use it for |
+|---|---|---|---|
+| default accent | `frontend/app/theme.scss`, `frontend/tailwindsetup.css` | `--accent-color`, `--color-accent` | the variables our accent colour overrides at run time |
+| connection config | `frontend/app/store/global.ts`, `pkg/wconfig/settingsconfig.go` | `getConnConfigKeyAtom`, `ConnKeywords` | `display:accent` per connection |
+| workspace | `frontend/app/store/global-atoms.ts` | `workspaceAtom` | workspace accent and colour as the fallback |
+
 ## Build and dev tooling (update script)
 
 | Seam | File | Symbol | Used by |

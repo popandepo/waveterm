@@ -24,6 +24,9 @@
         "display:order": {
           "type": "number"
         },
+        "display:accent": {
+          "type": "string"
+        },
         "term:*": {
           "type": "boolean"
         },

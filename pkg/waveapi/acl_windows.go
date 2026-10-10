@@ -17,9 +17,18 @@ func runIcacls(path string, grant string) error {
 	if err != nil {
 		return fmt.Errorf("finding current user: %w", err)
 	}
-	out, err := exec.Command("icacls", path, "/inheritance:r", "/grant:r", cur.Username+":"+grant).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("icacls %s: %v: %s", path, err, out)
+	// /reset drops explicit entries that an earlier owner of the folder may have added (/grant:r only
+	// replaces entries of the named user), /inheritance:r drops what the parent passes down.
+	steps := [][]string{
+		{path, "/reset"},
+		{path, "/inheritance:r"},
+		{path, "/grant:r", cur.Username + ":" + grant},
+	}
+	for _, args := range steps {
+		out, err := exec.Command("icacls", args...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("icacls %v: %v: %s", args, err, out)
+		}
 	}
 	return nil
 }

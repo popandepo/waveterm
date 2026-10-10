@@ -71,7 +71,8 @@ func metaString(meta map[string]any, key string) string {
 }
 
 // Only these keys leave the process: block meta also holds command lines, environments and working
-// directories. A url keeps scheme, host and path only, since query strings often carry tokens.
+// directories. A url is cut down to scheme and host (and port): paths and queries can hold reset links
+// and tokens, and a url without a host (about:blank, file:) is left out.
 func BlockFromMeta(blockId string, meta map[string]any) Block {
 	rtn := Block{
 		BlockId:    blockId,
@@ -81,18 +82,11 @@ func BlockFromMeta(blockId string, meta map[string]any) Block {
 		Connection: metaString(meta, "connection"),
 		Title:      metaString(meta, "frame:title"),
 	}
-	rawUrl := metaString(meta, "url")
-	if rawUrl == "" {
+	u, err := url.Parse(metaString(meta, "url"))
+	if err != nil || u.Scheme == "" || u.Host == "" {
 		return rtn
 	}
-	u, err := url.Parse(rawUrl)
-	if err != nil {
-		return rtn
-	}
-	u.RawQuery = ""
-	u.Fragment = ""
-	u.User = nil
-	rtn.Url = u.String()
+	rtn.Url = u.Scheme + "://" + u.Host
 	return rtn
 }
 

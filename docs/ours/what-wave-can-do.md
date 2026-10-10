@@ -224,12 +224,12 @@ only what exists.
 - **Transport.** A unix socket `wave-api.sock` in the folder `api` of the Wave data directory. No TCP listener, so
   nothing on the LAN. wavesrv writes a new random token (32 bytes, hex) to `api/api-token` at every start; every
   call needs `Authorization: Bearer <token>`. Token compare is constant time.
-- **Folder access.** On Windows the folder gets an explicit ACL (inheritance removed, current user only) before the
+- **Folder access.** On Windows the folder gets an explicit ACL (reset, inheritance removed, current user only; earlier explicit entries are dropped) before the
   token is written; the token file is written to a temp name and renamed. A test lists the ACL with `icacls`
   and is red if Everyone, Users or Authenticated Users appear. Not covered: another process of the SAME user can
   read the token; that is the model.
-- **Calls** (all POST, JSON, `/v1/...`): `list` (workspaces > tabs > blocks, ids, names, view, slot, controller,
-  connection, title, url without query), `focus` (a block in the active tab, or make a tab active; never changes
+- **Calls** (POST only, one JSON value, body limit 1 MiB on every endpoint, `/v1/...`): `list` (workspaces > tabs > blocks, ids, names, view, slot, controller,
+  connection, title, url cut to scheme and host), `focus` (a block in the active tab, or make a tab active; never changes
   workspace or window), `goto` (workspace + tab [+ block]; the whole address is checked before the first change;
   the OS window is raised only with `window=true`). Ids must be lowercase full uuids. Block meta is allow-listed:
   no command lines, environments or working directories leave the process.

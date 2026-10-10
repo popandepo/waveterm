@@ -273,3 +273,86 @@ func TestNewTokenAtEveryStart(t *testing.T) {
 		t.Fatalf("the old token must be refused, got %v", err)
 	}
 }
+
+// Codex finding 1: a pre-existing folder with explicit broad access must end up user-only
+func TestAclReplacesPreExistingBroadEntries(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows only")
+	}
+	dir := filepath.Join(t.TempDir(), "api")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, who := range []string{"Everyone", "*S-1-5-32-545", "*S-1-5-11"} {
+		out, err := exec.Command("icacls", dir, "/grant", who+":(OI)(CI)R").CombinedOutput()
+		if err != nil {
+			t.Fatalf("setting up %s: %v: %s", who, err, out)
+		}
+	}
+	if err := PrepareApiDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTokenFile(dir, testToken); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := user.Current()
+	for _, p := range []string{dir, filepath.Join(dir, TokenFileName)} {
+		out, _ := exec.Command("icacls", p).CombinedOutput()
+		text := string(out)
+		for _, bad := range []string{"Everyone", `BUILTIN\Users`, "Authenticated Users"} {
+			if strings.Contains(text, bad) {
+				t.Fatalf("%s still grants %s:\n%s", p, bad, text)
+			}
+		}
+		if !strings.Contains(strings.ToLower(text), strings.ToLower(cur.Username)) {
+			t.Fatalf("%s lost the current user:\n%s", p, text)
+		}
+	}
+}
+
+// Codex finding 2: the whole body must be one JSON value inside the limit, on every endpoint
+func TestBodyMustEndAtTheFirstValue(t *testing.T) {
+	h, fb := newTestHandler()
+	good := `{"workspaceid":"` + ws1 + `","tabid":"` + tabB + `"}`
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"valid then more than the limit", good + strings.Repeat(" ", 2<<20), http.StatusRequestEntityTooLarge},
+		{"valid then a second value", good + `{}`, http.StatusBadRequest},
+		{"valid then junk", good + ` x`, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		rec := doCall(t, h, "POST", "/v1/goto", testToken, c.body)
+		if rec.Code != c.want {
+			t.Fatalf("%s: want %d, got %d", c.name, c.want, rec.Code)
+		}
+	}
+	if len(fb.calls) != 0 {
+		t.Fatalf("a refused body still changed state: %v", fb.calls)
+	}
+	rec := doCall(t, h, "POST", "/v1/list", testToken, strings.Repeat("a", 2<<20))
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("list must limit its body too, got %d", rec.Code)
+	}
+}
+
+// Codex finding 3: POST only
+func TestOnlyPostIsAccepted(t *testing.T) {
+	h, fb := newTestHandler()
+	for _, m := range []string{"GET", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"} {
+		for _, path := range []string{"/v1/list", "/v1/focus", "/v1/goto"} {
+			rec := doCall(t, h, m, path, testToken, "")
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s: want 405, got %d", m, path, rec.Code)
+			}
+			if rec.Header().Get("Allow") != "POST" {
+				t.Fatalf("%s %s: missing Allow header", m, path)
+			}
+		}
+	}
+	if len(fb.calls) != 0 {
+		t.Fatalf("calls made: %v", fb.calls)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -70,24 +71,40 @@ func writeError(w http.ResponseWriter, err error) {
 	writeJson(w, status, errorResponse{Error: err.Error()})
 }
 
-func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
-	err := json.NewDecoder(r.Body).Decode(v)
+func readLimitedBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
 	if err == nil {
-		return true
+		return data, true
 	}
 	var tooBig *http.MaxBytesError
 	if errors.As(err, &tooBig) {
 		writeJson(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "body too large"})
+		return nil, false
+	}
+	writeJson(w, http.StatusBadRequest, errorResponse{Error: "could not read body"})
+	return nil, false
+}
+
+// The whole body is read inside the limit and must be exactly one JSON value; Unmarshal refuses
+// anything after it, so a request cannot change state and then carry unread bytes.
+func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	data, ok := readLimitedBody(w, r)
+	if !ok {
 		return false
 	}
-	writeJson(w, http.StatusBadRequest, errorResponse{Error: "body is not valid json"})
-	return false
+	if err := json.Unmarshal(data, v); err != nil {
+		writeJson(w, http.StatusBadRequest, errorResponse{Error: "body is not exactly one json value"})
+		return false
+	}
+	return true
 }
 
 func MakeHandler(token string, svc *Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/list", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := readLimitedBody(w, r); !ok {
+			return
+		}
 		tree, err := svc.List(r.Context())
 		if err != nil {
 			writeError(w, err)
@@ -121,6 +138,11 @@ func MakeHandler(token string, svc *Service) http.Handler {
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, BearerPrefix) || !tokenMatches(token, strings.TrimPrefix(auth, BearerPrefix)) {
 			writeJson(w, http.StatusUnauthorized, errorResponse{Error: "unauthorized"})
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeJson(w, http.StatusMethodNotAllowed, errorResponse{Error: "use POST"})
 			return
 		}
 		mux.ServeHTTP(w, r)

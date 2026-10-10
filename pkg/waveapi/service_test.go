@@ -87,18 +87,18 @@ func TestBlockFromMetaAllowList(t *testing.T) {
 		"frame:title": "my title",
 		"cmd:env":     map[string]any{"SECRET": "x"},
 		"cmd":         "pwsh -secret",
-		"url":         "https://example.com/a/b?token=abc#frag",
+		"url":         "https://example.com/reset/SECRETPATH?token=abc#frag",
 		"cmd:cwd":     "C:/private",
 	}
 	b := BlockFromMeta(blk1, meta)
 	if b.View != "term" || b.Slot != "left" || b.Controller != "shell" || b.Connection != "livedb" || b.Title != "my title" {
 		t.Fatalf("allowed keys missing: %+v", b)
 	}
-	if b.Url != "https://example.com/a/b" {
-		t.Fatalf("url must lose query and fragment: %q", b.Url)
+	if b.Url != "https://example.com" {
+		t.Fatalf("url must keep scheme and host only: %q", b.Url)
 	}
 	raw := strings.ToLower(strings.Join([]string{b.View, b.Slot, b.Controller, b.Connection, b.Title, b.Url}, "|"))
-	for _, bad := range []string{"secret", "private", "token", "frag"} {
+	for _, bad := range []string{"secret", "private", "token", "frag", "reset"} {
 		if strings.Contains(raw, bad) {
 			t.Fatalf("leaked %q in %+v", bad, b)
 		}
@@ -261,5 +261,22 @@ func TestGotoNeedsWorkspaceAndTab(t *testing.T) {
 	}
 	if err := svc.Goto(context.Background(), Address{WorkspaceId: ws1}, false); !errors.Is(err, ErrBadId) {
 		t.Fatalf("missing tab: %v", err)
+	}
+}
+
+// Codex finding 4: no path at all, and nothing for urls without a host
+func TestBlockUrlKeepsOnlySchemeAndHost(t *testing.T) {
+	cases := map[string]string{
+		"https://user:pw@example.com:8443/reset/abc": "https://example.com:8443",
+		"http://127.0.0.1:18766/":                    "http://127.0.0.1:18766",
+		"about:blank":                                "",
+		"file:///C:/private/secret.txt":              "",
+		"not a url %%":                               "",
+	}
+	for in, want := range cases {
+		got := BlockFromMeta(blk1, map[string]any{"url": in}).Url
+		if got != want {
+			t.Fatalf("%q: want %q, got %q", in, want, got)
+		}
 	}
 }

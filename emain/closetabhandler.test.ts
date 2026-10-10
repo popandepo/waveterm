@@ -1,8 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { makeCloseTabHandler } from "./closetabhandler";
+import { wshCloseRefusal } from "./closetabprompt";
 
 function setup(opts: { blockCount?: number | null; dialogResponse?: number | "pending"; confirmSetting?: boolean }) {
     const closed: string[] = [];
@@ -73,5 +76,119 @@ describe("the close-tab handler", () => {
         expect(await t.handler("tab1", false)).toBe(false);
         expect(await t.handler("tab1", false)).toBe(false);
         expect(t.dialogs.length).toBe(2);
+    });
+});
+
+describe("races around the close request (review of PR 21)", () => {
+    function deferredSetup(counts: (number | null)[], answers: number[]) {
+        const closed: string[] = [];
+        const dialogs: string[] = [];
+        const reads: Array<(n: number | null) => void> = [];
+        let readIndex = 0;
+        const handler = makeCloseTabHandler<void>({
+            getBlockCount: () => {
+                const i = readIndex++;
+                if (counts[i] === undefined) {
+                    return new Promise<number | null>((resolve) => reads.push(resolve));
+                }
+                return Promise.resolve(counts[i] as number | null);
+            },
+            showDialog: (message) => {
+                dialogs.push(message);
+                return Promise.resolve(answers.shift() ?? 0);
+            },
+            closeTab: async (tabId) => {
+                closed.push(tabId);
+            },
+        });
+        return { handler, closed, dialogs, reads };
+    }
+
+    test("two requests whose count reads overlap open ONE dialog: the guard is set before the first await", async () => {
+        const t = deferredSetup([undefined as unknown as number, 2], [1]);
+        const first = t.handler("tab1", false);
+        const second = await t.handler("tab1", false);
+        expect(second).toBe(false);
+        expect(t.reads.length).toBe(1);
+        t.reads[0](2);
+        await Promise.resolve();
+        const closed = await first;
+        expect(t.dialogs.length).toBe(1);
+        expect(closed).toBe(true);
+        expect(t.closed).toEqual(["tab1"]);
+    });
+
+    test("an empty tab that gains a block after its count was read does not close without asking", async () => {
+        const t = deferredSetup([0, 2], [0]);
+        expect(await t.handler("tab1", false)).toBe(false);
+        expect(t.dialogs.length).toBe(1);
+        expect(t.dialogs[0]).toContain("2 blocks");
+        expect(t.closed).toEqual([]);
+    });
+
+    test("a tab that grows after the user confirmed asks again", async () => {
+        const t = deferredSetup([3, 5], [1, 0]);
+        expect(await t.handler("tab1", false)).toBe(false);
+        expect(t.dialogs.length).toBe(2);
+        expect(t.dialogs[1]).toContain("5 blocks");
+        expect(t.closed).toEqual([]);
+    });
+
+    test("a confirmed tab whose count stays or shrinks closes with one dialog", async () => {
+        const t = deferredSetup([3, 3], [1]);
+        expect(await t.handler("tab1", false)).toBe(true);
+        expect(t.dialogs.length).toBe(1);
+        const shrink = deferredSetup([3, 2], [1]);
+        expect(await shrink.handler("tab1", false)).toBe(true);
+        expect(shrink.dialogs.length).toBe(1);
+    });
+
+    test("an empty tab that stays empty closes without a dialog", async () => {
+        const t = deferredSetup([0, 0], []);
+        expect(await t.handler("tab1", false)).toBe(true);
+        expect(t.dialogs).toEqual([]);
+    });
+
+    test("a tab that keeps changing is not closed", async () => {
+        const t = deferredSetup([1, 2, 3, 4, 5, 6], [1, 1, 1, 1, 1]);
+        expect(await t.handler("tab1", false)).toBe(false);
+        expect(t.closed).toEqual([]);
+    });
+});
+
+describe("the wsh route is checked in the main process", () => {
+    test("a populated tab is refused without force, with the count, and closes with force", () => {
+        expect(wshCloseRefusal(3, false)).toContain("3 blocks");
+        expect(wshCloseRefusal(1, false)).toContain("1 block");
+        expect(wshCloseRefusal(3, true)).toBeNull();
+        expect(wshCloseRefusal(0, false)).toBeNull();
+        expect(wshCloseRefusal(null, false)).not.toBeNull();
+        expect(wshCloseRefusal(null, true)).toBeNull();
+    });
+});
+
+describe("route level: every UI way to close a tab goes through the one handler", () => {
+    const read = (p: string) => readFileSync(path.join(__dirname, "..", p), "utf8");
+    test("the IPC route calls the handler and nothing else closes tabs from the UI", () => {
+        const win = read("emain/emain-window.ts");
+        expect(win).toContain('ipcMain.handle("close-tab"');
+        expect(win).toContain("closeTabHandler(tabId, confirmClose, ww)");
+        const preload = read("emain/preload.ts");
+        expect(preload).toContain('ipcRenderer.invoke("close-tab"');
+        const calls = ["emain/emain-window.ts", "emain/emain-wsh.ts", "emain/emain-ipc.ts", "emain/emain-menu.ts"]
+            .map((f) => ({ f, n: (read(f).match(/queueCloseTab\(/g) ?? []).length }))
+            .filter((x) => x.n > 0);
+        expect(calls.map((c) => c.f).sort()).toEqual(["emain/emain-window.ts", "emain/emain-wsh.ts"]);
+    });
+    test("the front end closes tabs only through the electron close-tab route", () => {
+        for (const f of [
+            "frontend/app/tab/tabbar.tsx",
+            "frontend/app/tab/vtabbar.tsx",
+            "frontend/app/store/keymodel.ts",
+        ]) {
+            const src = read(f);
+            expect(src).not.toMatch(/WorkspaceService\.CloseTab\(/);
+            expect(src).toMatch(/closeTab\(/);
+        }
     });
 });

@@ -19,3 +19,19 @@ export function closeTabPrompt(confirmSetting: boolean, blockCount: number | nul
         message: `This tab holds ${what}. Closing it stops the programs running in them, and it cannot be undone.`,
     };
 }
+
+// The command route (`wsh tab close`, a direct RPC call) never opens a dialog: scripts and agents would wait for it forever.
+// It refuses a tab that holds blocks unless force is given, and the check happens here, in the main process, right before
+// the close, so a direct RPC call is covered too.
+export function wshCloseRefusal(blockCount: number | null | undefined, force: boolean): string | null {
+    if (force || blockCount === 0) {
+        return null;
+    }
+    const what =
+        blockCount == null
+            ? "blocks (the count could not be read)"
+            : blockCount === 1
+              ? "1 block"
+              : `${blockCount} blocks`;
+    return `the tab holds ${what}; closing it stops the programs in them and cannot be undone: use force to close it anyway`;
+}

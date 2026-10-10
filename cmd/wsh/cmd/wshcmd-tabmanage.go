@@ -256,6 +256,12 @@ var tabBlockCount = func(tabId string) (int, error) {
 
 var tabCloseForce bool
 
+// The main process repeats the check right before it closes the tab (a block may have been added since this command
+// looked), and only --force skips it.
+func electronCloseData(tabId string, wsId string, force bool) wshrpc.CommandElectronTabData {
+	return wshrpc.CommandElectronTabData{WorkspaceId: wsId, TabId: tabId, Force: force}
+}
+
 func tabCloseRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	defer func() {
 		sendActivity("tabclose", rtnErr == nil)
@@ -268,7 +274,7 @@ func tabCloseRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err := checkTabCloseAllowed(count, countErr, tabCloseForce); err != nil {
 		return err
 	}
-	err = wshclient.ElectronCloseTabCommand(RpcClient, wshrpc.CommandElectronTabData{WorkspaceId: wsId, TabId: tabId}, &wshrpc.RpcOpts{Timeout: 15000, Route: wshutil.ElectronRoute})
+	err = wshclient.ElectronCloseTabCommand(RpcClient, electronCloseData(tabId, wsId, tabCloseForce), &wshrpc.RpcOpts{Timeout: 15000, Route: wshutil.ElectronRoute})
 	if err != nil {
 		return fmt.Errorf("closing tab: %w", err)
 	}

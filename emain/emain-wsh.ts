@@ -6,6 +6,7 @@ import { RpcResponseHelper, WshClient } from "@/app/store/wshclient";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { Notification, net, safeStorage, shell } from "electron";
 import { getResolvedUpdateChannel } from "emain/updater";
+import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
@@ -122,6 +123,19 @@ export class ElectronWshClientType extends WshClient {
         const ww = getWaveWindowByWorkspaceId(data.workspaceid);
         if (ww == null) {
             throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        if (!data.force) {
+            let count: number | null = null;
+            try {
+                const tab = await RpcApi.GetTabCommand(ElectronWshClient, data.tabid, { timeout: 3000 });
+                count = tab?.blockids?.length ?? null;
+            } catch (e) {
+                console.log("electronclosetab: could not read the tab", e);
+            }
+            const refusal = wshCloseRefusal(count, false);
+            if (refusal) {
+                throw new Error(refusal);
+            }
         }
         await ww.queueCloseTab(data.tabid);
     }

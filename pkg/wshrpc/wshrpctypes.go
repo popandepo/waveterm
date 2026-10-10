@@ -729,6 +729,7 @@ type CommandCreateTabData struct {
 type CommandElectronTabData struct {
 	WorkspaceId string `json:"workspaceid"`
 	TabId       string `json:"tabid"`
+	Force       bool   `json:"force,omitempty"` // electronclosetab: close a tab that holds blocks
 }
 
 type CommandElectronEncryptData struct {

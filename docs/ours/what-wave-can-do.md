@@ -327,3 +327,9 @@ Review notes on section 22. **Which routes ask, which refuse, which do nothing:*
 - `wsh session close`: has its own rule (a tab whose program is still running needs `--force`).
 - Closing a whole window, deleting a workspace and quitting the app are separate flows with their own settings
   (`window:confirmclose`); they are NOT covered here.
+
+Second review pass on section 22: the guard against a second close request is set before the first await; the block count is read
+again before the close, so an empty tab that gained a block, or a confirmed tab that grew, asks again, and a tab that keeps
+changing is not closed (`closetabhandler.test.ts` has deferred, overlapping reads). The `wsh tab close` check now also happens in the
+main process right before the close (new `force` field of the electronclosetab call), so a direct RPC call of it is covered too;
+`wsh tab close --force` is the only way past it. A source-level route test checks that the UI routes go through the one handler.

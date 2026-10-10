@@ -127,3 +127,12 @@ func TestTabCloseWhenTheCountCannotBeReadIsRefusedUnlessForced(t *testing.T) {
 		t.Fatalf("--force skips the check: %v", err)
 	}
 }
+
+func TestTabCloseRequestCarriesForce(t *testing.T) {
+	if d := electronCloseData("t", "w", false); d.Force || d.TabId != "t" || d.WorkspaceId != "w" {
+		t.Fatalf("without --force the request must not force: %+v", d)
+	}
+	if d := electronCloseData("t", "w", true); !d.Force {
+		t.Fatalf("--force must reach the main process, which makes the final check: %+v", d)
+	}
+}

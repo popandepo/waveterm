@@ -229,6 +229,7 @@ const DisplayNode = ({ layoutModel, node }: DisplayNodeProps) => {
     const devicePixelRatio = useDevicePixelRatio();
     const isEphemeral = useAtomValue(nodeModel.isEphemeral);
     const isMagnified = useAtomValue(nodeModel.isMagnified);
+    const isHidden = useAtomValue(nodeModel.isHidden);
 
     const [{ isDragging }, drag, dragPreview] = useDrag(
         () => ({
@@ -304,11 +305,16 @@ const DisplayNode = ({ layoutModel, node }: DisplayNodeProps) => {
         <div
             className={clsx("tile-node", {
                 dragging: isDragging,
+                "stack-hidden": isHidden,
             })}
             key={node.id}
             ref={tileNodeRef}
             id={node.id}
-            style={addlProps?.transform}
+            style={
+                isHidden
+                    ? { ...addlProps?.transform, visibility: "hidden", pointerEvents: "none" }
+                    : addlProps?.transform
+            }
             onPointerEnter={generatePreviewImage}
             onPointerOver={(event) => event.stopPropagation()}
         >
@@ -324,14 +330,17 @@ interface OverlayNodeWrapperProps {
 
 const OverlayNodeWrapper = memo(({ layoutModel }: OverlayNodeWrapperProps) => {
     const leafs = useAtomValue(layoutModel.leafs);
+    const additionalProps = useAtomValue(layoutModel.additionalProps);
     const overlayTransform = useAtomValue(layoutModel.overlayTransform);
 
     const overlayNodes = useMemo(
         () =>
-            leafs.map((node) => {
-                return <OverlayNode key={node.id} layoutModel={layoutModel} node={node} />;
-            }),
-        [leafs]
+            leafs
+                .filter((node) => !additionalProps[node.id]?.isHidden)
+                .map((node) => {
+                    return <OverlayNode key={node.id} layoutModel={layoutModel} node={node} />;
+                }),
+        [leafs, additionalProps]
     );
 
     return (

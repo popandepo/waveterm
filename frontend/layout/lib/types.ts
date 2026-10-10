@@ -400,8 +400,16 @@ export interface ResizeHandleProps {
     flexDirection: FlexDirection;
 }
 
+export interface StackLayoutProps {
+    strip: Dimensions;
+    activeId: string;
+    order: string[];
+}
+
 export interface LayoutNodeAdditionalProps {
     treeKey: string;
+    isHidden?: boolean;
+    stack?: StackLayoutProps;
     transform?: CSSProperties;
     rect?: Dimensions;
     pixelToSizeRatio?: number;
@@ -420,6 +428,7 @@ export interface NodeModel {
     isResizing: Atom<boolean>;
     isFocused: Atom<boolean>;
     isMagnified: Atom<boolean>;
+    isHidden: Atom<boolean>;
     anyMagnified: Atom<boolean>;
     isEphemeral: Atom<boolean>;
     ready: Atom<boolean>;

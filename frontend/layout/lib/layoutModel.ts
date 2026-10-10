@@ -11,7 +11,7 @@ import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
-import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
+import { balanceNode, findNode, isStackNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
     clearTree,
     computeMoveNode,
@@ -29,6 +29,7 @@ import {
     swapNode,
     unstackNode,
 } from "./layoutTree";
+import { applyStackLayout } from "./stackgeometry";
 import {
     ContentRenderer,
     FlexDirection,
@@ -839,6 +840,21 @@ export class LayoutModel {
             return;
         }
 
+        if (isStackNode(node)) {
+            const stackRect: Dimensions =
+                node.id === this.treeState.rootNode.id ? boundingRect : additionalPropsMap[node.id]?.rect;
+            if (stackRect) {
+                if (node.id === this.treeState.rootNode.id) {
+                    additionalPropsMap[node.id] = {
+                        ...(additionalPropsMap[node.id] ?? { treeKey: "0" }),
+                        rect: stackRect,
+                    };
+                }
+                applyStackLayout(node, stackRect, additionalPropsMap);
+            }
+            return;
+        }
+
         function getNodeSize(node: LayoutNode) {
             return resizeAction?.resizeOperations.find((op) => op.nodeId === node.id)?.size ?? node.size;
         }
@@ -1094,6 +1110,7 @@ export class LayoutModel {
                     const treeState = get(this.localTreeStateAtom);
                     return treeState.magnifiedNodeId === nodeid;
                 }),
+                isHidden: atom((get) => get(addlPropsAtom)?.isHidden ?? false),
                 anyMagnified: atom((get) => {
                     const treeState = get(this.localTreeStateAtom);
                     return treeState.magnifiedNodeId != null;
@@ -1148,6 +1165,9 @@ export class LayoutModel {
         const leafs = this.getter(this.leafs);
         const addlProps = this.getter(this.additionalProps);
         for (const leaf of leafs) {
+            if (addlProps[leaf.id]?.isHidden) {
+                continue;
+            }
             const pos = addlProps[leaf.id]?.rect;
             if (pos) {
                 nodePositions.set(leaf.id, pos);

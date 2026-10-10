@@ -44,6 +44,9 @@ Not covered: a seam whose declaration is unchanged but whose behaviour changed. 
 | list | same | `WorkspaceListCommand` | workspaces and their tabs |
 | reorder | same | `UpdateWorkspaceTabIdsCommand` | tab move |
 | create, close, switch | `pkg/service/workspaceservice/workspaceservice.go` | `CreateTab`, `CloseTab`, `SetActiveTab` | the calls under the new commands |
+| electron-route pattern | `pkg/wshrpc/wshrpctypes.go`, `emain/emain-wsh.ts` | `ElectronSystemBellCommand`, `handle_electronsystembell` | tab new, switch and close are electron-route RPCs written after this pattern |
+| electron tab switch and close | `emain/emain-window.ts` | `setActiveTab`, `queueCloseTab` | what those handlers call |
+| meta write | `pkg/wshrpc/wshrpctypes.go` | `SetMetaCommand` | `wsh tab style` |
 
 The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/wshclientapi.ts`,
 `frontend/types/gotypes.d.ts`) conflict on almost every change to the RPC list. They are regenerated with

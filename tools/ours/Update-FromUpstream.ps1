@@ -31,7 +31,7 @@ $repo = (& git rev-parse --show-toplevel).Trim()
 Set-Location $repo
 if (-not $ToolchainDir) { $ToolchainDir = Join-Path (Split-Path $repo -Parent) 'toolchain' }
 if (-not $ReportDir) { $ReportDir = Join-Path (Split-Path $repo -Parent) 'reports' }
-$stamp = Get-Date -Format 'yyyyMMdd-HHmm'
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $log = New-Object System.Collections.Generic.List[string]
 
 function Say([string]$m) { Write-Host $m; $script:log.Add($m) }

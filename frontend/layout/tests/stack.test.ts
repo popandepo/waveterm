@@ -759,8 +759,8 @@ describe("moving everything from one place into a stack (from and to)", () => {
     });
 });
 
-describe("leaving and entering stack mode never replaces the tile object", () => {
-    test("take out, turn into a stack and turn off keep the same node (so the view is not remounted)", () => {
+describe("leaving and entering stack mode keeps the tile object", () => {
+    test("take out, turn into a stack and turn off keep the same node object", () => {
         const { state, a, b } = treeWithThreeLeaves();
         const keep = (id: string) => findNode(state.rootNode, id);
         stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: a.id, nodeId: b.id });
@@ -986,7 +986,7 @@ describe("reordering and dropping on the tabs of a strip", () => {
             findParent(state.rootNode, b.id) != null && isStackNode(findParent(state.rootNode, b.id)!),
             "b is a tile of its own"
         );
-        assert.strictEqual(findNode(state.rootNode, b.id), nodeB, "the same node: its terminal is not remounted");
+        assert.strictEqual(findNode(state.rootNode, b.id), nodeB, "the same node object");
         const rest = findParent(state.rootNode, a.id)!;
         assert.isTrue(isStackNode(rest));
         assert.equal(order(rest), "ac");

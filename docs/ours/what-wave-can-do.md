@@ -434,8 +434,9 @@ still queued "not closed" and empties the queue, so a caller (the window, or `ws
 The X on a stack member closed its block, and so stopped the program in it, with no question (it called `closeNode` directly); the block header
 menu and the close key did the same (upstream behaviour). Now all three ask first, but only when a program is running: a native box
 "This closes the program running in it. It cannot be undone." with Cancel (Esc) and Close Block (Enter). The state comes from the controller
-(`GetControllerStatus`, the same state as `status` in `wsh api list`) for the views that have programs (`term`, `tsunami`): `running` asks;
-only `done` (ended) and `init` (not started), or a view without a program (web, preview, files), close silently. Anything else asks: a controller that
+(`GetControllerStatus`, the same state as `status` in `wsh api list`) for the views that have programs (`term`, `tsunami`, `vdom`): `running` asks;
+only `done` (ended) and `init` (not started), or a view that is KNOWN to have no program (the list of the registered views of this build, in
+`closeblock.ts`: web, preview, files, sysinfo, help, ...; a view name that is in neither list, such as one added by a later upstream version, asks), close silently. Anything else asks: a controller that
 is missing for a terminal, an empty or unknown state, a state that cannot be read, a view that cannot be read. Only one box per block at a time (a
 second click on the X while the box is open does nothing); the block that was asked about is the one that closes, even if focus moves
 while the box is open; Cancel touches nothing. The box is shown only to a Wave tab view (a web tile cannot reach it). **Named exception:** a

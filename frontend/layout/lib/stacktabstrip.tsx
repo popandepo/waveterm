@@ -82,7 +82,8 @@ const StripTab = memo(
                     onClick={(e) => {
                         e.stopPropagation();
                         fireAndForget(async () => {
-                            if ((await layoutModel.confirmCloseBlock?.(tab.blockId)) === false) {
+                            // A strip without the question closes nothing: a missing callback is not permission.
+                            if ((await layoutModel.confirmCloseBlock?.(tab.blockId)) !== true) {
                                 return;
                             }
                             await layoutModel.closeNode(tab.nodeId);

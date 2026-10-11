@@ -11,12 +11,19 @@ vi.mock("@/app/store/services", () => ({ BlockService: {} }));
 let closeBlockQuestion: any;
 let confirmCloseBlock: any;
 let closeBlockAfterConfirm: any;
+let closeUnidentifiedAfterConfirm: any;
 let RunningBlockQuestion: string;
 let UnknownBlockQuestion: string;
 
 beforeAll(async () => {
-    ({ closeBlockQuestion, confirmCloseBlock, closeBlockAfterConfirm, RunningBlockQuestion, UnknownBlockQuestion } =
-        await import("./closeblock"));
+    ({
+        closeBlockQuestion,
+        confirmCloseBlock,
+        closeBlockAfterConfirm,
+        closeUnidentifiedAfterConfirm,
+        RunningBlockQuestion,
+        UnknownBlockQuestion,
+    } = await import("./closeblock"));
 });
 
 function deps(view: any, status: any, answer: boolean | Promise<boolean> = true, readFails = false) {
@@ -47,9 +54,30 @@ describe("which blocks ask before they close", () => {
             expect(closeBlockQuestion(view, "done", false)).toBeNull();
             expect(closeBlockQuestion(view, "init", false)).toBeNull();
         }
-        for (const view of ["web", "preview", "sysinfo", "help", "launcher"]) {
-            expect(closeBlockQuestion(view, undefined, false)).toBeNull();
+        for (const view of [
+            "web",
+            "preview",
+            "sysinfo",
+            "help",
+            "launcher",
+            "waveai",
+            "cpuplot",
+            "tips",
+            "aifilediff",
+            "waveconfig",
+            "processviewer",
+        ]) {
+            expect(closeBlockQuestion(view, undefined, false), view).toBeNull();
         }
+    });
+
+    test("a view name that is not in the list of known views asks, so a view added later is never silent by accident", () => {
+        for (const view of ["somethingnew", "Web", "terminal", "vdom-x"]) {
+            expect(closeBlockQuestion(view, undefined, false), view).toBe(UnknownBlockQuestion);
+            expect(closeBlockQuestion(view, "done", false), view).toBe(UnknownBlockQuestion);
+        }
+        expect(closeBlockQuestion("vdom", "running", false)).toBe(RunningBlockQuestion);
+        expect(closeBlockQuestion("vdom", "done", false)).toBeNull();
     });
 
     test("everything that is not known to mean no running program asks", () => {
@@ -176,6 +204,29 @@ describe("closing after the question", () => {
     });
 });
 
+describe("a close that cannot name the block", () => {
+    test("always asks, and closes only on yes", async () => {
+        const asked: string[] = [];
+        const closed: string[] = [];
+        const no = async (m: string) => (asked.push(m), false);
+        const yes = async (m: string) => (asked.push(m), true);
+        expect(await closeUnidentifiedAfterConfirm(() => void closed.push("x"), no)).toBe(false);
+        expect(closed).toEqual([]);
+        expect(await closeUnidentifiedAfterConfirm(() => void closed.push("x"), yes)).toBe(true);
+        expect(closed).toEqual(["x"]);
+        expect(asked).toEqual([UnknownBlockQuestion, UnknownBlockQuestion]);
+    });
+
+    test("a box that cannot be shown keeps the block", async () => {
+        const closed: string[] = [];
+        const broken = async () => {
+            throw new Error("no dialog");
+        };
+        expect(await closeUnidentifiedAfterConfirm(() => void closed.push("x"), broken)).toBe(false);
+        expect(closed).toEqual([]);
+    });
+});
+
 describe("the routes", () => {
     const read = (rel: string) => readFileSync(path.join(__dirname, "..", "..", "..", rel), "utf8");
 
@@ -187,6 +238,8 @@ describe("the routes", () => {
         const generic = keymodel.slice(keymodel.indexOf("function genericClose"));
         expect(generic).toContain("closeBlockAfterConfirm(");
         expect(generic).toContain("const nodeId = focusedNode?.id;");
+        expect(generic).toContain("closeUnidentifiedAfterConfirm(() => layoutModel.closeFocusedNode())");
+        expect(read("frontend/layout/lib/stacktabstrip.tsx")).toContain("!== true");
         expect(read("frontend/app/tab/tabcontent.tsx")).toContain("confirmCloseBlock,");
     });
 

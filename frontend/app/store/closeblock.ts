@@ -9,7 +9,23 @@ export const UnknownBlockQuestion =
     "Wave could not tell whether a program is running in this block. Closing it stops any program in it and cannot be undone.";
 
 // The views that run a program under a block controller. Every other view (web, preview, files, ...) has no program to stop.
-const ProgramViews = new Set(["term", "tsunami"]);
+const ProgramViews = new Set(["term", "tsunami", "vdom"]);
+
+// The views that are known to have no program (the registered views of this build: see blockregistry.ts). A view name that is in
+// neither list, such as one added by a later upstream version, asks until it is put here on purpose.
+const NoProgramViews = new Set([
+    "preview",
+    "web",
+    "waveai",
+    "cpuplot",
+    "sysinfo",
+    "tips",
+    "help",
+    "launcher",
+    "aifilediff",
+    "waveconfig",
+    "processviewer",
+]);
 
 // Closing one block (a stack member's X, the header menu, the close key) stops its program, and until now nothing asked.
 // It is silent only when the answer is known: the block's view has no program, or the program is known to have ended (done) or not
@@ -24,8 +40,11 @@ export function closeBlockQuestion(
     if (readFailed || view == null || view === "") {
         return UnknownBlockQuestion;
     }
-    if (!ProgramViews.has(view)) {
+    if (NoProgramViews.has(view)) {
         return null;
+    }
+    if (!ProgramViews.has(view)) {
+        return UnknownBlockQuestion;
     }
     if (shellProcStatus === "running") {
         return RunningBlockQuestion;
@@ -86,6 +105,25 @@ export async function confirmCloseBlock(blockId: string, deps: ConfirmCloseDeps 
     } finally {
         pendingQuestions.delete(blockId);
     }
+}
+
+// A close for which the block could not be identified at all (no focused node, no block id): nothing is known about what it would stop,
+// so the question is always asked.
+export async function closeUnidentifiedAfterConfirm(
+    close: () => Promise<void> | void,
+    ask: (message: string) => Promise<boolean> = DefaultDeps.ask
+): Promise<boolean> {
+    let yes = false;
+    try {
+        yes = await ask(UnknownBlockQuestion);
+    } catch (e) {
+        console.log("confirm close block: the question could not be shown, keeping the block", e);
+    }
+    if (!yes) {
+        return false;
+    }
+    await close();
+    return true;
 }
 
 // Closes a block after the question, if the answer is yes. `close` closes exactly the node that was chosen before the question (not

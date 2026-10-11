@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/blockstatus"
 	"github.com/wavetermdev/waveterm/pkg/staterecord"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -35,6 +37,7 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 		Tabs:        map[string]*waveobj.Tab{},
 		Blocks:      map[string]*waveobj.Block{},
 		Layouts:     map[string]*waveobj.LayoutState{},
+		Statuses:    map[string]staterecord.ProcStatus{},
 	}
 	entries, err := wcore.ListAllWorkspaces(ctx)
 	if err != nil {
@@ -76,6 +79,10 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 				}
 				if block != nil {
 					snap.Blocks[blockId] = block
+					if rt := blockcontroller.GetBlockControllerRuntimeStatus(blockId); rt != nil {
+						status, code := blockstatus.FromShellProc(rt.ShellProcStatus, rt.ShellProcExitCode)
+						snap.Statuses[blockId] = staterecord.ProcStatus{Status: status, ExitCode: code}
+					}
 				}
 			}
 		}

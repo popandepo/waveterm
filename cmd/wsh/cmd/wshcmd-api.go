@@ -130,7 +130,7 @@ func apiListRun(cmd *cobra.Command, args []string) error {
 			}
 			WriteStdout("  tab %s %q%s\n", tab.TabId, tab.Name, active)
 			for _, b := range tab.Blocks {
-				WriteStdout("    block %s %s slot=%s %q\n", b.BlockId, b.View, b.Slot, b.Title)
+				WriteStdout("    block %s %s slot=%s %q%s\n", b.BlockId, b.View, b.Slot, b.Title, blockStatusText(b))
 			}
 		}
 	}
@@ -164,4 +164,15 @@ func apiGotoRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return c.Goto(cmd.Context(), waveapi.Address{WorkspaceId: workspace, TabId: apiTab, BlockId: apiBlock}, apiWindow)
+}
+
+// blockStatusText is the " status" part of a block line: nothing for a block that has no program or an unknown state.
+func blockStatusText(b waveapi.Block) string {
+	if b.Status == "" {
+		return ""
+	}
+	if b.ExitCode != nil {
+		return fmt.Sprintf(" %s(%d)", b.Status, *b.ExitCode)
+	}
+	return " " + b.Status
 }

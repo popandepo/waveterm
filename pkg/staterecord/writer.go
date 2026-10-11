@@ -124,11 +124,15 @@ func (w *Writer) writeAtomic(data []byte) error {
 
 // IsRelevantUpdate says whether an event is a change to an object that the record is built from.
 func IsRelevantUpdate(eventName string, scopes []string) bool {
-	if eventName != "waveobj:update" {
+	prefixes := []string{"workspace:", "tab:", "block:", "layout:", "window:"}
+	if eventName == "controllerstatus" {
+		// a program started or exited: only the scope of the block counts (the same event also names the tab)
+		prefixes = []string{"block:"}
+	} else if eventName != "waveobj:update" {
 		return false
 	}
 	for _, scope := range scopes {
-		for _, prefix := range []string{"workspace:", "tab:", "block:", "layout:", "window:"} {
+		for _, prefix := range prefixes {
 			if len(scope) > len(prefix) && scope[:len(prefix)] == prefix {
 				return true
 			}

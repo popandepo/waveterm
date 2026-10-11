@@ -9,7 +9,9 @@ api-set-block-focus-rpc
 api-startup-hook
 autoupdate-default-off
 badge-store-memory
+block-runtime-status
 blocks-list-rpc
+block-status-values
 close-tab-handler
 conn-config-atom
 conn-keywords

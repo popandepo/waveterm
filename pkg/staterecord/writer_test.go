@@ -174,6 +174,9 @@ func TestTheFileIsPrivateWhereTheSystemAllowsIt(t *testing.T) {
 }
 
 func TestOnlyChangesToTheObjectsOfTheRecordTriggerAWrite(t *testing.T) {
+	if !IsRelevantUpdate("controllerstatus", []string{"tab:t1", "block:b1"}) {
+		t.Fatalf("a program that started or exited must trigger a write")
+	}
 	yes := [][]string{{"workspace:w1"}, {"tab:t1"}, {"block:b1"}, {"layout:l1"}, {"window:w"}}
 	for _, scopes := range yes {
 		if !IsRelevantUpdate("waveobj:update", scopes) {
@@ -189,6 +192,8 @@ func TestOnlyChangesToTheObjectsOfTheRecordTriggerAWrite(t *testing.T) {
 		{"waveobj:update", nil},
 		{"blockclose", []string{"block:b1"}},
 		{"sysinfo", []string{"block:b1"}},
+		{"controllerstatus", []string{"tab:t1"}},
+		{"controllerstatus", nil},
 	} {
 		if IsRelevantUpdate(c.event, c.scopes) {
 			t.Fatalf("%s %v should not trigger a write", c.event, c.scopes)

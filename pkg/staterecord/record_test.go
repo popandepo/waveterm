@@ -303,3 +303,40 @@ func TestAMissingWorkspaceObjectIsLeftOut(t *testing.T) {
 		t.Fatalf("a workspace that is gone is left out: %+v", rec.Workspaces)
 	}
 }
+
+func TestTheStatusOfAProgramIsInTheRecordAndAbsentWhenUnknown(t *testing.T) {
+	snap := fixture(t)
+	code := 3
+	snap.Statuses = map[string]ProcStatus{"b1": {Status: "running"}, "b2": {Status: "exited", ExitCode: &code}}
+	rec := BuildRecord(snap)
+	group := rec.Workspaces[0].Tabs[0].Tiles[0].Group
+	byId := map[string]BlockRec{}
+	for _, g := range group {
+		byId[g.BlockId] = g
+	}
+	if byId["b1"].Status != "running" || byId["b1"].ExitCode != nil {
+		t.Fatalf("b1: %+v", byId["b1"])
+	}
+	if byId["b2"].Status != "exited" || byId["b2"].ExitCode == nil || *byId["b2"].ExitCode != 3 {
+		t.Fatalf("b2: %+v", byId["b2"])
+	}
+	if byId["b3"].Status != "" {
+		t.Fatalf("a block without a status has none: %+v", byId["b3"])
+	}
+	data, _ := json.Marshal(byId["b3"])
+	if contains(string(data), `"status":`) || contains(string(data), `"exitcode"`) {
+		t.Fatalf("empty status must not be written: %s", data)
+	}
+}
+
+func TestAStatusChangeChangesTheRecordSoItIsRewritten(t *testing.T) {
+	a := fixture(t)
+	a.Statuses = map[string]ProcStatus{"b1": {Status: "running"}}
+	b := fixture(t)
+	b.Statuses = map[string]ProcStatus{"b1": {Status: "exited"}}
+	ja, _ := json.Marshal(BuildRecord(a).WithoutStamp())
+	jb, _ := json.Marshal(BuildRecord(b).WithoutStamp())
+	if string(ja) == string(jb) {
+		t.Fatalf("a program that exited must change the content")
+	}
+}

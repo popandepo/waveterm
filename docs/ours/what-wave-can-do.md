@@ -664,3 +664,211 @@ Review fixes for section 36 (Codex on PR 47), each red without it:
   search. So a file: page can be opened in a tile (`wsh web open file:///...`) but these commands do not reload it or step back to it; say if file: is to be added to the allowed list (`AllowedNavSchemes`).
 - **Printed text:** the address and the title come from the page. The command prints every control, format and separator character as a visible `<U+XXXX>` code (so no terminal sequence reaches the terminal), in text and in JSON, and cuts the address at 2048 and the title at 200 characters
   (the window cuts them too before it answers).
+## 28. A member's icon and colour on its strip tab (colour work, step 1)
+
+Each tab of a stack strip draws the member's symbol before its name: `frame:icon` when that is a usable symbol, else `icon` (both validated by
+`parseTabSymbol`: a Font Awesome name or at most two graphemes of text, so an emoji works; hidden and bidirectional characters are refused).
+The member's colour is `icon:color` (a value that is not a CSS colour counts as no colour): a 2px line in that colour under its tab, and a
+tint (22 percent) on the tab of the member that is shown. A member without a colour looks as before. The decision is `stackTabLook`
+(`frontend/app/tab/stacktablook.ts`); the label is `stacktablabel.tsx`; the placement is in `stackstrip.scss`.
+**What is accepted** (one place each, `stacktablook.ts`, applied when the tab is drawn, so a value written by `wsh setmeta` or any program is checked too):
+colour (`memberColorValue`): at most 64 characters; `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or rgb/rgba/hsl/hsla/hwb/lab/lch/oklab/oklch with plain arguments (no nested
+parentheses, so no `var()`, `url()`, `calc()`, `expression()`), or a bare keyword of 3 to 30 letters; and where a window exists `CSS.supports("color", ...)` must accept it too
+(`validateCssColor`), so a keyword that is not a colour is refused there. Symbol (`parseTabSymbol`): a Font Awesome name of at most 40 characters (`[a-z0-9-]` with an optional
+`solid@`/`regular@`/`brands@`/`custom@` prefix and `+spin|beat|fade|fw`), or text of at most 2 graphemes and 32 bytes; control, format and bidirectional characters and misplaced
+joiners are refused. A string of combining characters counts as one grapheme, so it is bounded by the 32 bytes: a base letter with up to 15 marks passes, 16 do not; the strip also
+clips the text symbol to 3em, so nothing a program writes can widen a tab. The label of a member without a title is the last folder of its cwd, with `/` or `\` as separator.
+The tint is drawn behind the label and the symbol (the tab isolates its stacking context; the fill has z-index -1).
+- **RAN:** vitest for `stackTabLook` (frame:icon before icon, a refused frame:icon falls back, emoji, three graphemes refused, no icon or colour,
+  a colour that is not a colour); red when the order is swapped and when the colour check is dropped. Source pins on the label and the stylesheet.
+- **NOT RUN, window check:** that an emoji renders in the strip (and in the tile header, which is not changed here), the line and the tint on
+  a real strip, a member without a colour looking as before.
+- **Later steps (own PRs):** the right-click menu on strip tabs and Set colour / Set icon, tile outlines, top row, window outline, one wsh line.
+
+## 29. Set colour, Set icon and the strip tab menu (colour work, step 2)
+
+The block header menu (gear, right click on the header) has **Set colour** and **Set icon**; a right click on a tab in a stack's strip opens
+Take out of stack (only when the stack has more than one member), Close (through the close question, as the X does), Rename (writes `frame:title`;
+empty clears it), Set colour and Set icon. Colour: None, the seven tab flag colours, or Other (a CSS colour typed or pasted) and writes `icon:color`.
+Icon: None, a short list (terminal, robot, code, bug, rocket, star, flask, wrench), or Other (an emoji or a Font Awesome name typed or pasted) and writes `frame:icon`.
+**One place validates:** `stacktablook.ts` (`memberColorValue`, `memberSymbolValue`; see section 28 for what they accept). The strip applies it when
+it draws, so a value set by `wsh setmeta` or any program is checked there; the menus apply the same functions before they write (`memberLookMeta`), and a
+refused Other text is asked again with the text kept (five tries, a cancel ends it) and nothing is written until one is accepted. A text symbol is
+clipped to 3em in the strip, so a long string cannot widen a tab. The question box is `TextPromptModal` (new, `frontend/app/modals`).
+- **RAN:** vitest: what each choice writes, what is refused (url(), var(), three emoji, 41 characters, markup), None clears, a cancel writes nothing, a refused text asks
+  again, Take out of stack only with more than one member, Close and Rename, and source pins for the wiring (header menu, strip right click, tab content, window deps, modal
+  registry). Red when the colour check is removed from `memberLookMeta` and when Take out of stack is always shown. Two seam rows added.
+- **NOT RUN, window check:** the menus themselves (a right click on a strip tab, the nested submenus, the question box typing and pasting an emoji, Esc and Enter),
+  that Rename shows in the strip and the header, and that the colour and icon appear at once.
+
+Review fixes for section 29: a name (Rename, or any caller of `memberLookMeta`) must have no control, format or line characters and at most 60 characters
+(`memberTitleValue`); the strip draws a title through `drawnTitle` whoever wrote it (`wsh setmeta` too): hidden characters mean the title is not used, a long one is cut to 60.
+The menus check that the block still exists before the menu is shown and again before each write. The Close of the strip tab menu is built by `makeStripTabMenuInfo`
+and goes through the same route as the X (`closeStripTab`); tested with a question that refuses (nothing closed) and with none set up (nothing closed).
+Colours: control characters and newlines are refused before any pattern, and the function pattern allows spaces only (section 28).
+
+## 31. Tile outlines in colour (colour work, step 3)
+
+The outline of a tile (the border drawn by `BlockMask`) is computed by `tileOutlineColor` (`frontend/app/block/tileoutline.ts`). The order, exactly:
+- **Focused tile:** 1. the block's override `frame:activebordercolor`; 2. the block's own colour `icon:color` (the agent's colour); 3. the tab's colour: first its flag colour `tab:flagcolor`, then
+  the border colour of its background (`bg:activebordercolor`, from the tab or its background config); 4. the stylesheet's accent, which is the workspace colour (`ws:accent`).
+- **Tile that is not focused:** 1. `frame:bordercolor`; 2. the tab's colour: `tab:flagcolor`, then the background's `bg:bordercolor`; 3. an ephemeral tile with none is white; otherwise no colour.
+"Tab colour" includes the tab background's own border colour, after the flag colour. Every candidate, the explicit overrides and the tab background's colours included, goes through
+`memberColorValue` (section 28); one that is not accepted counts as not set, so the next one applies. Only the outline is coloured: no header and no tile is filled (pinned: the outline
+function is used only in `BlockMask`, assigned only to `style.borderColor`; the header and utility files do not use it). The window outline and the top row are later steps.
+- **RAN:** vitest for both orders, for every candidate refused when it is not accepted (url(), var(), a newline, a number, empty), the ephemeral white, and the source pins; red when the
+  focused order is swapped, when the unfocused outline takes the block's colour, and when the override is not validated.
+- **NOT RUN, window check:** a focused tile in a tab with a flag colour and a block with `icon:color` (outline = the block's colour), a tile without colours (workspace accent as before),
+  unfocused tiles in a flagged tab (outline = tab colour), that no header is filled.
+## 33. `--tab <ref>` on createblock, term, run and web open
+
+`wsh createblock|term|run|web open --tab <ref>` creates the block in another tab than the calling block's: `<ref>` is a full tab id (with or without `tab:`), `tab:<n>` (the n-th tab of the caller's workspace) or `tab` (the caller's own); an id prefix and every other form is refused, and a `--tab` that is
+given but empty is refused (it is never taken as absent). The reference is then resolved by the same resolver as `wsh tab switch`. Without `--tab` nothing changes (the tab of the calling block, `WAVETERM_TABID`). With `--tab` the command also works from a place that has no tab of its own.
+`--stack` and `--replace` need their target block to be in that tab: the command looks the target's tab up and refuses with a message that names both tabs (it does not send the request), and the SERVER makes the same check when it handles the request, for stack and for replace (`createTargetNeedsSameTab`), so a target that moved after the command looked is still caught. Tiles cannot be moved between tabs today; a future move between tabs must keep that check in the server.
+- **RAN:** Go tests: the choice (no flag uses the environment, a blank flag is not given, the flag wins, the flag works without an environment, an unknown tab is refused and says `--tab`); the target check
+  (same tab, other tab, no target, unknown block); the four commands have the flag, default empty, use only the shared choice and check the target after applying it; red when the flag choice, the target
+  check and one command's flag are removed.
+- **NOT RUN in a window:** a block created in a tab that is not shown, in another workspace or window: whether the page of that tab applies the new block's layout action when it is loaded later (the back end queues
+  it per tab; that path is the one the page already uses when a tab is opened, but it is not verified here), and that the tab id resolves from a session of another workspace. The tab is NOT switched to, and the
+  new block takes focus only inside its own tab (use `--no-focus` as before).
+
+Review answers for section 33 (Codex, PR 42):
+- **Accepted forms of `--tab`:** a full tab id (with or without `tab:`), `tab:<n>` and `tab`. An id prefix of 8 characters is refused: the server resolves it with `LIKE 'prefix%'` over every object type and takes the first hit, without noticing that more than one matches. A flag that is given but empty is refused (the command looks at whether the flag was given, not at its value).
+- **Another workspace or window:** a full tab id resolves to any tab, in any workspace or window (the resolver does not look at where the caller is). `tab:<n>` is the n-th tab of the CALLER's workspace and never reaches another. For the manager this is the useful case: a session in tab Home can create a terminal in the tab Reviewers by id. READ in the resolver (`pkg/wshrpc/wshserver/resolvers.go`).
+- **A tab that does not exist:** a full id that names no tab fails in the server when the block is created (`CreateBlock` reads the tab); nothing is created. READ.
+- **A tab whose page is not loaded** (not shown, another workspace, another window): the block object is created in that tab and the placement is queued as a layout action in that tab's layout state; the tab's page applies the pending actions when its layout loads, and the clean-up of blocks that are in no layout is queued AFTER them (`CleanupOrphanedBlocks` adds its action behind the pending ones), so the new block is laid out when the tab is next shown and is not removed first. READ in `layoutModel.ts` and `blockservice.go`; not run in a window.
+- **Focus:** the request names the new block's focus inside ITS tab only (`--no-focus` as before); nothing is sent to the caller's tab, the shown tab is not switched, and the caller's focus does not move. READ.
+- **Targets:** `--stack` was already checked by the server (`checkStackTargetInTab`); `--replace` was not and now is (`createTargetNeedsSameTab`, tested against a real store: a cross-tab replace is refused and creates no block); the command checks both as well, for a better message. `web open -r` now resolves its block through the same block resolver as `--stack` (a non-block reference is refused).
+- **RAN (new):** the command path of createblock, term, run and web open with `--tab` and a stack or replace target in another tab sends NO create request (red when the target check is removed); a given but empty `--tab` sends nothing (red when it is treated as absent); a target in the chosen tab is sent with that tab; without the flag the caller's tab is used; id prefixes and other forms are refused before any lookup.
+## 34. Attention marks, part 1: the meta, the command and the rules
+
+A block can say that it needs the owner. Two block meta keys carry it: `attention:level` (`info`, `need` or `urgent`) and `attention:reason` (text, at most 120 characters, no control, format or line characters;
+required for `need` and `urgent`, optional for `info`). The settled look (his words on the mock-up: "that's perfect, ship it"): info is an icon with no motion; need is an orange DOT only (stack tab, tile
+header, top tab), no outline or ring; urgent is a flashing orange outline and dot that climbs from the stack tab to the tile outline, the top tab, the taskbar and the workspace button. The orange levels clear when
+the owner really focuses the tile or when a session clears them; a pulse stops after five minutes and stays steady; a tile can be muted; reduced motion is respected. **This part builds only the rules, the keys and the
+command; nothing is drawn yet** (the drawing is the next parts).
+- **Commands:** `wsh attention info|need|urgent --reason "why" [-b block]` and `wsh attention clear [-b block]`. The reason is refused when it is missing for need or urgent, too long, or has hidden characters; the check is the
+  same one the window will apply when it draws, so a program that writes the meta without the command gets no mark for a bad value. Clear sets both keys to null. The keys are persisted block meta, so a need survives a
+  page rebuild, a tab view rebuild, a workspace switch and a restart of Wave.
+- **The rules, in two languages with one table of cases:** `pkg/attention` (Go) and `frontend/app/store/attention.ts` (TypeScript) both read `pkg/attention/testdata/vectors.json`; `Highest` / `highestAttention` is the highest level among
+  several (the rule for every container: the stack tab holds one block, a stack tile its members, a top tab its blocks).
+- **RAN:** Go tests (vectors, the meta reader, the command's meta and refusals, clear sets exactly two keys null, the command has three levels and clear) and vitest on the same vectors; red when the reason requirement is dropped
+  (Go and TypeScript).
+- **NOT RUN in a window:** `wsh attention` against a running Wave (the write is the same set-meta call as `wsh setmeta`).
+
+Review answers for section 34 (Codex, PR 43):
+- **Hidden characters are looked for before anything is trimmed**, in Go and in TypeScript: "ok" followed by U+FEFF, a trailing line break, a zero-width space or a line separator is refused, never trimmed away (the shared table has each case).
+- **The limit is 120 code points**, in both languages and in the command's error text. A letter with an accent written as two code points counts as two (60 such letters pass, 61 do not; tested in both languages from the one table). Counting what the eye sees would need a grapheme library and buys little for one line of text.
+- **Set and clear each write both keys in ONE set-meta call** (`attentionSend` with one map holding `attention:level` and `attention:reason`), so no reader sees a level with the old reason or a reason with no level; clear sets both to null in the same map (tested).
+- **For the part that draws the hover text:** the reason is text from block meta, which any program can write. The renderer must read it only through `attentionOf` (the validating reader) and must put it in the page as text, never as markup, so a reason like `<img src=x>` is shown as those characters.
+## 30. A new ephemeral block replaces the one on screen: the old one is asked about
+
+When a second ephemeral block opens while one is on screen, the old one used to be closed directly (its program stopped, nothing asked). It now goes through the same close
+question as the X (`replaceEphemeral`, `ephemeralreplace.ts`): answered yes, the old block closes and the new one shows; answered no, or no question set up, or the question or the close
+fails, the old one stays and the NEW block is discarded (there is only one ephemeral place). The new block exists already in the back end, so it is deleted for real through
+`ObjectService.DeleteBlock` (`discardEphemeralBlock`: retried once; a second failure and a missing delete callback are logged as errors and reported, never silent; the tab content always
+passes `onNodeDelete`, pinned). A discard that cannot be deleted is reported (`replaceEphemeral` returns `discarded: false`), its id is kept (`DiscardLedger`) and tried again when the next
+ephemeral block arrives; the tab's orphan clean-up when a layout loads is the last net.
+One question at a time: while a replacement is under way every arriving ephemeral block is discarded; the guard is checked before the empty-slot path, because the slot can be empty for a
+moment while the old block closes.
+- **RAN:** vitest: order ask, close, show; no answer leaves the old block and discards the new; no question set up discards the new; a failing question or close keeps the old and discards
+  the new; a failed discard is reported and kept in the ledger and retried; the guard comes before the empty-slot path; source pins that `newEphemeralNode` does not close directly and that both
+  discard sites use the remembering discard. Red when the answer is ignored and when the guard order is swapped.
+- **NOT RUN, window check:** an ephemeral replace with a running program in the old block (the box appears; Cancel keeps the old block and the new one disappears; Close Block shows the new one).
+## 32. Web tiles: what was seen in a window, and what is not known
+
+Seen by the owner in the preview 17760c63 (11 Oct 2026, first look): a web tile with a filled form kept the form when it was moved within its tab, moved into another
+stack, and when another top tab was shown and then this one again. Switching to another WORKSPACE reloaded it.
+- **Correction of an earlier reading.** The first reading of the code said that moving a web tile makes a new web view and loses the page. That was wrong for the moves above: the
+  layout keeps every tile mounted at a place of its own (a tile is moved by changing its position, not by remounting it), and the web contents of a tab that is not shown stay alive in a tab view that is kept
+  (`window:maxtabcachesize`, 10 by default). What reloads: leaving a workspace (its tab views are destroyed), and, not tested, a tab whose view was dropped from the cache because more than
+  the cache size of tabs were shown since.
+- **There is no "move a tile into another top tab" operation in this fork** (no drag onto a top tab, no `wsh` command; `wsh stack move` and `wsh group add` need the same tab). "Switching to another top tab" in
+  the first look was a switch of the shown tab, which keeps the web contents; whether he also dragged a tile to another top tab is not known and is not possible with what is built.
+- **Window check for later (web tiles, harder):** (1) three or four web tiles at once in one tab, each with a different filled form (a text field, a long page scrolled down, a video paused at a time);
+  (2) put two of them into one stack and switch between the members ten times: forms, scroll position, video time; (3) the same in two windows and two workspaces, then switch workspace and back: which reload
+  (expected: all of the other workspace); (4) open more tabs than the cache size (10) and come back to the first: does the web tile reload; (5) a hidden member's audio is muted (PR 27) and un-muted when shown;
+  (6) close one web tile with a filled form: no question (it has no program), the others untouched; (7) restart Wave: web tiles reload (nothing keeps a form across a restart).
+
+## 40. A session opened in a tile comes back after Wave restarts (the starter, and what opens it)
+
+The chain, with who does what: a script that opens a session (outside this repository: `Open-WaveSession.ps1` of the owner's tools, called by `Wave-Sessions.ps1 open`) calls `wsh session start --restart --meta session:id=<guid>
+--meta session:name=... (and model, effort, permissionmode when given)`. Wave then (1) marks the block `cmd:runonstart=true` and `cmd:runonce=false` so it starts the SAME command again at every start of the app, in the same block, keeping the
+earlier output (`cmd:clearonstart=false`); (2) keeps the `session:*` keys on the block, which is what puts it into the `sessions` index of the state record (`<data dir>\state\wave-state.json`: only blocks that carry a session id are
+listed there; `Restore-Sessions.ps1` reads that index). The command Wave starts again is `tools/ours/Start-ResumableSession.ps1`: its first start creates the session under the id (`--session-id`), every later start resumes it
+(`--resume`). `--restart` is refused for a command line with a bare `--session-id` or an inline shell command (section 21), so a plain launcher cannot be used with it.
+- **The starter puts the folder of wsh on the PATH** (`WAVETERM_WSHBINDIR`, once). Wave adds that folder to the PATH of the shells it starts, not of a program it starts directly (as this one is), so a
+  Claude session in a tile could not run `wsh` by name. The folder goes AFTER the entries that are already there (a `wsh` the user already has wins), only if it is a fully qualified path (`X:\` or `X:/`) to an existing folder, and any error in this step leaves the PATH as it was and never stops the session, and is not added when the same
+  folder is already there under another spelling (compared as full paths, case-insensitive, trailing separators and `..` resolved). RAN: `Test-ResumableSession.ps1` (the folder is last on the PATH and the launched stub runs `wsh` and prints what
+  it printed; an earlier `wsh` of the same name wins; a missing, unset or relative variable leaves the PATH alone; a folder that is already there, also under another spelling, is not added again; red when the folder is put first, when the
+  comparison is textual, and when the absolute-path check is removed).
+- **The starter has NO default config folder (incident, 11-Oct-2026).** `CLAUDE_CONFIG_DIR` used to default to `%USERPROFILE%\.claude` when it was not set. That folder belongs to the old single runner on the work side of the machine and a
+  personal session must never read or write it. A dev Wave started by the proof script had every `CLAUDE*` variable stripped, so two throwaway sessions fell back to that default and stood at Claude's first-run screen for a few minutes
+  before they were stopped by their recorded ids. Rule now: the folder must be fully qualified (`X:\` or `X:/`: no relative path, no `X:name`, no UNC or `\\?\` form), is resolved to its FINAL path (junctions, symbolic links, 8.3 names, `..`)
+  and is then judged, with and without `-ThrowawayConfig`: at or below `<profile>\.claude` or `<profile>\.claude-work` (case-insensitive) is refused with exit code 2 before Claude is started; at or below `<profile>\.claude-personal` is accepted;
+  any other folder is accepted only with `-ThrowawayConfig` (a test). The folder handed on to Claude is the resolved full path. The opening script (`Open-WaveSession.ps1`), `Restore-Sessions.ps1` and the dev-proof start script carry the same
+  rule and write `-ConfigDir <full path>` into the block's stored command, because Wave itself NEVER has `CLAUDE_CONFIG_DIR`: the launcher (`WaveFork.exe`) removes every `CLAUDE*` variable from Wave's environment, so a restart cannot depend on it.
+  RAN (`Test-ResumableSession.ps1`, run with `pwsh`, under a made-up profile whose name has spaces and an 8.3 name; no path in any test is the real profile's): 20 refusal cases with exit code 2 and the stub never started (unset, empty, blank,
+  `.claude`, below it, capitals, `.claude-work`, `..` into `.claude`, forward slashes, the 8.3 name of the profile, a junction under `.claude-personal` that leads to `.claude`, a junction under a throwaway folder that leads to `.claude-work`,
+  a UNC form, an extended length form, relative and drive-relative paths, `.claude-personal-evil`, a throwaway folder without the switch), three more below a profile that has no `.claude` folder at all (the deny list is case-insensitive where no
+  on-disk spelling exists), `CLAUDE_CONFIG_DIR` of `.claude` in the environment. Removing only the old default line is not visible to a test, because the refusal catches the folder anyway (the default is gone as a second layer).
+  Also here: a launch under Windows PowerShell is refused (exit 2: a prompt with quotes or backslashes does not arrive as one argument there; `-DryRun` still runs there) and a prompt that starts with a dash is refused (it would be read as an
+  option); the session id must match to the end of the string (a trailing newline is refused); only a FILE named `<id>.jsonl` counts as a transcript. **Limit:** two starts of the same id at the same instant can both create the session (no lock).
+- **A block opened the OLD way** (`--restart` not given; the keys are `cmd:runonce=true` and no `session:*`) is not started again at a restart (it is marked run once): it comes back as an empty finished block with its old output, and it is not in
+  the record. It can be marked from inside Wave with `wsh setmeta -b <block> cmd:runonce=false cmd:clearonstart=false session:id=<guid> session:name=<name>` plus `cmd` and `cmd:args` replaced by the resumable starter's command line (the old command
+  would create the session again with its id and be refused as already in use): possible but NOT RUN, and it needs the session's real id (a session that Claude named itself has an id that only the session knows); reopening it with the new script
+  is the safe way, and `claude --resume <id>` in a new tile brings the conversation back.
+- **RAN (dev Wave on its own profile, top right of the screen, 11-Oct-2026, 16:35 to 16:47):** a session was opened with `Open-WaveSession.ps1` (restart on) through the dev block's wsh; the record showed it with its `session:id`; the dev Wave was
+  stopped and started again; the block started BY ITSELF and resumed the SAME id (`--resume <id>`, one transcript for that id, no second session). A block opened the old way came back as an empty finished block and was not started again.
+  Two facts from it: a block in a tab that is NOT shown does not start at a restart, it starts when its tab is shown (`wsh tab switch`, or a click); and a cmd block that Wave starts directly gets `WAVETERM_SWAPTOKEN`, not `WAVETERM_JWT`, so a
+  script in it must run `wsh token $env:WAVETERM_SWAPTOKEN pwsh` first (the starter itself needs no wsh). Closing the dev Wave through its window (`CloseMainWindow`) ended everything in 0.5 s with the layout intact.
+## 37. Attention marks, part 2: the stack tab shows the mark
+
+The attention design is settled (docs section 34): info is an icon with no motion; need is an orange DOT only, with no outline; urgent is a pulsing orange outline and dot. This part draws the first container: the
+strip tab of a stack member. A member's tab reads `attention:level` and `attention:reason` of its block (and its badge, `wsh badge`, as a small icon after the symbol):
+- **info:** a small "circle-info" icon after the name; the reason, if there is one, is the hover text.
+- **need:** an 8 px orange dot (`#ff9500`) at the right of the tab, steady, the reason as hover text. No outline, no ring.
+- **urgent:** the same dot and a 2 px orange outline round the whole tab that pulses slowly (1.6 s, opacity 0.25 to 1). With "reduce motion" set in the system the outline does not pulse and stays steady.
+- The attention colour is its own and never replaces or tints the member's own colour (the line under the tab, the tint of the shown tab). Nothing is filled.
+- A value that does not pass the rules (an orange level without a reason, an unknown level, a reason with hidden characters or over 120 code points) draws nothing: the tab reads it only through `attentionOf` (section 34). The reason is shown as an attribute (text), never as markup.
+- **Clearing:** a need or urgent mark on the FOCUSED block clears itself when the owner really has the tile: the window has focus and the block is the focused one, 0.5 s after the focus moved there and 3 s when it was already
+  there (the rule of badges, `AttentionAutoClearing` in `app.tsx`, rule in `attentionclear.ts`); it writes null to both keys, so the session sees it gone. Info does not clear by focus. A session clears its own mark with
+  `wsh attention clear`. Nothing clears a tile that is only shown in a tab without focus.
+- **Review fixes (Codex):** the plan for clearing is made again when the focused block, the window focus, the level OR the reason changes (a program that replaces the reason of a focused block's mark gets the full wait for
+  its new mark, it is not erased early); and when the timer fires the plan is checked against the present once more, synchronously right before the write: the window still has focus, the block is still the focused one, and
+  the mark is exactly the one that was planned for (level and reason). The logic is `scheduleAttentionClear` (`attentionschedule.ts`), tested with fake timers (focus change, window focus lost, cancel, a replaced reason or level, the
+  re-plan); there is no DOM test environment in this repository, so the component's effect is a thin call of it, pinned by source text. **Not closed:** the write takes a round trip to the server and block meta has no compare-and-set, so a mark
+  that a program writes during that round trip is erased.
+- **Review fixes (run-the-code review of PR 52):** the info icon is out of the flow like the dot (the label clips its overflow with an ellipsis, so an icon inside it vanished on a long name); the pulse also stops for Wave's own
+  setting `window:reducedmotion` (the class `prefers-reduced-motion` on the app), not only for the system media query; the window wiring of the clear (`makeAttentionClearEnv`, `focusSwitchedSince` in `attentionschedule.ts`) is a
+  function that reads the present at each call and is tested with fakes, instead of lines of `app.tsx` that only a source pin saw.
+- **Stated behaviour (known, on purpose, pinned by tests that say "observation"):** an orange level that draws nothing (no reason, or a reason with a hidden character) is still planned and erased on focus; a mark rewritten with the same
+  level and reason while the timer runs is erased by the old plan (the two are indistinguishable); the clear needs the window focus plus the focused block, not the keyboard in it; the CSS-wide colour keywords (`inherit`, `currentcolor`,
+  `transparent`) pass the colour check in a browser and give a text-coloured or invisible outline; a badge icon with `+spin` or `+beat` animates on the strip tab. A reviewer's attack file (25 tests: markup in a reason, hidden characters,
+  prototype names as levels, 43 bad values at the four colour entrances, the clear under cancel, replace and lost focus, the compiled stylesheets) is part of the tests as `attentionlook.test.tsx`. Merge commit `fc781392` of this line does NOT type-check
+  (an unclosed component, fixed by `46f301df`): remember it when bisecting.
+- **Not in this part:** the tile outline and header mark, the top tab, the workspace button, the taskbar flash; mute per tile; the five-minute limit of the pulse; the rate rule. The mark of a block that is not the active member of
+  its stack is on its strip tab (that is the point of this step); a tile that is not a stack has no strip, so its mark is not drawn yet.
+- **RAN:** vitest for the mark of every level and of every value a program could write that must draw nothing, for the clear rule (only orange levels, only with window focus, the two delays), the clear meta (both keys, null), and
+  source pins on the label, the stylesheet (the ring pulses, the dot does not, reduced motion stops it, the member's line is untouched) and the app wiring (timer re-checks focus, writes both keys); mutation table: the ring for need too, no validation, info clearing, clearing without window focus, no reduced-motion rule, no hover text: each red.
+- **NOT RUN, window check:** `wsh attention need --reason "x"` in one tile of a stack while another member is shown: a dot on the first member's tab with the reason on hover; `urgent`: the pulsing outline; click the tab (it takes the focus) and the mark goes after half a second;
+  `wsh attention info` shows the icon and stays; the pulse stops with "reduce motion" on; a long tab name keeps the dot visible.
+## 38. The top row shows the tab colour (colour work, step 4)
+
+By the settled scheme (the "SETTLED 11 Oct" row of the colour mock-up): the ACTIVE top tab is filled with its tab colour (`tab:flagcolor`, 20 percent: a tunable, `ActiveFillPercent` in `toptablook.ts`, and the line of the other tabs `InactiveLinePercent` (55); the tests are built from the constants, so changing them changes no test) and has its line under it (the full colour, 2 px); the other tabs
+that have a colour show only a dimmer line (55 percent); a tab without a colour looks as before. The top bar itself is not filled, the gaps between the tiles and the headers are not touched, and no edge mark is added. The
+rule is `topTabLook` (`frontend/app/tab/toptablook.ts`): the colour goes through `memberColorValue` (section 28), so a value that is not accepted draws nothing; the two small elements (`tab-colour-fill`,
+`tab-colour-line`) sit inside the tab behind its name. The existing flag glyph on the tab is unchanged.
+- **RAN:** vitest for active, inactive and every value that must draw nothing, named colours and functions, and source pins (the tab draws both elements from the rule, before its name; the stylesheet only adds the two
+  small elements); mutation table: fill on the other tabs, full line on the other tabs, no validation, no fill, no line: each red.
+- **NOT in this step:** the vertical tab bar (`app:tabbar` left; its tab component is a different one and is not changed), the window outline (step 5), the workspace button.
+- **NOT RUN, window check:** a tab with a flag colour: when active it is tinted with a line under it, when not active only a dimmer line; the bar behind the tabs stays unfilled; a tab without colour is as before; the close button and the name stay readable on the tint.
+## 39. The window outline in the workspace colour (colour work, step 5)
+
+By the settled scheme ("workspace = outline around the window, top bar not filled"): a 3 px border round the whole window in the colour of the workspace: its accent (`ws:accent`, set with `wsh workspace style`) when
+there is a valid one, else the colour of the workspace itself. No colour, no outline. It is a border only (`window-outline` in `app.tsx` and `app.scss`): it fills nothing, takes no mouse events, and sits above the
+content and below the modals and typeaheads (z-index 50). The colours go through `memberColorValue` (section 28): a value that is not accepted counts as not set.
+- **RAN:** vitest for the accent first, then the workspace colour, none, and every value that must not pass; source pins (one outline, from the workspace's accent and colour, a border without any background, no mouse
+  events, z-index 50).
+- **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
+  changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.

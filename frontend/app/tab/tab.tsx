@@ -14,6 +14,7 @@ import { useAtomValue } from "jotai";
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { makeORef } from "../store/wos";
 import { TabBadges } from "./tabbadges";
+import { topTabLook } from "./toptablook";
 import { TabSymbolMetaKey } from "./tabsymbol";
 import "./tab.scss";
 import { buildTabContextMenu } from "./tabcontextmenu";
@@ -72,6 +73,7 @@ const TabV = forwardRef<HTMLDivElement, TabVProps>((props, ref) => {
         onRename,
         renameRef,
     } = props;
+    const look = topTabLook(flagColor, active);
     const MaxTabNameLength = 14;
     const truncateTabName = (name: string) => [...(name ?? "")].slice(0, MaxTabNameLength).join("");
     const displayName = truncateTabName(tabName);
@@ -196,6 +198,8 @@ const TabV = forwardRef<HTMLDivElement, TabVProps>((props, ref) => {
         >
             {showDivider && <div className="tab-divider" />}
             <div className="tab-inner">
+                {look.fill != null && <span className="tab-colour-fill" style={{ background: look.fill }} />}
+                {look.line != null && <span className="tab-colour-line" style={{ background: look.line }} />}
                 <div
                     ref={editableRef}
                     className={clsx("name", { focused: isEditable })}

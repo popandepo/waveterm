@@ -30,6 +30,24 @@
         border-radius: 6px;
     }
 
+    // the tab's colour (tab:flagcolor): the active tab is tinted and has its line, the others only a dimmer line; nothing else of the top bar is coloured
+    .tab-colour-fill {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+    }
+
+    .tab-colour-line {
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        bottom: 0;
+        height: 2px;
+        border-radius: 1px;
+        pointer-events: none;
+    }
+
     &.animate {
         transition:
             transform 0.3s ease,

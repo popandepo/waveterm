@@ -22,6 +22,7 @@ import clsx from "clsx";
 import * as jotai from "jotai";
 import * as React from "react";
 import { BlockEnv } from "./blockenv";
+import { tileOutlineColor } from "./tileoutline";
 import { BlockFrameProps } from "./blocktypes";
 
 const BlockMask = React.memo(({ nodeModel }: { nodeModel: NodeModel }) => {
@@ -38,26 +39,23 @@ const BlockMask = React.memo(({ nodeModel }: { nodeModel: NodeModel }) => {
     );
     const frameBorderColor = jotai.useAtomValue(waveEnv.getBlockMetaKeyAtom(nodeModel.blockId, "frame:bordercolor"));
     const [tabBorderColor, tabActiveBorderColor] = useTabBackground(waveEnv, tabModel.tabId);
+    const blockColor = jotai.useAtomValue(waveEnv.getBlockMetaKeyAtom(nodeModel.blockId, "icon:color"));
+    const tabFlagColor = jotai.useAtomValue(waveEnv.getTabMetaKeyAtom(tabModel.tabId, "tab:flagcolor"));
     const style: React.CSSProperties = {};
     let showBlockMask = false;
 
-    if (isFocused) {
-        if (tabActiveBorderColor) {
-            style.borderColor = tabActiveBorderColor;
-        }
-        if (frameActiveBorderColor) {
-            style.borderColor = frameActiveBorderColor;
-        }
-    } else {
-        if (tabBorderColor) {
-            style.borderColor = tabBorderColor;
-        }
-        if (frameBorderColor) {
-            style.borderColor = frameBorderColor;
-        }
-        if (isEphemeral && !style.borderColor) {
-            style.borderColor = "rgba(255, 255, 255, 0.7)";
-        }
+    const outline = tileOutlineColor({
+        focused: isFocused,
+        ephemeral: isEphemeral,
+        blockColor,
+        tabFlagColor,
+        frameActiveBorderColor,
+        frameBorderColor,
+        tabActiveBorderColor,
+        tabBorderColor,
+    });
+    if (outline) {
+        style.borderColor = outline;
     }
 
     if (blockHighlight && !style.borderColor) {

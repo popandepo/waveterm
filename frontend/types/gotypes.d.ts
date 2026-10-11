@@ -1182,6 +1182,8 @@ declare global {
         "frame:title"?: string;
         "frame:icon"?: string;
         "frame:text"?: string;
+        "attention:level"?: string;
+        "attention:reason"?: string;
         "cmd:*"?: boolean;
         cmd?: string;
         "cmd:interactive"?: boolean;

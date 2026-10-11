@@ -24,6 +24,7 @@ var createBlockCmd = &cobra.Command{
 
 func init() {
 	addStackFlag(createBlockCmd)
+	addTabFlag(createBlockCmd)
 	createBlockCmd.Flags().BoolVarP(&createBlockMagnified, "magnified", "m", false, "create block in magnified mode")
 	addNoFocusFlag(createBlockCmd)
 	rootCmd.AddCommand(createBlockCmd)
@@ -35,9 +36,9 @@ func createBlockRun(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
 		metaSetStrs = args[1:]
 	}
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
+	tabId, err := createTabId(cmd)
+	if err != nil {
+		return err
 	}
 	meta, err := parseMetaSets(metaSetStrs)
 	if err != nil {
@@ -53,6 +54,9 @@ func createBlockRun(cmd *cobra.Command, args []string) error {
 		Focused:   newBlockFocused(),
 	}
 	if err := applyStackTarget(&data); err != nil {
+		return err
+	}
+	if err := checkCreateTarget(cmd, &data); err != nil {
 		return err
 	}
 	oref, err := createBlockRPC(data)

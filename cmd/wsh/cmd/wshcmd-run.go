@@ -34,6 +34,7 @@ func init() {
 	flags.BoolP("paused", "p", false, "create block in paused state")
 	flags.String("cwd", "", "set working directory for command")
 	addStackFlag(runCmd)
+	addTabFlag(runCmd)
 	flags.BoolP("append", "a", false, "append output on restart instead of clearing")
 	addNoFocusFlag(runCmd)
 	rootCmd.AddCommand(runCmd)
@@ -134,9 +135,9 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		createMeta[waveobj.MetaKey_Connection] = RpcContext.Conn
 	}
 
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
+	tabId, err := createTabId(cmd)
+	if err != nil {
+		return err
 	}
 
 	createBlockData := wshrpc.CommandCreateBlockData{
@@ -154,6 +155,9 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	}
 
 	if err := applyStackTarget(&createBlockData); err != nil {
+		return err
+	}
+	if err := checkCreateTarget(cmd, &createBlockData); err != nil {
 		return err
 	}
 	oref, err := createBlockRPC(createBlockData)

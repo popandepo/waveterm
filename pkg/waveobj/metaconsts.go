@@ -37,6 +37,9 @@ const (
 	MetaKey_FrameIcon                        = "frame:icon"
 	MetaKey_FrameText                        = "frame:text"
 
+	MetaKey_AttentionLevel                   = "attention:level"
+	MetaKey_AttentionReason                  = "attention:reason"
+
 	MetaKey_CmdClear                         = "cmd:*"
 	MetaKey_Cmd                              = "cmd"
 	MetaKey_CmdInteractive                   = "cmd:interactive"

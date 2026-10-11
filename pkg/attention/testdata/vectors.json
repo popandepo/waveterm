@@ -1,0 +1,39 @@
+{
+  "check": [
+    { "level": "info", "reason": "", "ok": true, "reason_out": "" },
+    { "level": "info", "reason": "  done building  ", "ok": true, "reason_out": "done building" },
+    { "level": "need", "reason": "waiting for your say-so on the release", "ok": true, "reason_out": "waiting for your say-so on the release" },
+    { "level": "urgent", "reason": "cannot continue without you", "ok": true, "reason_out": "cannot continue without you" },
+    { "level": "need", "reason": "", "ok": false },
+    { "level": "urgent", "reason": "   ", "ok": false },
+    { "level": "loud", "reason": "x", "ok": false },
+    { "level": "", "reason": "x", "ok": false },
+    { "level": "Urgent", "reason": "x", "ok": false },
+    { "level": "need", "reason": "line one\nline two", "ok": false },
+    { "level": "need", "reason": "tab\there", "ok": false },
+    { "level": "need", "reason": "nul\u0000here", "ok": false },
+    { "level": "need", "reason": "hidden\u200bspace", "ok": false },
+    { "level": "need", "reason": "flip\u202etext", "ok": false },
+    { "level": "need", "reason": "para\u2029sep", "ok": false },
+    { "level": "need", "reason": "line\u2028sep", "ok": false },
+    { "level": "need", "reason": "ok\ufeff", "ok": false, "note": "a hidden character at the end is refused, not trimmed away" },
+    { "level": "need", "reason": "\ufeffok", "ok": false, "note": "and at the start" },
+    { "level": "need", "reason": "ok\n", "ok": false, "note": "a trailing line break is refused too" },
+    { "level": "info", "reason": "x", "ok": true, "reason_out": "x" },
+    { "level": "need", "ok": true, "repeat_text": "x", "repeat_count": 120, "note": "exactly 120 code points" },
+    { "level": "need", "ok": false, "repeat_text": "x", "repeat_count": 121 },
+    { "level": "need", "ok": true, "repeat_text": "e\u0301", "repeat_count": 60, "note": "60 letters with an accent each are 120 code points" },
+    { "level": "need", "ok": false, "repeat_text": "e\u0301", "repeat_count": 61, "note": "61 of them are 122 code points: the limit counts code points, not what the eye sees" },
+    { "level": "need", "ok": true, "repeat_text": "\ud83d\ude80", "repeat_count": 120, "note": "an emoji is one code point" }
+  ],
+  "highest": [
+    { "levels": [], "want": "" },
+    { "levels": [ "info" ], "want": "info" },
+    { "levels": [ "info", "need" ], "want": "need" },
+    { "levels": [ "need", "urgent", "info" ], "want": "urgent" },
+    { "levels": [ "", "info" ], "want": "info" },
+    { "levels": [ "bogus", "info" ], "want": "info" },
+    { "levels": [ "bogus" ], "want": "" },
+    { "levels": [ "urgent", "bogus" ], "want": "urgent" }
+  ]
+}

@@ -36,6 +36,9 @@ type MetaTSType struct {
 	FrameIcon              string `json:"frame:icon,omitempty"`
 	FrameText              string `json:"frame:text,omitempty"`
 
+	AttentionLevel  string `json:"attention:level,omitempty"`
+	AttentionReason string `json:"attention:reason,omitempty"`
+
 	CmdClear            bool     `json:"cmd:*,omitempty"`
 	Cmd                 string   `json:"cmd,omitempty"`
 	CmdInteractive      bool     `json:"cmd:interactive,omitempty"`

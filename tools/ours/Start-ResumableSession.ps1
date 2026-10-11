@@ -13,12 +13,14 @@ param(
     [string]$PermissionMode,
     [switch]$SkipPermissions,
     [string]$Prompt,
+    [string]$PromptFile,
+    [string]$PromptRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\prompts' } else { '' }),
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
     [string[]]$PluginDir = @(),
     [string]$Command = 'claude',
     [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 15,
-    [string]$WshRoot = (Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin'),
+    [string]$WshRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin' } else { '' }),
     [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
     [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
     [switch]$DryRun
@@ -83,6 +85,9 @@ function Test-Under([string]$path, [string]$root) {
 # The plain-spelling gate: after "..", slashes and capitals are read as text (no file system call, nothing is opened), a path at or below
 # <profile>\.claude or <profile>\.claude-work is refused at once. Only what passes this gate is looked at on disk (the final path resolution below).
 function Test-PlainlyForbidden([string]$path) {
+    # A "~" anywhere in the text could be an 8.3 short name: GetFullPath asks the file system for the long name of every part of such a path, so a path below
+    # .claude would be looked at by name inside that folder before it is refused. Such a path is refused on its text alone, before GetFullPath.
+    if ($path.Contains('~')) { return $true }
     if ([string]::IsNullOrWhiteSpace($env:USERPROFILE) -or $env:USERPROFILE -notmatch '^[A-Za-z]:[\\/]') { return $false }
     $textFull = [IO.Path]::GetFullPath($path).TrimEnd('\', '/')
     $textHome = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\', '/')
@@ -137,9 +142,9 @@ foreach ($pd in @($PluginDir | Where-Object { $_ })) {
     }
     $pluginPaths += $okPlugin
 }
-# The key of the status page for this start: <name>-<4 hex>, new at every start (a restart gives a new one). Set after the environment is cleaned.
+# The key of the status page for this start: <name>-<8 hex>, new at every start (a restart gives a new one). Set after the environment is cleaned.
 $statusSession = $null
-if ($Name) { $statusSession = $Name + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4) }
+if ($Name) { $statusSession = $Name + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8) }
 
 # The folder that wsh.exe is run from (and put on the PATH): fully qualified, not plainly at or below .claude or .claude-work (checked before anything is
 # opened), existing, and with its final path at or below $WshRoot and not at or below .claude or .claude-work. Returns the final path, or $null.
@@ -158,6 +163,43 @@ function Resolve-WshFolder([string]$dir) {
 
 # ---- the rest -----------------------------------------------------------------------------------------------------------------------------------------------
 if ($SessionId -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\z') { throw "SessionId must be a guid: $SessionId" }
+# -PromptFile: the first prompt is read from a file instead of the command line. Wave joins a tile's command with Unix-style quoting (a single quote becomes
+# '"'"'), which PowerShell reads as several arguments, so a prompt with a quote would be cut. A file carries any text. The file is only READ (never written,
+# never deleted by this script). It must be a plain file (not a link) of at most 64 KB, fully qualified, not plainly at or below .claude or .claude-work, and
+# its folder's FINAL path must be at or below -PromptRoot (default %LOCALAPPDATA%\WaveFork\prompts) and not at or below .claude or .claude-work. UTF-8 only;
+# one trailing line break is dropped, nothing else is changed. A refusal is exit code 2 before anything starts.
+function Read-PromptFile([string]$file) {
+    if ([string]::IsNullOrWhiteSpace($file) -or $file -notmatch '^[A-Za-z]:[\\/]') { return $null }
+    if ([string]::IsNullOrWhiteSpace($PromptRoot) -or $PromptRoot -notmatch '^[A-Za-z]:[\\/]') { return $null }
+    if ((Test-PlainlyForbidden $file) -or (Test-PlainlyForbidden $PromptRoot)) { return $null }
+    try {
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $null }
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $null }
+        if ($item.Length -gt 65536) { return $null }
+        $dirFinal = Get-FinalPath (Split-Path -Parent $item.FullName)
+        $rootFinal = Get-FinalPath $PromptRoot
+        $homeFinal = Get-FinalPath $env:USERPROFILE
+        if (-not $dirFinal -or -not $rootFinal -or -not $homeFinal -or -not (Test-Under $dirFinal $rootFinal)) { return $null }
+        foreach ($bad in '.claude', '.claude-work') { if (Test-Under $dirFinal "$homeFinal\$bad") { return $null } }
+        $text = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($item.FullName))
+        if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+        if ($text.EndsWith("`r`n")) { $text = $text.Substring(0, $text.Length - 2) } elseif ($text.EndsWith("`n")) { $text = $text.Substring(0, $text.Length - 1) }
+        return $text
+    } catch { return $null }
+}
+if ($PromptFile) {
+    if ($Prompt) {
+        [Console]::Error.WriteLine('Refusing to start Claude: give -Prompt or -PromptFile, not both.')
+        exit 2
+    }
+    $fromFile = Read-PromptFile $PromptFile
+    if ($null -eq $fromFile) {
+        [Console]::Error.WriteLine('Refusing to start Claude: the prompt file is not a plain UTF-8 file of at most 64 KB below the prompt folder (nothing was started).')
+        exit 2
+    }
+    $Prompt = $fromFile
+}
 # A prompt that starts with a dash would be read by claude as an option, whatever it was meant to say.
 if ($Prompt -and $Prompt.TrimStart().StartsWith('-')) {
     [Console]::Error.WriteLine('Refusing to start Claude: the prompt starts with a dash and would be read as an option. Start it with a word.')
@@ -313,6 +355,8 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
             if ($parsed) { $found += $parsed }
         }
         if ($found.Count -eq 0) { return 'no-lines' }
+        # every listed name is cleared first: a name that wsh did not print must not keep whatever was inherited
+        foreach ($n in $SwapVariables) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
         foreach ($parsed in $found) { Set-Item -Path "env:$($parsed.Name)" -Value $parsed.Value }
         $script:SwapNames = @($found | ForEach-Object { $_.Name })
         return 'ok'

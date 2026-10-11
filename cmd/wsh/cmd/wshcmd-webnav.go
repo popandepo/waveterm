@@ -81,6 +81,11 @@ func formatWebNav(action string, res *wshrpc.CommandWebNavRtnData, asJson bool) 
 	if res == nil {
 		return "", fmt.Errorf("no answer from the window")
 	}
+	// the title and the address come from a web page and are printed as they are in no case (see safeText), JSON included
+	shown := *res
+	shown.Url = safeText(res.Url, maxPrintedUrlRunes)
+	shown.Title = safeText(res.Title, maxPrintedTitleRunes)
+	res = &shown
 	if asJson {
 		barr, err := json.MarshalIndent(res, "", "  ")
 		if err != nil {

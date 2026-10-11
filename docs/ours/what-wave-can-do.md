@@ -652,3 +652,12 @@ shown tab), then calls reload or the navigation history of those web contents. T
 - **NOT RUN in a window:** the commands against a real web tile, in a shown tab and in a tab that is loaded but not shown; whether `file:///C:/...` and `http://127.0.0.1:<port>/` pages load in a web tile. Reading
   only: the tile accepts `file:`, `http:` and `https:` addresses unchanged (`ensureUrlScheme`), a bare localhost or IP address gets `http://`, and the guest page is not blocked by the tab view's navigation handlers (they
   are on the tab view, not on the guest). A real run was not done because the owner's preview window is open and no window test is run while he is at the PC.
+
+Review fixes for section 36 (Codex on PR 47), each red without it:
+- **Authorization in the handler:** none of the three ids is taken on trust. The window asks the block's own record (`BlockInfoCommand`) and refuses unless the block is the one named, in the tab named, the tab in the workspace named, and a web tile (`authorizeWebNav`); this comes before any
+  web contents are looked up. Every caller is a block of the same user's Wave (wsh can already act on any block id), so there is no other owner to check.
+- **Schemes:** these commands reload, and step back and forward through, **http and https pages only**, checked on the history entry that the step would land on (`getEntryAtIndex`); a file:, data:, javascript:, devtools:, chrome:, view-source:, about: or unparsable entry
+  is refused with a message, nothing is navigated. What the tile itself accepts today (`ensureUrlScheme` in the web view): an address starting with http:, https: or file: is used as it is; localhost and IP addresses get http://; a domain gets https://; anything else becomes a
+  search. So a file: page can be opened in a tile (`wsh web open file:///...`) but these commands do not reload it or step back to it; say if file: is to be added to the allowed list (`AllowedNavSchemes`).
+- **Printed text:** the address and the title come from the page. The command prints every control, format and separator character as a visible `<U+XXXX>` code (so no terminal sequence reaches the terminal), in text and in JSON, and cuts the address at 2048 and the title at 200 characters
+  (the window cuts them too before it answers).

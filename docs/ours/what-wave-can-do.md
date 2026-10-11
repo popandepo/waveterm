@@ -515,7 +515,7 @@ running member, or the first one restored here). **It only prints the plan unles
   exit 1 and no wsh call: it cannot prove a session is not running.
 - **Never uses a bypass mode:** only `auto`, `default`, `acceptEdits` and `plan` are passed on; any other recorded mode (bypass,
   skip-permissions) is dropped with a NOTE and the session starts in its default mode. The script has no switch for it.
-- **RAN:** `tools/ours/Test-RestoreSessions.ps1` (stand-in wsh, made-up record and sessions folder, 28 checks incl. dry run calls nothing,
+- **RAN:** `tools/ours/Test-RestoreSessions.ps1` (stand-in wsh, made-up record and sessions folder; count the GREEN lines it prints, incl. dry run calls nothing,
   running skipped, dead pid and reused pid not counted, bypass and unknown modes dropped, a session that appears between the look and
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only

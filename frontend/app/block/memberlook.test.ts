@@ -102,7 +102,7 @@ describe("names and blocks that are gone", () => {
     test("a name with control characters or over 60 characters is refused, 60 passes", () => {
         assert.isNull(memberLookMeta("title", "a\nb"));
         assert.isNull(memberLookMeta("title", "a\u0000b"));
-        assert.isNull(memberLookMeta("title", "a‮b"));
+        assert.isNull(memberLookMeta("title", "a\u202eb"));
         assert.isNull(memberLookMeta("title", "x".repeat(61)));
         assert.deepEqual(memberLookMeta("title", "x".repeat(60)), { "frame:title": "x".repeat(60) });
     });

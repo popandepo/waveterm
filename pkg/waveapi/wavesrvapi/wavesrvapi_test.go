@@ -47,3 +47,9 @@ func TestStartInBackgroundSurvivesAFailureAndAPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestABlockWithoutAControllerHasNoStatus(t *testing.T) {
+	if s, c := statusOf("00000000-0000-0000-0000-000000000000"); s != "" || c != nil {
+		t.Fatalf("no controller means no status: %q %v", s, c)
+	}
+}

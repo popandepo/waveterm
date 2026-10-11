@@ -127,3 +127,60 @@ func TestAStoredObjectChangeReachesTheFile(t *testing.T) {
 		return contains(string(data), `"pwsh"`) && !contains(string(data), `"claude"`)
 	})
 }
+
+// A program exits: the controller publishes a controllerstatus event with the block in its scopes, and the file on disk then
+// shows the exit. Drives the real event path with a real store; only the program's state is stood in for.
+func TestAnExitEventReachesTheFile(t *testing.T) {
+	ctx := initTestStore(t)
+	block := &waveobj.Block{OID: uuid.NewString(), Meta: waveobj.MetaMapType{"view": "term", "cmd": "claude --resume x"}}
+	tab := &waveobj.Tab{OID: uuid.NewString(), Name: "T1", BlockIds: []string{block.OID}}
+	ws := &waveobj.Workspace{OID: uuid.NewString(), Name: "Work", Icon: "flask", Color: "#FF453A", TabIds: []string{tab.OID}, ActiveTabId: tab.OID}
+	for _, obj := range []waveobj.WaveObj{block, tab, ws} {
+		if err := wstore.DBInsert(ctx, obj); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	var state atomic.Value
+	state.Store("running")
+	old := procStatusOf
+	procStatusOf = func(blockId string) (string, *int) {
+		if state.Load().(string) == "exited" {
+			code := 5
+			return "exited", &code
+		}
+		return "running", nil
+	}
+	t.Cleanup(func() { procStatusOf = old })
+	path := filepath.Join(t.TempDir(), "state", "wave-state.json")
+	StartWith(path, func() (staterecord.Record, error) {
+		snap, err := loadSnapshot()
+		if err != nil {
+			return staterecord.Record{}, err
+		}
+		return staterecord.BuildRecord(snap), nil
+	}, 10*time.Millisecond)
+	waitFor(t, "the first record to say running", func() bool {
+		data, _ := os.ReadFile(path)
+		return contains(compact(data), `"status":"running"`)
+	})
+
+	state.Store("exited")
+	wps.Broker.Publish(wps.WaveEvent{
+		Event:  wps.Event_ControllerStatus,
+		Scopes: []string{waveobj.MakeORef(waveobj.OType_Tab, tab.OID).String(), waveobj.MakeORef(waveobj.OType_Block, block.OID).String()},
+	})
+	waitFor(t, "the file to show the exit", func() bool {
+		data, _ := os.ReadFile(path)
+		return contains(compact(data), `"status":"exited"`) && contains(compact(data), `"exitcode":5`)
+	})
+}
+
+func compact(data []byte) string {
+	out := make([]byte, 0, len(data))
+	for _, b := range data {
+		if b != ' ' && b != '\n' && b != '\r' && b != '\t' {
+			out = append(out, b)
+		}
+	}
+	return string(out)
+}

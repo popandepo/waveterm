@@ -283,3 +283,15 @@ func TestOnlyPostIsAccepted(t *testing.T) {
 		t.Fatalf("calls made: %v", fb.calls)
 	}
 }
+
+func TestStatusIsOnlyInTheJSONWhenKnown(t *testing.T) {
+	code := 0
+	withStatus, _ := json.Marshal(Block{BlockId: "b", Status: "exited", ExitCode: &code})
+	if !strings.Contains(string(withStatus), `"status":"exited"`) || !strings.Contains(string(withStatus), `"exitcode":0`) {
+		t.Fatalf("an exit code of 0 must still be written: %s", withStatus)
+	}
+	without, _ := json.Marshal(Block{BlockId: "b"})
+	if strings.Contains(string(without), "status") || strings.Contains(string(without), "exitcode") {
+		t.Fatalf("unknown status must not be written: %s", without)
+	}
+}

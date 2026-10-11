@@ -188,7 +188,7 @@ class P {
         if (Environment.GetEnvironmentVariable("SWAP_HANG") == "1") Thread.Sleep(20000);
         if (Environment.GetEnvironmentVariable("SWAP_FAIL") == "1") return 1;
         string o = Environment.GetEnvironmentVariable("SWAP_OUTPUT");
-        if (Environment.GetEnvironmentVariable("SWAP_FLOOD") == "1") { for (int i = 0; i < 400; i++) Console.Out.WriteLine("$env:EVIL = \"" + new string('x', 1000) + "\""); return 0; }
+        if (Environment.GetEnvironmentVariable("SWAP_FLOOD") == "1") { for (int i = 0; i < 400; i++) Console.Out.WriteLine("$env:EVIL = \"" + new string('x', 1000) + "\""); Console.Out.WriteLine("$env:WAVETERM_BLOCKID = \"block-flood\""); return 0; }
         if (o != null) Console.Out.Write(File.ReadAllText(o));
         if (Environment.GetEnvironmentVariable("SWAP_CHILD_PIPE") == "1") { Console.Out.Flush(); var si = new System.Diagnostics.ProcessStartInfo("ping", "-n 15 127.0.0.1"); si.UseShellExecute = false; System.Diagnostics.Process.Start(si); return 0; }
         if (Environment.GetEnvironmentVariable("SWAP_FAIL_AFTER") == "1") return 1;
@@ -303,6 +303,10 @@ class P {
     $r = Run-Child 'swap' $cfg '' '' $swapDir
     Check 'an output above 256 KB is refused as a whole (nothing from it is taken)' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text.Substring(0, [Math]::Min(300, $r.Text.Length)))"
     Remove-Item Env:SWAP_FLOOD -ErrorAction SilentlyContinue
+    $starterSrc = Get-Content -LiteralPath $script -Raw
+    $fnStart = $starterSrc.IndexOf('function Resolve-WshFolder')
+    $fnBody = $starterSrc.Substring($fnStart, $starterSrc.IndexOf('# ---- the rest', $fnStart) - $fnStart)
+    Check 'the folder of wsh is refused by its plain spelling BEFORE any file system call (order pinned in the source: the equivalent final-path result cannot show it)' (($fnBody.IndexOf('Test-PlainlyForbidden') -ge 0) -and ($fnBody.IndexOf('Test-PlainlyForbidden') -lt $fnBody.IndexOf('Test-Path')) -and ($fnBody.IndexOf('Test-Path') -lt $fnBody.IndexOf('Get-FinalPath'))) ''
     Remove-Item Env:RESUMABLE_TEST_SWAPTIMEOUT -ErrorAction SilentlyContinue
     # a line above 16 KB is ignored, the lines next to it are taken
     $bigFile = Join-Path $root 'swap-big.txt'

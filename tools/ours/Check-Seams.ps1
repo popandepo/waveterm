@@ -137,6 +137,8 @@ $watch = @(
     @('upstream-electron-tab-rpc', 'grep', 'pkg/wshrpc', 'Electron(Create|SetActive|Close)Tab|Tab(Create|Close|Switch|Rename)Command', 'upstream added tab RPCs; ours may collide by name or meaning'),
     @('upstream-tab-group', 'grep', 'frontend', 'tabgroup|tab-group|TabGroup|activeChildId', 'upstream added tab grouping or a stack concept'),
     @('upstream-layout-kind', 'grep', 'frontend/layout/lib/types.ts', 'kind\??:|nodeType', 'layout nodes gained a kind; our stack node may collide'),
+    @('upstream-confirm-close-tab', 'grep', 'frontend/app', 'confirmclosetab', 'upstream added its own close-tab confirmation (open PR 2678); ours asks always when blocks exist and re-checks the count in the back end'),
+    @('upstream-newtablayout', 'grep', 'pkg/wconfig', 'newtablayout', 'upstream added a layout for new tabs (open PR 3117); check that a template cannot make a node our balance guard dislikes'),
     @('upstream-tab-bar-icons', 'grep', 'frontend/app/tab/tabbar-model.ts', 'icon|symbol|emoji', 'tab bar model changed around icons')
 )
 
@@ -149,8 +151,8 @@ else {
     catch { Write-Host "FATAL: the expected ids could not be read ($expectedFile): $($_.Exception.Message)"; exit 1 }
     $expected = @($lines | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() })
     if ($expected.Count -eq 0) { Write-Host "FATAL: $expectedFile holds no ids, so it protects nothing"; exit 1 }
-    $have = @($seams | ForEach-Object { $_[0] })
-    foreach ($e in $expected) { if ($have -notcontains $e) { Write-Host "RED   $e : in seams-expected.txt but missing from the seam list (row dropped?)"; $red++ } }
+    $have = @($seams | ForEach-Object { $_[0] }) + @($watch | ForEach-Object { $_[0] })
+    foreach ($e in $expected) { if ($have -notcontains $e) { Write-Host "RED   $e : in seams-expected.txt but missing from the seam and watch lists (row dropped?)"; $red++ } }
     foreach ($h in $have) { if ($expected -notcontains $h) { Write-Host "NOTE  $h : in the seam list but not in seams-expected.txt (not protected against being dropped)" } }
     Write-Host "expected ids: $($expected.Count)"
 }

@@ -11,7 +11,7 @@ import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
-import { replaceEphemeral } from "./ephemeralreplace";
+import { discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -1553,9 +1553,7 @@ export class LayoutModel {
             return;
         }
         if (this.ephemeralReplaceOpen) {
-            fireAndForget(async () => {
-                await this.onNodeDelete?.({ blockId } as TabLayoutData);
-            });
+            fireAndForget(() => discardEphemeralBlock(this.onNodeDelete, blockId));
             return;
         }
         this.ephemeralReplaceOpen = true;
@@ -1565,9 +1563,7 @@ export class LayoutModel {
                     closeAfterConfirm: this.closeBlockAfterConfirm,
                     closePrevious: () => this.closeNode(previous.id),
                     showNew: () => this.showEphemeralNode(blockId),
-                    discardNew: async () => {
-                        await this.onNodeDelete?.({ blockId } as TabLayoutData);
-                    },
+                    discardNew: () => discardEphemeralBlock(this.onNodeDelete, blockId),
                 });
             } finally {
                 this.ephemeralReplaceOpen = false;

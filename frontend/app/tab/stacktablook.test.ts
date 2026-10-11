@@ -60,7 +60,7 @@ describe("colours with a window (CSS.supports stands in for the browser)", () =>
     });
 
     test("a newline or another control character inside an otherwise valid colour is refused, with or without a window", () => {
-        for (const bad of ["rgb(255,\n0,0)", "rgb(255,\r0,0)", "rgb(255,\t0,0)", "#f​00", "red\u0000", "rgb(255,  0,0)"]) {
+        for (const bad of ["rgb(255,\n0,0)", "rgb(255,\r0,0)", "rgb(255,\t0,0)", "#f\u200b00", "red\u0000", "rgb(255,\u2028 0,0)"]) {
             assert.isNull(memberColorValue(bad), JSON.stringify(bad));
         }
         vi.stubGlobal("CSS", { supports: () => true });

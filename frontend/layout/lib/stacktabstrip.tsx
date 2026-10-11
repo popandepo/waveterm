@@ -9,6 +9,7 @@ import { useDrag, useDrop } from "react-dnd";
 import { tileItemType } from "./dndtypes";
 import type { LayoutModel } from "./layoutModel";
 import { tabDropAction } from "./layoutTree";
+import { closeStripTab } from "./stackclose";
 import { buildStripTabs, stripsToShow } from "./stackgeometry";
 import type { LayoutNode, LayoutNodeAdditionalProps } from "./types";
 import { setTransform } from "./utils";
@@ -81,13 +82,11 @@ const StripTab = memo(
                     title="Close this tab and its terminal"
                     onClick={(e) => {
                         e.stopPropagation();
-                        fireAndForget(async () => {
-                            // A strip without the question closes nothing: a missing callback is not permission.
-                            if ((await layoutModel.confirmCloseBlock?.(tab.blockId)) !== true) {
-                                return;
-                            }
-                            await layoutModel.closeNode(tab.nodeId);
-                        });
+                        fireAndForget(() =>
+                            closeStripTab(layoutModel.closeBlockAfterConfirm, tab.blockId, tab.nodeId, (id) =>
+                                layoutModel.closeNode(id)
+                            )
+                        );
                     }}
                 >
                     <i className="fa-sharp fa-solid fa-xmark" />

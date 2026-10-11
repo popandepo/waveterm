@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { WaveAIModel } from "@/app/aipanel/waveai-model";
-import { closeBlockAfterConfirm, closeUnidentifiedAfterConfirm } from "@/app/store/closeblock";
+import { closeBlockAfterConfirm, closeFocusedBlockByUser } from "@/app/store/closeblock";
 import { FocusManager } from "@/app/store/focusManager";
 import {
     atoms,
@@ -228,13 +228,12 @@ function genericClose() {
     // closes (or nothing closes), never another one that was not asked about.
     const nodeId = focusedNode?.id;
     fireAndForget(async () => {
-        let closed: boolean;
-        if (blockId == null || nodeId == null) {
-            // the block cannot be identified: it is always asked about
-            closed = await closeUnidentifiedAfterConfirm(() => layoutModel.closeFocusedNode());
-        } else {
-            closed = await closeBlockAfterConfirm(blockId, () => layoutModel.closeNode(nodeId));
-        }
+        const closed = await closeFocusedBlockByUser({
+            blockId,
+            nodeId,
+            closeNode: (id) => layoutModel.closeNode(id),
+            closeFocused: () => layoutModel.closeFocusedNode(),
+        });
         if (closed && isAIFileDiff && isAIPanelOpen) {
             setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
         }

@@ -437,8 +437,8 @@ menu and the close key did the same (upstream behaviour). Now all three ask firs
 (`GetControllerStatus`, the same state as `status` in `wsh api list`) for the views that have programs (`term`, `tsunami`, `vdom`): `running` asks;
 only `done` (ended) and `init` (not started), or a view that is KNOWN to have no program (the list of the registered views of this build, in
 `closeblock.ts`: web, preview, files, sysinfo, help, ...; a view name that is in neither list, such as one added by a later upstream version, asks), close silently. Anything else asks: a controller that
-is missing for a terminal, an empty or unknown state, a state that cannot be read, a view that cannot be read. Only one box per block at a time (a
-second click on the X while the box is open does nothing); the block that was asked about is the one that closes, even if focus moves
+is missing for a terminal, an empty or unknown state, a state that cannot be read, a view that cannot be read. Only one box per block at a time, held from the question until the close has finished (a
+second click on the X while the box is open, or while the close is running, does nothing); the block that was asked about is the one that closes, even if focus moves
 while the box is open; Cancel touches nothing. The box is shown only to a Wave tab view (a web tile cannot reach it). **Named exception:** a
 command (`wsh deleteblock`, the backend delete action, the local API) never asks, because nobody is there to answer; it is a different thing from
 a click on an X, and a test pins that the delete case and `closeNode` do not call the question. The last block of a tab still goes through the tab question. A block closed by

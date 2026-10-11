@@ -72,13 +72,9 @@ const DefaultDeps: ConfirmCloseDeps = {
 // the caller does nothing), not another box.
 const pendingQuestions = new Set<string>();
 
-// Resolves with whether the block may be closed now.
-export async function confirmCloseBlock(blockId: string, deps: ConfirmCloseDeps = DefaultDeps): Promise<boolean> {
-    if (pendingQuestions.has(blockId)) {
-        return false;
-    }
-    pendingQuestions.add(blockId);
-    try {
+// The question itself, without the one-per-block lock (the callers hold it).
+async function askAboutBlock(blockId: string, deps: ConfirmCloseDeps): Promise<boolean> {
+    {
         let view: string | null | undefined = null;
         let status: string | null | undefined = null;
         let readFailed = false;
@@ -102,6 +98,18 @@ export async function confirmCloseBlock(blockId: string, deps: ConfirmCloseDeps 
             console.log("confirm close block: the question could not be shown, keeping the block", e);
             return false;
         }
+    }
+}
+
+// Resolves with whether the block may be closed now. (Callers that go on to close should use closeBlockAfterConfirm, which holds the
+// lock through the close.)
+export async function confirmCloseBlock(blockId: string, deps: ConfirmCloseDeps = DefaultDeps): Promise<boolean> {
+    if (pendingQuestions.has(blockId)) {
+        return false;
+    }
+    pendingQuestions.add(blockId);
+    try {
+        return await askAboutBlock(blockId, deps);
     } finally {
         pendingQuestions.delete(blockId);
     }
@@ -134,9 +142,36 @@ export async function closeBlockAfterConfirm(
     close: () => Promise<void> | void,
     deps: ConfirmCloseDeps = DefaultDeps
 ): Promise<boolean> {
-    if (!(await confirmCloseBlock(blockId, deps))) {
+    // the lock for this block is held from the question until the close has finished: a second X during the close asks nothing and closes nothing
+    if (pendingQuestions.has(blockId)) {
         return false;
     }
-    await close();
-    return true;
+    pendingQuestions.add(blockId);
+    try {
+        if (!(await askAboutBlock(blockId, deps))) {
+            return false;
+        }
+        await close();
+        return true;
+    } finally {
+        pendingQuestions.delete(blockId);
+    }
+}
+
+// The close of the focused block by the user (Ctrl+Shift+W): the block and its node are chosen BEFORE the question; a block that cannot be
+// identified is always asked about. Resolves with whether something was closed.
+export async function closeFocusedBlockByUser(
+    target: {
+        blockId?: string | null;
+        nodeId?: string | null;
+        closeNode: (nodeId: string) => Promise<void> | void;
+        closeFocused: () => Promise<void> | void;
+    },
+    deps: ConfirmCloseDeps = DefaultDeps
+): Promise<boolean> {
+    const { blockId, nodeId } = target;
+    if (blockId == null || nodeId == null) {
+        return await closeUnidentifiedAfterConfirm(target.closeFocused, deps.ask);
+    }
+    return await closeBlockAfterConfirm(blockId, () => target.closeNode(nodeId), deps);
 }

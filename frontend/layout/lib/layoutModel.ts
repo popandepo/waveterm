@@ -145,9 +145,9 @@ export class LayoutModel {
     onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
 
     /**
-     * Asked before the X of a stack member closes its block; resolves with whether to go on (a running program asks).
+     * Closes a block after the question when a program is running (the X of a stack member); holds one question per block through the close.
      */
-    confirmCloseBlock?: (blockId: string) => Promise<boolean>;
+    closeBlockAfterConfirm?: (blockId: string, close: () => Promise<void> | void) => Promise<boolean>;
     /**
      * Callback that is invoked when a node is closed.
      */
@@ -728,7 +728,7 @@ export class LayoutModel {
         this.renderPreview = contents.renderPreview;
         this.renderStackTabLabel = contents.renderStackTabLabel;
         this.onStackAdd = contents.onStackAdd;
-        this.confirmCloseBlock = contents.confirmCloseBlock;
+        this.closeBlockAfterConfirm = contents.closeBlockAfterConfirm;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {
             this.setter(this.gapSizePx, contents.gapSizePx);

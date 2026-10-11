@@ -12,15 +12,19 @@ let closeBlockQuestion: any;
 let confirmCloseBlock: any;
 let closeBlockAfterConfirm: any;
 let closeUnidentifiedAfterConfirm: any;
+let closeFocusedBlockByUser: any;
+let closeStripTab: any;
 let RunningBlockQuestion: string;
 let UnknownBlockQuestion: string;
 
 beforeAll(async () => {
+    ({ closeStripTab } = await import("../../layout/lib/stackclose"));
     ({
         closeBlockQuestion,
         confirmCloseBlock,
         closeBlockAfterConfirm,
         closeUnidentifiedAfterConfirm,
+        closeFocusedBlockByUser,
         RunningBlockQuestion,
         UnknownBlockQuestion,
     } = await import("./closeblock"));
@@ -227,20 +231,138 @@ describe("a close that cannot name the block", () => {
     });
 });
 
+// The user routes run with a block whose program is running: nothing is closed before the answer, and one answer closes once.
+describe("each user route with a running block", () => {
+    function route() {
+        const closedNodes: string[] = [];
+        let answer: (v: boolean) => void = () => {};
+        const open = new Promise<boolean>((r) => (answer = r));
+        const t = deps("term", { shellprocstatus: "running" }, open);
+        const closeNode = async (id: string) => void closedNodes.push(id);
+        const settle = async () => {
+            for (let i = 0; i < 20; i++) await Promise.resolve();
+        };
+        return { t, closedNodes, closeNode, answer: (v: boolean) => answer(v), settle };
+    }
+
+    test("the X of a stack member: nothing is closed before the answer, a yes closes once, Cancel closes nothing", async () => {
+        const yes = route();
+        const hook = (blockId: string, close: () => Promise<void> | void) =>
+            closeBlockAfterConfirm(blockId, close, yes.t.deps);
+        const pending = closeStripTab(hook, "blk", "node-1", yes.closeNode);
+        await yes.settle();
+        expect(yes.closedNodes).toEqual([]);
+        expect(yes.t.asked).toEqual([RunningBlockQuestion]);
+        yes.answer(true);
+        expect(await pending).toBe(true);
+        expect(yes.closedNodes).toEqual(["node-1"]);
+
+        const no = route();
+        const hookNo = (blockId: string, close: () => Promise<void> | void) =>
+            closeBlockAfterConfirm(blockId, close, no.t.deps);
+        const cancelled = closeStripTab(hookNo, "blk2", "node-2", no.closeNode);
+        await no.settle();
+        no.answer(false);
+        expect(await cancelled).toBe(false);
+        expect(no.closedNodes).toEqual([]);
+    });
+
+    test("a strip without the question closes nothing", async () => {
+        const closed: string[] = [];
+        expect(await closeStripTab(undefined, "blk", "node-1", (id: string) => void closed.push(id))).toBe(false);
+        expect(closed).toEqual([]);
+    });
+
+    test("a second X on the strip, while the box is open or while the close is running, does not ask again and does not close twice", async () => {
+        const r = route();
+        const hook = (blockId: string, close: () => Promise<void> | void) =>
+            closeBlockAfterConfirm(blockId, close, r.t.deps);
+        let finishClose: () => void = () => {};
+        const closing = new Promise<void>((res) => (finishClose = res));
+        const slowClose = async (id: string) => {
+            r.closedNodes.push(id);
+            await closing;
+        };
+        const first = closeStripTab(hook, "same", "node-1", slowClose);
+        await r.settle();
+        expect(await closeStripTab(hook, "same", "node-1", slowClose)).toBe(false);
+        r.answer(true);
+        await r.settle();
+        expect(r.closedNodes).toEqual(["node-1"]);
+        // the box is answered and the close has started but not finished: another X still asks nothing and closes nothing
+        expect(await closeStripTab(hook, "same", "node-1", slowClose)).toBe(false);
+        expect(r.t.asked.length).toBe(1);
+        finishClose();
+        expect(await first).toBe(true);
+        expect(r.closedNodes).toEqual(["node-1"]);
+    });
+
+    test("the close key: the node chosen before the question closes after a yes, nothing before it, also when focus moved", async () => {
+        const r = route();
+        const layout = { focused: "node-A" };
+        const pending = closeFocusedBlockByUser(
+            {
+                blockId: "block-A",
+                nodeId: layout.focused,
+                closeNode: r.closeNode,
+                closeFocused: async () => void r.closedNodes.push("FOCUSED"),
+            },
+            r.t.deps
+        );
+        await r.settle();
+        layout.focused = "node-B";
+        expect(r.closedNodes).toEqual([]);
+        r.answer(true);
+        expect(await pending).toBe(true);
+        expect(r.closedNodes).toEqual(["node-A"]);
+    });
+
+    test("the close key with no identifiable block always asks, and closes the focused one only after a yes", async () => {
+        for (const target of [
+            { blockId: null, nodeId: "n" },
+            { blockId: "b", nodeId: null },
+            { blockId: undefined, nodeId: undefined },
+        ]) {
+            const r = route();
+            const pending = closeFocusedBlockByUser(
+                { ...target, closeNode: r.closeNode, closeFocused: async () => void r.closedNodes.push("FOCUSED") },
+                r.t.deps
+            );
+            await r.settle();
+            expect(r.closedNodes).toEqual([]);
+            expect(r.t.asked).toEqual([UnknownBlockQuestion]);
+            r.answer(true);
+            expect(await pending).toBe(true);
+            expect(r.closedNodes).toEqual(["FOCUSED"]);
+        }
+    });
+
+    test("the header menu route (one block, closed by id after a yes) and Cancel", async () => {
+        const r = route();
+        const pending = closeBlockAfterConfirm("blk", () => r.closeNode("node-9"), r.t.deps);
+        await r.settle();
+        expect(r.closedNodes).toEqual([]);
+        r.answer(false);
+        expect(await pending).toBe(false);
+        expect(r.closedNodes).toEqual([]);
+    });
+});
+
 describe("the routes", () => {
     const read = (rel: string) => readFileSync(path.join(__dirname, "..", "..", "..", rel), "utf8");
 
     test("the stack member X, the header menu and key, and the focused-block close go through the question", () => {
-        expect(read("frontend/layout/lib/stacktabstrip.tsx")).toContain("layoutModel.confirmCloseBlock");
+        expect(read("frontend/layout/lib/stacktabstrip.tsx")).toContain(
+            "closeStripTab(layoutModel.closeBlockAfterConfirm"
+        );
         const keymodel = read("frontend/app/store/keymodel.ts");
         const ux = keymodel.slice(keymodel.indexOf("function uxCloseBlock"), keymodel.indexOf("function genericClose"));
         expect(ux).toContain("closeBlockAfterConfirm(blockId, () => layoutModel.closeNode(node.id))");
         const generic = keymodel.slice(keymodel.indexOf("function genericClose"));
-        expect(generic).toContain("closeBlockAfterConfirm(");
+        expect(generic).toContain("closeFocusedBlockByUser(");
         expect(generic).toContain("const nodeId = focusedNode?.id;");
-        expect(generic).toContain("closeUnidentifiedAfterConfirm(() => layoutModel.closeFocusedNode())");
-        expect(read("frontend/layout/lib/stacktabstrip.tsx")).toContain("!== true");
-        expect(read("frontend/app/tab/tabcontent.tsx")).toContain("confirmCloseBlock,");
+        expect(generic).toContain("closeFocusedBlockByUser({");
+        expect(read("frontend/app/tab/tabcontent.tsx")).toContain("closeBlockAfterConfirm,");
     });
 
     test("the last block of a tab goes through the tab question only, before the block question can be asked", () => {
@@ -249,7 +371,7 @@ describe("the routes", () => {
         expect(ux.indexOf("getStaticTabBlockCount() === 1")).toBeGreaterThan(-1);
         expect(ux.lastIndexOf("simpleCloseStaticTab()")).toBeLessThan(ux.indexOf("closeBlockAfterConfirm("));
         const generic = keymodel.slice(keymodel.indexOf("function genericClose"));
-        expect(generic.indexOf("blockCount === 1")).toBeLessThan(generic.indexOf("closeBlockAfterConfirm("));
+        expect(generic.indexOf("blockCount === 1")).toBeLessThan(generic.indexOf("closeFocusedBlockByUser("));
     });
 
     test("the AI input is refocused only when the block was closed, not on Cancel", () => {

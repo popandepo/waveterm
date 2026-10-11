@@ -11,7 +11,7 @@ import { CenteredDiv } from "@/element/quickelems";
 import { ContentRenderer, NodeModel, PreviewRenderer, TileLayout } from "@/layout/index";
 import type { LayoutModel } from "@/layout/lib/layoutModel";
 import { TileLayoutContents } from "@/layout/lib/types";
-import { confirmCloseBlock } from "@/app/store/closeblock";
+import { closeBlockAfterConfirm } from "@/app/store/closeblock";
 import { atoms, createBlockInStack, getApi } from "@/store/global";
 import * as services from "@/store/services";
 import * as WOS from "@/store/wos";
@@ -69,7 +69,7 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
             renderPreview,
             renderStackTabLabel,
             onStackAdd,
-            confirmCloseBlock,
+            closeBlockAfterConfirm,
             tabId,
             onNodeDelete,
             gapSizePx: tileGapSize,

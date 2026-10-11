@@ -38,6 +38,7 @@ import {
     unstackNode,
 } from "./layoutTree";
 import { applyStackLayout, canLayoutAsStack, stripTargetBelongsTo } from "./stackgeometry";
+import type { StripDropTarget } from "./stripdrop";
 import {
     ContentRenderer,
     FlexDirection,
@@ -271,7 +272,7 @@ export class LayoutModel {
      */
     private isContainerResizing: PrimitiveAtom<boolean>;
     // The tab of a strip that a dragged tab or tile is over right now (node id), for the drop indicator on that tab.
-    stripDropTarget: PrimitiveAtom<string>;
+    stripDropTarget: PrimitiveAtom<StripDropTarget | null>;
 
     constructor(
         tabAtom: Atom<Tab>,
@@ -322,7 +323,7 @@ export class LayoutModel {
 
         this.nodeModels = new Map();
         this.additionalProps = atom({});
-        this.stripDropTarget = atom(null) as PrimitiveAtom<string>;
+        this.stripDropTarget = atom(null) as PrimitiveAtom<StripDropTarget | null>;
 
         const resizeHandleListAtom = atom((get) => {
             const addlProps = get(this.additionalProps);
@@ -1606,14 +1607,15 @@ export class LayoutModel {
      * Callback that is invoked when a drag operation completes and the pending action should be committed.
      */
     clearStripPending(stackOrder: string[]) {
-        if (stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget))) {
+        if (stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget)?.nodeId)) {
             this.treeReducer({ type: LayoutTreeActionType.ClearPendingAction });
         }
     }
 
-    setStripDropTarget(nodeId: string | null) {
-        if (this.getter(this.stripDropTarget) !== nodeId) {
-            this.setter(this.stripDropTarget, nodeId);
+    setStripDropTarget(target: StripDropTarget | null) {
+        const current = this.getter(this.stripDropTarget);
+        if (current?.nodeId !== target?.nodeId || current?.side !== target?.side) {
+            this.setter(this.stripDropTarget, target);
         }
     }
 

@@ -21,8 +21,8 @@ import { DropTargetMonitor, XYCoord, useDrag, useDragLayer, useDrop } from "reac
 import { debounce, throttle } from "throttle-debounce";
 import { useDevicePixelRatio } from "use-device-pixel-ratio";
 import { LayoutModel } from "./layoutModel";
-import { tabDropAction } from "./layoutTree";
-import { StripTabRect, stripsToShow, stripTabAt } from "./stackgeometry";
+import { StripTabRect, stripsToShow } from "./stackgeometry";
+import { applyStripHover } from "./stripdrop";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
 import "./stackstrip.scss";
 import { tileItemType } from "./dndtypes";
@@ -407,14 +407,18 @@ const OverlayStrip = memo(({ layoutModel, stackId, props }: OverlayStripProps) =
                     const r = el.getBoundingClientRect();
                     return { nodeId: el.dataset.nodeid, left: r.left, right: r.right };
                 });
-                const target = pointer ? stripTabAt(tabs, pointer.x) : undefined;
-                const action = target && dragItem ? tabDropAction(layoutModel.treeState.rootNode, dragItem.id, target) : undefined;
-                if (!action) {
-                    layoutModel.treeReducer({ type: LayoutTreeActionType.ClearPendingAction });
-                    return;
-                }
-                layoutModel.treeReducer({ type: LayoutTreeActionType.SetPendingAction, action } as LayoutTreeSetPendingAction);
-                layoutModel.setStripDropTarget(target);
+                applyStripHover(
+                    {
+                        setPending: (action) =>
+                            layoutModel.treeReducer({ type: LayoutTreeActionType.SetPendingAction, action } as LayoutTreeSetPendingAction),
+                        clearPending: () => layoutModel.treeReducer({ type: LayoutTreeActionType.ClearPendingAction }),
+                        setTarget: (target) => layoutModel.setStripDropTarget(target),
+                    },
+                    layoutModel.treeState.rootNode,
+                    dragItem?.id,
+                    tabs,
+                    pointer?.x
+                );
             }),
         }),
         [layoutModel, stackId]

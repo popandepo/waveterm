@@ -1143,13 +1143,13 @@ describe("which tab of a strip the pointer is over (drop onto a strip)", () => {
         assert.include(strip, "collect: (monitor) => ({ isOver: monitor.isOver({ shallow: true }) })");
         assert.include(strip, "layoutModel.clearStripPending(props.stack.order)");
         const model = readFileSync(path.join(__dirname, "..", "lib", "layoutModel.ts"), "utf8");
-        assert.include(model, "stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget))");
+        assert.include(model, "stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget)?.nodeId)");
     });
     test("the wiring: the strip has its own drop target in the overlay, the tab itself has none, and a move computed elsewhere clears the indicator", () => {
         const read = (rel: string) => readFileSync(path.join(__dirname, "..", "lib", rel), "utf8");
         const tile = read("TileLayout.tsx");
         assert.include(tile, '<OverlayStrip key={"strip-" + stackId}');
-        assert.include(tile, "stripTabAt(tabs, pointer.x)");
+        assert.include(tile, "applyStripHover(");
         assert.notInclude(read("stacktabstrip.tsx"), "useDrop(");
         const model = read("layoutModel.ts");
         const computeMove = model.slice(model.indexOf("case LayoutTreeActionType.ComputeMove:"));

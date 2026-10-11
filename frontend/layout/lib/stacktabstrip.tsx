@@ -46,7 +46,8 @@ const StripTab = memo(
         // The drop side lives in the overlay (OverlayStrip in TileLayout.tsx): during a drag the overlay covers the strip, so a drop
         // target on the tab itself would never see the pointer.
         const dropTarget = useAtomValue(layoutModel.stripDropTarget);
-        const isOver = dropTarget === tab.nodeId;
+        const isOver = dropTarget?.nodeId === tab.nodeId;
+        const dropSide = isOver ? dropTarget.side : null;
         useEffect(() => {
             drag(tabRef);
         }, [drag]);
@@ -58,6 +59,8 @@ const StripTab = memo(
                     focused: tab.focused,
                     dragging: isDragging,
                     "drop-over": isOver,
+                    "drop-before": dropSide === "before",
+                    "drop-after": dropSide === "after",
                 })}
                 data-blockid={tab.blockId}
                 data-nodeid={tab.nodeId}

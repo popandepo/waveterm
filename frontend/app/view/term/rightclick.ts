@@ -92,3 +92,16 @@ export function runRightClick(d: RightClickDeps): boolean {
         .catch((e) => console.log("right click copy: the clipboard did not take the text, the selection stays", e));
     return true;
 }
+
+// Shift or Ctrl held on the right click: the context menu opens.
+export function menuModifierOf(e: { shiftKey?: boolean; ctrlKey?: boolean }): boolean {
+    return !!(e.shiftKey || e.ctrlKey);
+}
+
+// Whether the element that holds the keyboard focus is inside the given container (this terminal's element).
+export function isFocusInside(
+    active: object | null | undefined,
+    container: { contains(n: any): boolean } | null | undefined
+): boolean {
+    return active != null && container != null && container.contains(active);
+}

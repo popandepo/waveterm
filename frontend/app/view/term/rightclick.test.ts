@@ -215,3 +215,51 @@ describe("the wiring", () => {
         expect(read("docs/docs/config.mdx")).toContain("term:rightclickpaste");
     });
 });
+
+describe("the focus and modifier checks that the wiring uses", () => {
+    test("the keyboard focus must be INSIDE this terminal's element: another element, nothing, or no container is not enough", async () => {
+        const { isFocusInside } = await import("./rightclick");
+        const inside = { id: "in" };
+        const outside = { id: "out" };
+        const terminalA = { contains: (n: any) => n === inside };
+        expect(isFocusInside(inside, terminalA)).toBe(true);
+        expect(isFocusInside(outside, terminalA)).toBe(false);
+        expect(isFocusInside(null, terminalA)).toBe(false);
+        expect(isFocusInside(inside, null)).toBe(false);
+        expect(isFocusInside(undefined, undefined)).toBe(false);
+    });
+
+    test("Shift or Ctrl on the click means the menu; nothing or Alt alone does not", async () => {
+        const { menuModifierOf } = await import("./rightclick");
+        expect(menuModifierOf({ shiftKey: true })).toBe(true);
+        expect(menuModifierOf({ ctrlKey: true })).toBe(true);
+        expect(menuModifierOf({ shiftKey: true, ctrlKey: true })).toBe(true);
+        expect(menuModifierOf({})).toBe(false);
+        expect(menuModifierOf({ shiftKey: false, ctrlKey: false })).toBe(false);
+    });
+
+    test("a copy that did not put anything on the clipboard (it returned false) does not clear the selection", async () => {
+        const cleared: string[] = [];
+        runRightClick({
+            rightClickPaste: true,
+            hasSelection: true,
+            programTakesMouse: false,
+            menuModifier: false,
+            focusThisTerminal: () => {},
+            isThisTerminalFocused: () => true,
+            nativePaste: () => {},
+            copySelection: async () => false,
+            clearSelection: () => void cleared.push("cleared"),
+        });
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        expect(cleared).toEqual([]);
+    });
+
+    test("the handlers use the helpers", () => {
+        const read = (rel: string) => readFileSync(path.join(__dirname, "..", "..", "..", "..", rel), "utf8");
+        expect(read("frontend/app/view/term/term.tsx")).toContain("model.handleRightClick(menuModifierOf(e))");
+        expect(read("frontend/app/view/term/term-model.ts")).toContain(
+            "isFocusInside(document.activeElement, terminal.element)"
+        );
+    });
+});

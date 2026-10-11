@@ -40,7 +40,7 @@ import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
-import { runRightClick } from "./rightclick";
+import { isFocusInside, runRightClick } from "./rightclick";
 import { computeTheme, DefaultTermTheme, isLikelyOnSameHost, trimTerminalSelection } from "./termutil";
 import { TermWrap, WebGLSupported } from "./termwrap";
 
@@ -842,8 +842,7 @@ export class TermViewModel implements ViewModel {
                 terminal.focus();
             },
             isThisTerminalFocused: () => {
-                const active = document.activeElement;
-                return active != null && !!terminal.element?.contains(active);
+                return isFocusInside(document.activeElement, terminal.element);
             },
             nativePaste: () => getApi().nativePaste(),
             copySelection: async () => {

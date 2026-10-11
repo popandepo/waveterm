@@ -7,6 +7,7 @@ api-path-rpc
 api-set-active-tab-rpc
 api-set-block-focus-rpc
 api-startup-hook
+attention-clearing
 attention-meta-keys
 autoupdate-default-off
 badge-store-memory
@@ -76,6 +77,7 @@ telemetry-default-off
 telemetry-setting
 theme-accent-scss
 theme-accent-tailwind
+top-tab-colour
 updater-fallback-off
 upstream-confirm-close-tab
 upstream-electron-tab-rpc
@@ -87,6 +89,7 @@ upstream-tab-commands
 upstream-tab-files
 upstream-tab-group
 upstream-tab-icon
+window-outline
 window-queue-close-tab
 window-set-active-tab
 workspace-atom

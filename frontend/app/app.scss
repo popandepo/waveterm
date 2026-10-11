@@ -22,6 +22,16 @@ body {
     transform: translateZ(0);
 }
 
+.window-outline {
+    position: fixed;
+    inset: 0;
+    box-sizing: border-box;
+    border-style: solid;
+    pointer-events: none;
+    // above the content, below the modals and the typeaheads
+    z-index: 50;
+}
+
 .is-transparent {
     background-color: transparent;
 }

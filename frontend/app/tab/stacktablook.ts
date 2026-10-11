@@ -9,21 +9,43 @@ export interface StackTabLook {
     color: string | null;
 }
 
-function colorOrNull(raw: unknown, validate: (c: string) => string): string | null {
-    if (typeof raw !== "string" || raw.trim() === "") {
+const MaxColorLength = 64;
+const HexColorShape = /^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i;
+// A colour function with plain arguments: no nested parentheses, so no var(), url(), calc() or the like.
+const FunctionColorShape = /^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([\d\s.,%/a-z+-]*\)$/i;
+const KeywordColorShape = /^[a-z]{3,30}$/i;
+
+// The one place where a colour from block meta (which any program can write) is checked before it is used as a style. The shape check works
+// everywhere; where a window exists, CSS.supports must also accept the value (so a keyword that is not a colour is refused there).
+export function memberColorValue(raw: unknown, validate: (c: string) => string = validateCssColor): string | null {
+    if (typeof raw !== "string") {
         return null;
     }
-    try {
-        validate(raw);
-        return raw.trim();
-    } catch {
+    const value = raw.trim();
+    if (value === "" || value.length > MaxColorLength) {
         return null;
     }
+    if (!HexColorShape.test(value) && !FunctionColorShape.test(value) && !KeywordColorShape.test(value)) {
+        return null;
+    }
+    if (typeof CSS != "undefined" && typeof CSS.supports == "function") {
+        try {
+            validate(value);
+        } catch {
+            return null;
+        }
+    }
+    return value;
 }
 
-// What a member's tab in a stack strip shows besides its label. The icon is frame:icon when that is a usable symbol, else icon (both come
-// from block meta that any program can write, so both go through parseTabSymbol). The colour is icon:color; a value that is not a CSS colour
-// counts as no colour, and a member without one looks as it did before.
+// The one place where a symbol from block meta is checked: parseTabSymbol (a Font Awesome name of at most 40 characters, or text of at most
+// two graphemes and 32 bytes; control, format and bidirectional characters refused).
+export function memberSymbolValue(raw: unknown): TabSymbol | null {
+    return parseTabSymbol(raw);
+}
+
+// What a member's tab in a stack strip shows besides its label. The symbol is frame:icon when that is usable, else icon. The colour is
+// icon:color; a value that is not an accepted colour counts as no colour, and a member without one looks as it did before.
 export function stackTabLook(
     frameIcon: unknown,
     icon: unknown,
@@ -31,7 +53,13 @@ export function stackTabLook(
     validate: (c: string) => string = validateCssColor
 ): StackTabLook {
     return {
-        symbol: parseTabSymbol(frameIcon) ?? parseTabSymbol(icon),
-        color: colorOrNull(color, validate),
+        symbol: memberSymbolValue(frameIcon) ?? memberSymbolValue(icon),
+        color: memberColorValue(color, validate),
     };
+}
+
+// The last folder name of a path with / or \ as separator (a Windows cwd such as C:\Users\x\repo gives repo).
+export function lastSegment(path: string): string {
+    const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
+    return parts.length > 0 ? parts[parts.length - 1] : path;
 }

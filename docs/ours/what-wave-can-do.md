@@ -645,6 +645,14 @@ Each tab of a stack strip draws the member's symbol before its name: `frame:icon
 The member's colour is `icon:color` (a value that is not a CSS colour counts as no colour): a 2px line in that colour under its tab, and a
 tint (22 percent) on the tab of the member that is shown. A member without a colour looks as before. The decision is `stackTabLook`
 (`frontend/app/tab/stacktablook.ts`); the label is `stacktablabel.tsx`; the placement is in `stackstrip.scss`.
+**What is accepted** (one place each, `stacktablook.ts`, applied when the tab is drawn, so a value written by `wsh setmeta` or any program is checked too):
+colour (`memberColorValue`): at most 64 characters; `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or rgb/rgba/hsl/hsla/hwb/lab/lch/oklab/oklch with plain arguments (no nested
+parentheses, so no `var()`, `url()`, `calc()`, `expression()`), or a bare keyword of 3 to 30 letters; and where a window exists `CSS.supports("color", ...)` must accept it too
+(`validateCssColor`), so a keyword that is not a colour is refused there. Symbol (`parseTabSymbol`): a Font Awesome name of at most 40 characters (`[a-z0-9-]` with an optional
+`solid@`/`regular@`/`brands@`/`custom@` prefix and `+spin|beat|fade|fw`), or text of at most 2 graphemes and 32 bytes; control, format and bidirectional characters and misplaced
+joiners are refused. A string of combining characters counts as one grapheme, so it is bounded by the 32 bytes: a base letter with up to 15 marks passes, 16 do not; the strip also
+clips the text symbol to 3em, so nothing a program writes can widen a tab. The label of a member without a title is the last folder of its cwd, with `/` or `\` as separator.
+The tint is drawn behind the label and the symbol (the tab isolates its stacking context; the fill has z-index -1).
 - **RAN:** vitest for `stackTabLook` (frame:icon before icon, a refused frame:icon falls back, emoji, three graphemes refused, no icon or colour,
   a colour that is not a colour); red when the order is swapped and when the colour check is dropped. Source pins on the label and the stylesheet.
 - **NOT RUN, window check:** that an emoji renders in the strip (and in the tile header, which is not changed here), the line and the tint on

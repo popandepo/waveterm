@@ -5,12 +5,7 @@ import { getBlockMetaKeyAtom } from "@/store/global";
 import { makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, useMemo } from "react";
-import { stackTabLook } from "./stacktablook";
-
-function lastSegment(path: string): string {
-    const parts = path.split(/[\/]/).filter((p) => p.length > 0);
-    return parts.length > 0 ? parts[parts.length - 1] : path;
-}
+import { lastSegment, stackTabLook } from "./stacktablook";
 
 // The label of a member's tab: its symbol (icon or emoji) and name. The member's colour is drawn as a line under the tab and, on the shown
 // member's tab, as a tint; both are spans of the label that the strip's stylesheet places against the tab (the tab is position: relative).

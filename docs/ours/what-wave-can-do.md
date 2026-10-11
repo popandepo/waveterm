@@ -658,3 +658,25 @@ The tint is drawn behind the label and the symbol (the tab isolates its stacking
 - **NOT RUN, window check:** that an emoji renders in the strip (and in the tile header, which is not changed here), the line and the tint on
   a real strip, a member without a colour looking as before.
 - **Later steps (own PRs):** the right-click menu on strip tabs and Set colour / Set icon, tile outlines, top row, window outline, one wsh line.
+
+## 29. Set colour, Set icon and the strip tab menu (colour work, step 2)
+
+The block header menu (gear, right click on the header) has **Set colour** and **Set icon**; a right click on a tab in a stack's strip opens
+Take out of stack (only when the stack has more than one member), Close (through the close question, as the X does), Rename (writes `frame:title`;
+empty clears it), Set colour and Set icon. Colour: None, the seven tab flag colours, or Other (a CSS colour typed or pasted) and writes `icon:color`.
+Icon: None, a short list (terminal, robot, code, bug, rocket, star, flask, wrench), or Other (an emoji or a Font Awesome name typed or pasted) and writes `frame:icon`.
+**One place validates:** `stacktablook.ts` (`memberColorValue`, `memberSymbolValue`; see section 28 for what they accept). The strip applies it when
+it draws, so a value set by `wsh setmeta` or any program is checked there; the menus apply the same functions before they write (`memberLookMeta`), and a
+refused Other text is asked again with the text kept (five tries, a cancel ends it) and nothing is written until one is accepted. A text symbol is
+clipped to 3em in the strip, so a long string cannot widen a tab. The question box is `TextPromptModal` (new, `frontend/app/modals`).
+- **RAN:** vitest: what each choice writes, what is refused (url(), var(), three emoji, 41 characters, markup), None clears, a cancel writes nothing, a refused text asks
+  again, Take out of stack only with more than one member, Close and Rename, and source pins for the wiring (header menu, strip right click, tab content, window deps, modal
+  registry). Red when the colour check is removed from `memberLookMeta` and when Take out of stack is always shown. Two seam rows added.
+- **NOT RUN, window check:** the menus themselves (a right click on a strip tab, the nested submenus, the question box typing and pasting an emoji, Esc and Enter),
+  that Rename shows in the strip and the header, and that the colour and icon appear at once.
+
+Review fixes for section 29: a name (Rename, or any caller of `memberLookMeta`) must have no control, format or line characters and at most 60 characters
+(`memberTitleValue`); the strip draws a title through `drawnTitle` whoever wrote it (`wsh setmeta` too): hidden characters mean the title is not used, a long one is cut to 60.
+The menus check that the block still exists before the menu is shown and again before each write. The Close of the strip tab menu is built by `makeStripTabMenuInfo`
+and goes through the same route as the X (`closeStripTab`); tested with a question that refuses (nothing closed) and with none set up (nothing closed).
+Colours: control characters and newlines are refused before any pattern, and the function pattern allows spaces only (section 28).

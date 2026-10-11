@@ -65,3 +65,31 @@ export function lastSegment(path: string): string {
     const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
     return parts.length > 0 ? parts[parts.length - 1] : path;
 }
+
+const MaxTitleLength = 60;
+
+// A name typed in the Rename box (and any other caller that writes frame:title): no control, format or line characters, at most 60 characters.
+// null: refused.
+export function memberTitleValue(raw: unknown): string | null {
+    if (typeof raw !== "string") {
+        return null;
+    }
+    const value = raw.trim();
+    if (value === "" || value.length > MaxTitleLength || HiddenChars.test(value)) {
+        return null;
+    }
+    return value;
+}
+
+// A title as the strip draws it, whoever wrote it (wsh setmeta included): one with hidden characters is not used (the label falls back to the
+// folder or the view), a long one is cut to 60 characters.
+export function drawnTitle(raw: unknown): string | null {
+    if (typeof raw !== "string") {
+        return null;
+    }
+    const value = raw.trim();
+    if (value === "" || HiddenChars.test(value)) {
+        return null;
+    }
+    return value.length > MaxTitleLength ? value.slice(0, MaxTitleLength - 3) + "..." : value;
+}

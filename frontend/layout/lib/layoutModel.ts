@@ -143,6 +143,11 @@ export class LayoutModel {
     /**
      * Callback for the + on the tab strip of a stack.
      */
+    takeNodeOutOfStack(nodeId: string) {
+        this.treeReducer({ type: LayoutTreeActionType.Unstack, nodeId } as LayoutTreeUnstackAction);
+    }
+
+    onStackTabMenu?: TileLayoutContents["onStackTabMenu"];
     onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
 
     /**
@@ -732,6 +737,7 @@ export class LayoutModel {
         this.renderPreview = contents.renderPreview;
         this.renderStackTabLabel = contents.renderStackTabLabel;
         this.onStackAdd = contents.onStackAdd;
+        this.onStackTabMenu = contents.onStackTabMenu;
         this.closeBlockAfterConfirm = contents.closeBlockAfterConfirm;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {

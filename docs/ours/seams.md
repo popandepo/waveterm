@@ -113,6 +113,8 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | block deleted | `pkg/wcore/block.go` | `sendBlockCloseEvent(blockId)` | the block's history file is removed right after |
 | PowerShell start-up | `pkg/util/shellutil/shellintegration/pwsh_wavepwsh.sh` | `Remove-Item Env:WAVETERM_SWAPTOKEN` | the history path is set right after |
 | delete block command | `cmd/wsh/cmd/wshcmd-deleteblock.go` | `var deleteBlockCmd = &cobra.Command{` | `wsh deleteblock` refuses a block with a running program unless `--force` |
+| member look menu (block) | `frontend/app/block/blockframe-header.tsx` | `...buildMemberLookItems(` | the block menu offers Set colour and Set icon |
+| member menu (strip tab) | `frontend/layout/lib/stacktabstrip.tsx` | `layoutModel.onStackTabMenu(` | a right click on a strip tab opens the member menu |
 | tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
 | strip drop target | `frontend/layout/lib/TileLayout.tsx` | `{overlayNodes} {overlayStrips}` | the drop target of each stack strip lives in the overlay layer, next to the tile drop targets |
 | tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |

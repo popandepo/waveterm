@@ -92,6 +92,8 @@ $seams = @(
     @('stack-layout-queue', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackInsert', 'back-end layout actions for stacks'),
     @('stack-move-layout-action', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackMove', 'wsh stack move queues this action'),
     @('stack-menu-hook', 'frontend/app/block/blockframe-header.tsx', 'label: "Turn into a stack"', 'the block menu offers stack mode'),
+    @('member-look-menu-hook', 'frontend/app/block/blockframe-header.tsx', '...buildMemberLookItems(', 'the block menu offers Set colour and Set icon'),
+    @('stack-tab-menu-hook', 'frontend/layout/lib/stacktabstrip.tsx', 'layoutModel.onStackTabMenu(', 'a right click on a strip tab opens the member menu'),
     @('stack-add-hook', 'frontend/app/tab/tabcontent.tsx', 'onStackAdd,', 'the + on a strip opens the widget-bar type menu'),
     @('stack-create-in-stack-helper', 'frontend/app/store/global.ts', 'async function createBlockInStack(', 'creates a new block straight into a stack'),
     @('api-focus-window-rpc', 'pkg/wshrpc/wshrpctypes.go', 'FocusWindowCommand(ctx context.Context, windowId string) error', 'local API goto with window=true'),

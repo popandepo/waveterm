@@ -29,6 +29,8 @@ import { cn, makeIconClass } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
 import { BlockEnv } from "./blockenv";
+import { buildMemberLookItems } from "./memberlook";
+import { MemberLookWindowDeps } from "./memberlook-ui";
 import { BlockFrameProps } from "./blocktypes";
 
 function handleHeaderContextMenu(
@@ -57,6 +59,15 @@ function handleHeaderContextMenu(
             },
         },
         ...stackItems,
+        { type: "separator" },
+        ...buildMemberLookItems(
+            blockId,
+            {
+                color: globalStore.get(blockEnv.getBlockMetaKeyAtom(blockId, "icon:color")),
+                icon: globalStore.get(blockEnv.getBlockMetaKeyAtom(blockId, "frame:icon")),
+            },
+            MemberLookWindowDeps
+        ),
         { type: "separator" },
         {
             label: "Copy BlockId",

@@ -22,7 +22,7 @@ const testPromptToken = "testtoken0123456789abcdef"
 // the part of the start-up script that reads the token, and the shell-integration block
 func tokenAndIntegration(t *testing.T) string {
 	t.Helper()
-	tokenBegin := strings.Index(PwshStartup_wavepwsh, "$Global:_WAVETERM_PROMPT_TOKEN = $env:WAVETERM_PROMPT_TOKEN")
+	tokenBegin := strings.Index(PwshStartup_wavepwsh, "$waveToken = $env:WAVETERM_PROMPT_TOKEN")
 	tokenEnd := strings.Index(PwshStartup_wavepwsh, "# Load Wave completions")
 	begin := strings.Index(PwshStartup_wavepwsh, "function Global:_waveterm_si_blocked")
 	if tokenBegin < 0 || tokenEnd < tokenBegin || begin < 0 {
@@ -48,7 +48,12 @@ func startShell(t *testing.T, beforeIntegration string, env ...string) *conptySh
 		t.Skip("no pwsh on this machine")
 	}
 	script := beforeIntegration + "\n" + tokenAndIntegration(t)
-	cmd := exec.Command(pwsh, "-NoLogo", "-NoProfile", "-NoExit", "-Command", script)
+	// as Wave starts it: -NoExit -File <script>, so that the script has a scope of its own (not the global one)
+	scriptPath := filepath.Join(t.TempDir(), "wavepwsh-test.ps1")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(pwsh, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-File", scriptPath)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "TMUX=", "STY=", "WAVETERM_PROMPT_TOKEN="+testPromptToken)
 	cmd.Env = append(cmd.Env, env...)
 	p, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 30, Cols: 100})
@@ -123,13 +128,13 @@ func TestARealShellIsAtPromptWhenItStartsAndNotWhileACommandRuns(t *testing.T) {
 
 func TestARealShellIsAtPromptRightAfterAQuickCommandWithoutWaitingForTheResync(t *testing.T) {
 	// the Enter binding reports B, so the Enter is not left pending: the next prompt marker counts at once. Without B this would need the whole
-	// resync wait (1.5 s), so the limit here is well under it.
+	// resync wait (a second or more), so the limit here is well under it.
 	s := startShell(t, "")
 	s.waitFor("the first prompt", 15*time.Second, s.atPrompt)
 	for i := 0; i < 3; i++ {
 		s.send("Get-Date | Out-Null\r")
 		time.Sleep(150 * time.Millisecond)
-		s.waitFor("the prompt after a quick command, within the resync wait", blockstatus.ResyncWait-500*time.Millisecond, s.atPrompt)
+		s.waitFor("the prompt right after a quick command", 1500*time.Millisecond, s.atPrompt)
 	}
 }
 
@@ -214,12 +219,75 @@ func TestTheTokenIsRemovedFromTheEnvironmentOfTheShellAndOfProgramsStartedFromIt
 }
 
 func TestTheMarkerNamesInTheScriptAreTheOnesWavesrvLooksFor(t *testing.T) {
-	for _, want := range []string{"`e]16162;B;$($Global:_WAVETERM_PROMPT_TOKEN)`a", "`e]16162;P;$($Global:_WAVETERM_PROMPT_TOKEN)`a", "`e]16162;N;$($Global:_WAVETERM_PROMPT_TOKEN)`a"} {
+	for _, want := range []string{"`e]16162;B;$waveToken`a", "`e]16162;P;$waveToken`a", "`e]16162;Q;$waveToken`a", "`e]16162;N;$waveToken`a"} {
 		if !strings.Contains(PwshStartup_wavepwsh, want) {
 			t.Errorf("the script must print %s", want)
 		}
 	}
 	if !strings.Contains(PwshStartup_wavepwsh, "Remove-Item Env:WAVETERM_PROMPT_TOKEN") {
 		t.Errorf("the script must remove the token from the environment")
+	}
+	if strings.Contains(PwshStartup_wavepwsh, "$Global:_WAVETERM_PROMPT_TOKEN") {
+		t.Errorf("no global variable may hold the token")
+	}
+	// the token must reach the script after the profile has run: through the swap token (applied by the script itself), not the launch environment
+	swap := strings.Index(PwshStartup_wavepwsh, "Invoke-Expression $waveterm_swaptoken_output")
+	read := strings.Index(PwshStartup_wavepwsh, "$waveToken = $env:WAVETERM_PROMPT_TOKEN")
+	if swap < 0 || read < swap {
+		t.Errorf("the token is read after the swap token has been applied")
+	}
+}
+
+func TestTheTokenIsNotInAnyGlobalVariableOfTheShell(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "globals.txt")
+	s := startShell(t, "")
+	s.waitFor("the first prompt", 15*time.Second, s.atPrompt)
+	s.send("(Get-Variable -Scope Global | Where-Object { \"$($_.Value)\" -like '*" + testPromptToken + "*' } | Measure-Object).Count | Set-Content -LiteralPath '" + out + "'\r")
+	s.waitFor("the answer", 10*time.Second, func() bool { _, err := os.Stat(out); return err == nil })
+	time.Sleep(300 * time.Millisecond)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "0" {
+		t.Fatalf("a global variable holds the token (count %q)", data)
+	}
+}
+
+func TestAKeyBoundToAnAcceptingFunctionOtherThanEnterReportsNotOursAtTheNextPrompt(t *testing.T) {
+	s := startShell(t, "")
+	s.waitFor("the first prompt", 15*time.Second, s.atPrompt)
+	s.send("Set-PSReadLineKeyHandler -Key Tab -Function AcceptLine\r")
+	time.Sleep(1500 * time.Millisecond)
+	if s.atPrompt() {
+		t.Fatalf("with Tab bound to AcceptLine the shell must not count as at prompt\noutput: %q", s.output())
+	}
+	if !strings.Contains(s.output(), "16162;N;"+testPromptToken) {
+		t.Fatalf("the next prompt must report N, output: %q", s.output())
+	}
+}
+
+func TestTheShellSaysNothingIsQueuedOnlyWhenNothingIsQueued(t *testing.T) {
+	// "Start-Sleep 2" and, typed ahead, a second command: the first command's prompt must NOT carry Q (a key is waiting), the last one must
+	s := startShell(t, "")
+	s.waitFor("the first prompt", 15*time.Second, s.atPrompt)
+	s.waitFor("Q at the start (nothing queued)", 5*time.Second, func() bool { return strings.Contains(s.output(), "16162;Q;"+testPromptToken) })
+	before := strings.Count(s.output(), "16162;Q;"+testPromptToken)
+	pBefore := strings.Count(s.output(), "16162;P;"+testPromptToken)
+	bBefore := strings.Count(s.output(), "16162;B;"+testPromptToken)
+	s.send("Start-Sleep 2\r")
+	time.Sleep(300 * time.Millisecond)
+	s.send("Start-Sleep 1\r") // typed ahead
+	s.waitFor("both done", 15*time.Second, func() bool {
+		return s.atPrompt() && strings.Count(s.output(), "16162;P;"+testPromptToken) >= pBefore+2
+	})
+	if bs := strings.Count(s.output(), "16162;B;"+testPromptToken) - bBefore; bs != 2 {
+		t.Fatalf("the shell must report each Enter it consumed (marker B): want 2, got %d\noutput: %q", bs, s.output())
+	}
+	ps := strings.Count(s.output(), "16162;P;"+testPromptToken) - pBefore
+	qs := strings.Count(s.output(), "16162;Q;"+testPromptToken) - before
+	if ps != 2 || qs != 1 {
+		t.Fatalf("two prompts, only the last without a queued key: want P=2 Q=1, got P=%d Q=%d\noutput: %q", ps, qs, s.output())
 	}
 }

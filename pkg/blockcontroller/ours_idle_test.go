@@ -14,12 +14,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shirou/gopsutil/v4/process"
 	"github.com/wavetermdev/waveterm/pkg/blockstatus"
 	"github.com/wavetermdev/waveterm/pkg/shellexec"
 )
 
-// The helper process: the test binary started again. WAVE_TEST_HELPER=sleep sleeps; =parent starts a sleeping child of its own and sleeps.
+// The helper process: the test binary started again. WAVE_TEST_HELPER=sleep waits; =parent starts a waiting child of its own and waits.
+// Every helper waits until the pipe on its stdin is closed (the test holds the only write end and the helpers share the read end, which each
+// child inherits from its parent), or for a safety limit. So the tests never need to find a process to end it: closing the pipe ends them all, and
+// only the process that the test started itself is ended through its own handle. NO process is ever found by its parent id: Windows keeps the
+// parent id of a process after the parent has ended and reuses freed ids, so that finds unrelated programs.
+func waitForEOF() {
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 64)
+		for {
+			if _, err := os.Stdin.Read(buf); err != nil {
+				close(done)
+				return
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+	}
+}
+
 func TestIdleHelperProcess(t *testing.T) {
 	switch os.Getenv("WAVE_TEST_HELPER") {
 	case "":
@@ -28,10 +48,11 @@ func TestIdleHelperProcess(t *testing.T) {
 		// the shell: starts the console-helper copy (WAVE_TEST_COPY) in the mode WAVE_TEST_COPYMODE
 		c := exec.Command(os.Getenv("WAVE_TEST_COPY"), "-test.run=TestIdleHelperProcess")
 		c.Env = append(os.Environ(), "WAVE_TEST_HELPER="+os.Getenv("WAVE_TEST_COPYMODE"))
+		c.Stdin = os.Stdin
 		if err := c.Start(); err != nil {
 			os.Exit(3)
 		}
-		time.Sleep(10 * time.Second)
+		waitForEOF()
 	case "parent", "grand":
 		next := "sleep"
 		if os.Getenv("WAVE_TEST_HELPER") == "grand" {
@@ -43,12 +64,13 @@ func TestIdleHelperProcess(t *testing.T) {
 		}
 		c := exec.Command(self, "-test.run=TestIdleHelperProcess")
 		c.Env = append(os.Environ(), "WAVE_TEST_HELPER="+next)
+		c.Stdin = os.Stdin
 		if err := c.Start(); err != nil {
 			os.Exit(3)
 		}
-		time.Sleep(10 * time.Second)
+		waitForEOF()
 	case "sleep":
-		time.Sleep(10 * time.Second)
+		waitForEOF()
 	}
 }
 
@@ -56,16 +78,28 @@ func startHelper(t *testing.T, mode string) *exec.Cmd {
 	t.Helper()
 	c := exec.Command(os.Args[0], "-test.run=TestIdleHelperProcess")
 	c.Env = append(os.Environ(), "WAVE_TEST_HELPER="+mode)
+	endHelper := startWithPipe(t, c)
+	t.Cleanup(endHelper)
+	return c
+}
+
+// startWithPipe starts a helper with a pipe on its stdin and returns the function that ends it: closing the pipe ends the helper and everything it
+// started (they share the read end), the helper itself is also ended through its own handle, and a short wait lets its children go.
+func startWithPipe(t *testing.T, c *exec.Cmd) func() {
+	t.Helper()
+	w, err := c.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		// the whole tree: a helper that is left running holds the test binary and makes `go test` exit 1 at clean-up
-		endOwnTree(int32(c.Process.Pid))
+	return func() {
+		w.Close()
 		c.Process.Kill()
 		c.Wait()
-	})
-	return c
+		time.Sleep(300 * time.Millisecond)
+	}
 }
 
 func controllerFor(status string, c *exec.Cmd) *ShellController {
@@ -201,82 +235,23 @@ func consoleHelperCopy(t *testing.T) string {
 	}
 	old := trustedConsoleDirs
 	trustedConsoleDirs = func() []string { return []string{dir} }
-	ownImages = append(ownImages, copyPath)
-	t.Cleanup(func() {
-		trustedConsoleDirs = old
-		ownImages = ownImages[:len(ownImages)-1]
-	})
+	t.Cleanup(func() { trustedConsoleDirs = old })
 	return copyPath
-}
-
-// What a test may end. Windows keeps the parent id of a process after the parent has ended and reuses freed ids, so "the processes whose parent id is
-// X" can include older, unrelated programs of the owner. A test therefore ends only a process that it can show is its own: created STRICTLY AFTER its
-// parent, and running one of the images that the tests start themselves (the test binary, and the copies of it that a test makes).
-var ownImages []string
-
-func init() {
-	ownImages = append(ownImages, os.Args[0])
-}
-
-type procFacts struct {
-	pid          int32
-	created      int64 // milliseconds since the epoch
-	createdKnown bool
-	exe          string
-}
-
-func sameImage(a, b string) bool {
-	return a != "" && b != "" && strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
-}
-
-func mayEnd(parent, child procFacts, images []string) bool {
-	if !parent.createdKnown || !child.createdKnown || child.created <= parent.created {
-		return false
-	}
-	for _, image := range images {
-		if sameImage(child.exe, image) {
-			return true
-		}
-	}
-	return false
-}
-
-func factsOf(p *process.Process) procFacts {
-	f := procFacts{pid: p.Pid}
-	if created, err := p.CreateTime(); err == nil {
-		f.created, f.createdKnown = created, true
-	}
-	f.exe, _ = p.Exe()
-	return f
-}
-
-// endOwnTree ends the descendants of pid that mayEnd allows, deepest first. It never ends pid itself (the caller holds that process).
-func endOwnTree(pid int32) {
-	p, err := process.NewProcess(pid)
-	if err != nil {
-		return
-	}
-	parent := factsOf(p)
-	children, _ := p.Children()
-	for _, c := range children {
-		if !mayEnd(parent, factsOf(c), ownImages) {
-			continue
-		}
-		endOwnTree(c.Pid)
-		_ = c.Kill()
-	}
 }
 
 func shellViaCopy(t *testing.T, copyPath, copyMode string) *ShellController {
 	c := exec.Command(os.Args[0], "-test.run=TestIdleHelperProcess")
 	c.Env = append(os.Environ(), "WAVE_TEST_HELPER=viacopy", "WAVE_TEST_COPY="+copyPath, "WAVE_TEST_COPYMODE="+copyMode, "WAVE_TEST_REAL="+os.Args[0])
-	if err := c.Start(); err != nil {
-		t.Fatal(err)
-	}
+	endHelper := startWithPipe(t, c)
 	t.Cleanup(func() {
-		endOwnTree(int32(c.Process.Pid))
-		c.Process.Kill()
-		c.Wait()
+		endHelper()
+		// the copy must be gone before the folder is removed
+		for i := 0; i < 50; i++ {
+			if err := os.Remove(copyPath); err == nil || os.IsNotExist(err) {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	})
 	return controllerFor(Status_Running, c)
 }
@@ -409,38 +384,6 @@ func TestAShellWithoutATokenIsNeverIdle(t *testing.T) {
 	sc.promptTracker.Output(promptMarker('P'))
 	if sc.isIdle() {
 		t.Fatalf("a shell without a token is never at prompt")
-	}
-}
-
-func TestATestMayEndOnlyWhatItCanShowIsItsOwn(t *testing.T) {
-	self := `C:\\t\\blockcontroller.test.exe`
-	other := `C:\\Program Files\\Notepad++\\notepad++.exe`
-	images := []string{self}
-	parent := procFacts{pid: 10, created: 1000, createdKnown: true, exe: self}
-	cases := []struct {
-		name  string
-		child procFacts
-		want  bool
-	}{
-		{"our image, created after the parent", procFacts{pid: 11, created: 1001, createdKnown: true, exe: self}, true},
-		{"our image in other case", procFacts{pid: 11, created: 1001, createdKnown: true, exe: strings.ToUpper(self)}, true},
-		{"created at the same moment as the parent", procFacts{pid: 11, created: 1000, createdKnown: true, exe: self}, false},
-		{"created BEFORE the parent: a stale parent id of a reused number", procFacts{pid: 11, created: 500, createdKnown: true, exe: self}, false},
-		{"an unrelated program created after the parent", procFacts{pid: 11, created: 2000, createdKnown: true, exe: other}, false},
-		{"an unrelated older program", procFacts{pid: 11, created: 10, createdKnown: true, exe: other}, false},
-		{"creation time unknown", procFacts{pid: 11, exe: self}, false},
-		{"image unknown", procFacts{pid: 11, created: 2000, createdKnown: true}, false},
-	}
-	for _, c := range cases {
-		if got := mayEnd(parent, c.child, images); got != c.want {
-			t.Errorf("%s: mayEnd = %v, want %v", c.name, got, c.want)
-		}
-	}
-	if mayEnd(procFacts{pid: 10, exe: self}, procFacts{pid: 11, created: 2000, createdKnown: true, exe: self}, images) {
-		t.Errorf("a parent whose creation time is unknown ends nothing")
-	}
-	if mayEnd(parent, procFacts{pid: 11, created: 2000, createdKnown: true, exe: self}, nil) {
-		t.Errorf("with no own images nothing may be ended")
 	}
 }
 

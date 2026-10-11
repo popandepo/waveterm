@@ -13,7 +13,8 @@ import (
 //
 //	ESC ] 16162 ; P ; <token> BEL   the prompt function ran (the shell is about to wait for a line)
 //	ESC ] 16162 ; B ; <token> BEL   the shell CONSUMED an Enter (its Enter key binding runs just before the line is accepted)
-//	ESC ] 16162 ; N ; <token> BEL   the shell's Enter binding is no longer the one that reports B: from now on this shell is never at prompt
+//	ESC ] 16162 ; Q ; <token> BEL   printed right after P when the shell's console input holds no key at that moment: nothing is queued for it
+//	ESC ] 16162 ; N ; <token> BEL   the shell's Enter binding is no longer the one that reports B, or another key accepts a line: from now on this shell is never at prompt
 //
 // The token is made by wavesrv for each shell start and given to the shell in its environment, so that bytes which a program prints (or
 // echoes, or a file holds) do not pass for a marker. A program that reads the environment of the shell to forge it is not defended against.
@@ -32,8 +33,9 @@ const (
 //   - a shell whose Enter binding was replaced (a profile) never reports B, so pending never returns to 0 and the shell never counts as at prompt
 //     (and it says N at its next prompt, which ends it at once);
 //   - Enters that the shell never consumes (typed into Read-Host, vim, a confirm prompt, Shift+Enter sent as a line feed) would keep pending above 0
-//     for good, so pending is forgiven when a prompt marker has stood for ResyncWait with no B after it and no input since: an Enter still queued
-//     for the shell is consumed within milliseconds of its prompt (measured 8 to 30 ms, 129 ms worst) so nothing is queued then;
+//     for good, so pending is forgiven when the SHELL says that nothing is queued: marker Q, which its prompt function prints only when the console
+//     input holds no key. A timer is not used: how long a queued Enter waits under load is not known. An Enter written less than QuietAge before the Q
+//     arrives may still be on its way to the console input (so Q cannot have seen it), and is not forgiven;
 //   - input that is not plain typing (function keys, custom chords, control characters) ends the state until the next prompt marker.
 //
 // Ctrl+C (byte 3), Escape, Backspace, Delete and the plain cursor keys keep it. Known gaps: a program that forges the token, and a command that
@@ -45,14 +47,19 @@ type PromptTracker struct {
 	broken     bool
 	pending    int
 	generation uint64
-	promptAt   time.Time // when the last P arrived while Enters were pending; zero when there is nothing to forgive
+	lastEnter  time.Time // when the last Enter was written
+	qWaiting   bool      // a Q arrived while the newest pending Enter was too young for it to speak for
 	now        func() time.Time
 	tail       []byte // the end of the output so far that may be the start of a marker split between two reads
 }
 
-// ResyncWait is how long a prompt marker must stand, with Enters still counted as pending, no B after it and no input since, before those
-// Enters are forgiven. Well above the measured gap between a prompt marker and the B of an Enter that was queued for it.
-const ResyncWait = 1500 * time.Millisecond
+// QuietAge is how long before a Q marker an Enter must have been written to count as seen by it (the Enter had time to reach the shell's console input).
+const QuietAge = 300 * time.Millisecond
+
+// InFlightWait: an Enter written less than QuietAge before a Q may have been on its way to the shell's console input when Q was decided, so Q cannot
+// speak for it. If the shell has not reported consuming it (B) this long after it was written, it went to a program and is forgiven. Only these few Enters
+// ever wait on a timer; the remaining risk is a shell that is stalled for longer than this at the very moment such an Enter arrives.
+const InFlightWait = 1500 * time.Millisecond
 
 func (p *PromptTracker) clock() time.Time {
 	if p.now != nil {
@@ -80,7 +87,8 @@ func (p *PromptTracker) resetLocked() {
 	p.atPrompt = false
 	p.broken = false
 	p.pending = 0
-	p.promptAt = time.Time{}
+	p.lastEnter = time.Time{}
+	p.qWaiting = false
 	p.tail = p.tail[:0]
 	p.generation++
 }
@@ -131,22 +139,35 @@ func (p *PromptTracker) handleMarkerLocked(body string) {
 		if p.broken {
 			return
 		}
+		p.qWaiting = false
 		p.atPrompt = p.pending == 0
-		p.promptAt = time.Time{}
-		if p.pending > 0 {
-			p.promptAt = p.clock()
+	case 'Q':
+		p.generation++
+		p.qWaiting = false
+		if p.broken {
+			return
 		}
+		// the shell says its console input is empty: Enters that were pending went to a program, unless one was written so recently that it
+		// may not have reached the console input yet (then it waits, see AtPrompt)
+		if p.pending > 0 && !p.lastEnter.IsZero() {
+			if p.clock().Sub(p.lastEnter) >= QuietAge {
+				p.pending = 0
+			} else {
+				p.qWaiting = true
+			}
+		}
+		p.atPrompt = p.pending == 0
 	case 'B':
 		if p.pending > 0 {
 			p.pending--
 		}
+		p.qWaiting = false
 		p.atPrompt = false
-		p.promptAt = time.Time{}
 		p.generation++
 	case 'N':
 		p.broken = true
+		p.qWaiting = false
 		p.atPrompt = false
-		p.promptAt = time.Time{}
 		p.generation++
 	}
 }
@@ -160,8 +181,11 @@ func (p *PromptTracker) Input(b []byte) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	p.pending += enters
+	if enters > 0 {
+		p.lastEnter = p.clock()
+	}
+	p.qWaiting = false
 	p.atPrompt = false
-	p.promptAt = time.Time{}
 	p.generation++
 }
 
@@ -231,11 +255,10 @@ func plainKeyLength(b []byte) int {
 func (p *PromptTracker) AtPrompt() (bool, uint64) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	if !p.broken && p.pending > 0 && !p.promptAt.IsZero() && p.clock().Sub(p.promptAt) >= ResyncWait {
-		// the prompt has stood unanswered long enough: the pending Enters went to a program, not to the shell
+	if p.qWaiting && !p.broken && p.pending > 0 && p.clock().Sub(p.lastEnter) >= InFlightWait {
 		p.pending = 0
+		p.qWaiting = false
 		p.atPrompt = true
-		p.promptAt = time.Time{}
 		p.generation++
 	}
 	return p.atPrompt, p.generation

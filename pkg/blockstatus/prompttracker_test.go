@@ -136,7 +136,7 @@ func TestTwoLinesInOneWriteAndAPasteGiveTwoPendingEnters(t *testing.T) {
 }
 
 func TestAReplacedEnterBindingIsNeverAtPrompt(t *testing.T) {
-	// no B ever comes: pending stays above 0 after the first Enter. Within the resync wait it stays not-at-prompt.
+	// no B ever comes: pending stays above 0 after the first Enter, and without a Q nothing forgives it, however long it takes
 	p, clk := newTracker()
 	p.Output(mark('P', tok))
 	if !at(p) {
@@ -144,16 +144,13 @@ func TestAReplacedEnterBindingIsNeverAtPrompt(t *testing.T) {
 	}
 	p.Input([]byte("ls\r"))
 	p.Output(mark('P', tok))
-	if at(p) {
-		t.Fatalf("an Enter nobody reported must keep the shell not-at-prompt")
-	}
-	clk.t = clk.t.Add(ResyncWait - time.Millisecond)
-	if at(p) {
-		t.Fatalf("not before the resync wait")
-	}
-	// the shell then says its binding is not ours any more: broken for good, also after the wait
-	p.Output(mark('N', tok))
 	clk.t = clk.t.Add(time.Hour)
+	if at(p) {
+		t.Fatalf("an Enter nobody reported must keep the shell not-at-prompt: time alone forgives nothing")
+	}
+	// the shell then says its binding is not ours any more: broken for good, also after a Q
+	p.Output(mark('N', tok))
+	p.Output(mark('Q', tok))
 	if at(p) {
 		t.Fatalf("a broken shell is never at prompt")
 	}
@@ -184,47 +181,81 @@ func TestABrokenShellWithNothingPendingIsStillNeverAtPrompt(t *testing.T) {
 	}
 }
 
-func TestEntersThatAProgramConsumedAreForgivenAfterThePromptStoodUnanswered(t *testing.T) {
+func TestEntersThatAProgramConsumedAreForgivenWhenTheShellSaysItsInputIsEmpty(t *testing.T) {
 	p, clk := newTracker()
 	p.Output(mark('P', tok))
 	p.Input([]byte("Read-Host\r"))
 	p.Output(mark('B', tok))
-	p.Input([]byte("answer\r")) // typed into the program: the shell never consumes this one
-	p.Input([]byte("vim\r"))    // also not
-	p.Output(mark('P', tok))    // the command is done, the prompt is back
+	p.Input([]byte("answer\r"))        // typed into the program: the shell never consumes this one
+	p.Input([]byte("vim\r"))           // also not
+	clk.t = clk.t.Add(5 * time.Second) // the command ran for a while
+	p.Output(mark('P', tok))           // the command is done, the prompt is back
 	if at(p) {
-		t.Fatalf("right after the prompt, pending Enters still count")
+		t.Fatalf("right after the prompt marker alone, pending Enters still count")
 	}
-	clk.t = clk.t.Add(ResyncWait - time.Millisecond)
-	if at(p) {
-		t.Fatalf("not before the wait")
-	}
-	clk.t = clk.t.Add(2 * time.Millisecond)
+	p.Output(mark('Q', tok)) // the prompt function saw an empty console input
 	if !at(p) {
-		t.Fatalf("a prompt that stood for the wait with no B after it means nothing is queued: at prompt")
+		t.Fatalf("Q says nothing is queued and the Enters are old: at prompt")
 	}
 }
 
-func TestInputDuringTheWaitCancelsTheForgiveness(t *testing.T) {
+func TestAQAfterAnEnterThatMayStillBeOnItsWayDoesNotForgiveIt(t *testing.T) {
+	p, clk := newTracker()
+	p.Output(mark('P', tok))
+	p.Input([]byte("Start-Sleep 1\r"))
+	p.Output(mark('B', tok))
+	clk.t = clk.t.Add(2 * time.Second)
+	p.Output(mark('P', tok))
+	p.Input([]byte("Get-Date\r")) // written just now, maybe not yet in the console input when the Q was decided
+	clk.t = clk.t.Add(QuietAge - time.Millisecond)
+	p.Output(mark('Q', tok))
+	if at(p) {
+		t.Fatalf("an Enter younger than QuietAge is not forgiven by a Q")
+	}
+	p.Output(mark('B', tok))
+	p.Output(mark('P', tok))
+	p.Output(mark('Q', tok))
+	if !at(p) {
+		t.Fatalf("after the shell consumed it and prompted again, at prompt")
+	}
+}
+
+func TestTimeAloneNeverForgivesAndAQWithNothingPendingIsJustAPrompt(t *testing.T) {
 	p, clk := newTracker()
 	p.Output(mark('P', tok))
 	p.Input([]byte("answer\r"))
 	p.Output(mark('P', tok))
-	clk.t = clk.t.Add(time.Second)
-	p.Input([]byte("x")) // plain typing keeps the state: the wait goes on
-	clk.t = clk.t.Add(600 * time.Millisecond)
-	if !at(p) {
-		t.Fatalf("typing is not an Enter and does not cancel the wait")
+	clk.t = clk.t.Add(24 * time.Hour)
+	if at(p) {
+		t.Fatalf("no timer: without a Q the pending Enter stays")
 	}
-	p2, clk2 := newTracker()
-	p2.Output(mark('P', tok))
-	p2.Input([]byte("answer\r"))
-	p2.Output(mark('P', tok))
-	clk2.t = clk2.t.Add(time.Second)
-	p2.Input([]byte("\r"))
-	clk2.t = clk2.t.Add(2 * time.Second)
-	if at(p2) {
-		t.Fatalf("a new Enter during the wait starts the count again: not at prompt")
+	q, _ := newTracker()
+	q.Output(mark('P', tok))
+	q.Output(mark('Q', tok))
+	if !at(q) {
+		t.Fatalf("Q with nothing pending is at prompt")
+	}
+}
+
+func TestTypingDoesNotChangeAPendingCountAndAnEnterAfterTheQAddsOne(t *testing.T) {
+	p, clk := newTracker()
+	p.Output(mark('P', tok))
+	p.Input([]byte("answer\r"))
+	clk.t = clk.t.Add(time.Second)
+	p.Output(mark('P', tok))
+	p.Output(mark('Q', tok))
+	if !at(p) {
+		t.Fatalf("setup: forgiven")
+	}
+	p.Input([]byte("x")) // plain typing keeps the state
+	if !at(p) {
+		t.Fatalf("typing keeps at prompt")
+	}
+	p.Input([]byte("\r"))
+	p.Output(mark('P', tok))
+	p.Output(mark('Q', tok)) // too young: the new Enter may still be on its way
+	if at(p) {
+		t.Fatalf("a new Enter right before the Q is not forgiven")
 	}
 }
 
@@ -330,10 +361,11 @@ func TestAFullScreenProgramKeepsItBusyAndTheShellsPromptReturnsIt(t *testing.T) 
 	if at(p) {
 		t.Fatalf("a program that has taken over the screen is not a prompt, also after it left the screen")
 	}
+	clk.t = clk.t.Add(5 * time.Second)
 	p.Output(mark('P', tok))
-	clk.t = clk.t.Add(ResyncWait)
+	p.Output(mark('Q', tok))
 	if !at(p) {
-		t.Fatalf("the shell's prompt after the program exits, with the wait passed, is at prompt")
+		t.Fatalf("the shell's prompt after the program exits, with its empty-input marker, is at prompt")
 	}
 }
 
@@ -352,5 +384,55 @@ func TestResetStartsOverButKeepsTheToken(t *testing.T) {
 	p.Reset()
 	if at(p) {
 		t.Fatalf("a reset ends at-prompt")
+	}
+}
+
+func TestAYoungEnterBeforeAQIsForgivenWhenNoBComesWithinTheInFlightWait(t *testing.T) {
+	// "Read-Host" answered right away: the answer's Enter was written a few ms before the prompt of the command that ended, so Q cannot speak for it
+	p, clk := newTracker()
+	p.Output(mark('P', tok))
+	p.Input([]byte("Read-Host\r"))
+	p.Output(mark('B', tok))
+	clk.t = clk.t.Add(700 * time.Millisecond)
+	p.Input([]byte("answer\r"))
+	clk.t = clk.t.Add(20 * time.Millisecond)
+	p.Output(mark('P', tok))
+	p.Output(mark('Q', tok))
+	if at(p) {
+		t.Fatalf("right after the Q, a young Enter is still pending")
+	}
+	clk.t = clk.t.Add(InFlightWait - 100*time.Millisecond)
+	if at(p) {
+		t.Fatalf("not before the in-flight wait")
+	}
+	clk.t = clk.t.Add(200 * time.Millisecond)
+	if !at(p) {
+		t.Fatalf("no B within the wait: the Enter went to the program and is forgiven")
+	}
+}
+
+func TestABOrANewEventCancelsTheInFlightWait(t *testing.T) {
+	p, clk := newTracker()
+	p.Output(mark('P', tok))
+	p.Input([]byte("answer\r"))
+	clk.t = clk.t.Add(10 * time.Millisecond)
+	p.Output(mark('P', tok))
+	p.Output(mark('Q', tok))
+	p.Output(mark('B', tok)) // it was in flight and the shell consumed it
+	clk.t = clk.t.Add(time.Hour)
+	if at(p) {
+		t.Fatalf("after B the shell runs the command: not at prompt, whatever the clock says")
+	}
+	q, clk2 := newTracker()
+	q.Output(mark('P', tok))
+	q.Input([]byte("answer\r"))
+	clk2.t = clk2.t.Add(10 * time.Millisecond)
+	q.Output(mark('P', tok))
+	q.Output(mark('Q', tok))
+	clk2.t = clk2.t.Add(time.Second)
+	q.Input([]byte("again\r")) // a new Enter during the wait
+	clk2.t = clk2.t.Add(InFlightWait + time.Second)
+	if at(q) {
+		t.Fatalf("a new Enter cancels the wait: two Enters are pending, nothing forgave them")
 	}
 }

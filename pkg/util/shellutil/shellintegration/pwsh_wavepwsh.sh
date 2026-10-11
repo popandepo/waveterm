@@ -72,14 +72,19 @@ if ($env:WAVETERM_PWSH_HISTFILE) {
 }
 # wave-history-end
 
-# prompt token for wavesrv (idle check of the close question): read it, then remove it so programs started from this shell do not inherit it
-$Global:_WAVETERM_PROMPT_TOKEN = $env:WAVETERM_PROMPT_TOKEN
+# Prompt token for wavesrv (idle check of the close question). It arrives with the swap token above (after the profile has run, so no profile program
+# ever has it in its environment), is kept in a variable of this script only (the closures below carry it, no global variable holds it), and
+# is removed from the environment at once. (-File runs this script in the global scope, so its variables are removed again at the end.)
+# A script that goes looking inside the closures for it could forge a marker: the token guards against accident (printed or echoed bytes), not
+# against that.
+$waveToken = $env:WAVETERM_PROMPT_TOKEN
 Remove-Item Env:WAVETERM_PROMPT_TOKEN -ErrorAction SilentlyContinue
 
 # Load Wave completions
 wsh completion powershell | Out-String | Invoke-Expression
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Remove-Variable -Name waveToken -ErrorAction SilentlyContinue
     return  # skip OSC setup entirely
 }
 
@@ -118,41 +123,47 @@ function Global:_waveterm_si_prompt {
     _waveterm_si_osc7
 }
 
-# Idle check of the close question (see blockstatus.PromptTracker in wavesrv). The Enter key binding tells wavesrv when the shell CONSUMES an Enter
-# (marker B), the prompt function tells it when the shell is ready for one (marker P, printed last, after the prompt text is computed). Both carry
-# the token. Only the default Enter binding (AcceptLine) is taken over; a profile that set its own is left alone, and then no marker is printed,
-# so the shell never counts as idle. If the binding is replaced later, the next prompt reports N once and the shell never counts as idle again.
-$Global:_WAVETERM_ENTER_OURS = $false
-if ($Global:_WAVETERM_PROMPT_TOKEN -and -not (_waveterm_si_blocked)) {
+# Idle check of the close question (see blockstatus.PromptTracker in wavesrv). Markers, all with the token: B when the Enter key binding consumes an
+# Enter, P when the prompt function ran (printed last, after the prompt text is computed), Q right after P when the console input holds no key (nothing is
+# queued for the shell), N once when the Enter binding is no longer ours or another key is bound to a function that accepts a line. Only the default
+# Enter binding (AcceptLine) is taken over; a profile that set its own is left alone and then no marker is printed, so the shell never counts as idle.
+$Global:_waveterm_si_marker = $null
+if ($waveToken -and -not (_waveterm_si_blocked)) {
     try {
         $waveEnter = Get-PSReadLineKeyHandler -Bound | Where-Object { $_.Key -eq 'Enter' } | Select-Object -First 1
         if ($null -ne $waveEnter -and $waveEnter.Function -eq 'AcceptLine') {
-            Set-PSReadLineKeyHandler -Key Enter -BriefDescription 'wave-enter' -Description 'wave-enter' -ScriptBlock {
-                [Console]::Out.Write("`e]16162;B;$($Global:_WAVETERM_PROMPT_TOKEN)`a")
+            $waveState = @{ reported = $false }
+            $waveEnterBlock = {
+                param($key, $arg)
+                [Console]::Out.Write("`e]16162;B;$waveToken`a")
                 [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
-            }
-            $Global:_WAVETERM_ENTER_OURS = $true
+            }.GetNewClosure()
+            Set-PSReadLineKeyHandler -Key Enter -BriefDescription 'wave-enter' -Description 'wave-enter' -ScriptBlock $waveEnterBlock
+            $Global:_waveterm_si_marker = {
+                $ok = $false
+                try {
+                    $handlers = @(Get-PSReadLineKeyHandler -Bound)
+                    $enter = $handlers | Where-Object { $_.Key -eq 'Enter' } | Select-Object -First 1
+                    $others = @($handlers | Where-Object { $_.Key -ne 'Enter' -and $_.Function -match '^(AcceptLine|ValidateAndAcceptLine|AcceptAndGetNext)$' })
+                    $ok = ($null -ne $enter -and $enter.Description -eq 'wave-enter' -and $others.Count -eq 0)
+                } catch { }
+                if ($ok) {
+                    $keyAvailable = $true
+                    try { $keyAvailable = [Console]::KeyAvailable } catch { }
+                    $text = "`e]16162;P;$waveToken`a"
+                    if (-not $keyAvailable) { $text += "`e]16162;Q;$waveToken`a" }
+                    Write-Host -NoNewline $text
+                } elseif (-not $waveState.reported) {
+                    $waveState.reported = $true
+                    Write-Host -NoNewline "`e]16162;N;$waveToken`a"
+                }
+            }.GetNewClosure()
         }
     } catch { }
 }
-$Global:_WAVETERM_BROKEN_REPORTED = $false
 
-function Global:_waveterm_enter_is_ours {
-    try {
-        $h = Get-PSReadLineKeyHandler -Bound | Where-Object { $_.Key -eq 'Enter' } | Select-Object -First 1
-        return ($null -ne $h -and $h.Description -eq 'wave-enter')
-    } catch { return $false }
-}
-
-function Global:_waveterm_si_marker {
-    if (-not $Global:_WAVETERM_ENTER_OURS) { return }
-    if (_waveterm_si_blocked) { return }
-    if (_waveterm_enter_is_ours) {
-        Write-Host -NoNewline "`e]16162;P;$($Global:_WAVETERM_PROMPT_TOKEN)`a"
-    } elseif (-not $Global:_WAVETERM_BROKEN_REPORTED) {
-        $Global:_WAVETERM_BROKEN_REPORTED = $true
-        Write-Host -NoNewline "`e]16162;N;$($Global:_WAVETERM_PROMPT_TOKEN)`a"
-    }
+function Global:_waveterm_si_marker_call {
+    if ($Global:_waveterm_si_marker) { & $Global:_waveterm_si_marker }
 }
 
 # Add the OSC 7 call to the prompt function
@@ -161,13 +172,16 @@ if (Test-Path Function:\prompt) {
     function Global:prompt {
         _waveterm_si_prompt
         $waveText = & $global:_waveterm_original_prompt
-        _waveterm_si_marker
+        _waveterm_si_marker_call
         $waveText
     }
 } else {
     function Global:prompt {
         _waveterm_si_prompt
-        _waveterm_si_marker
+        _waveterm_si_marker_call
         "PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) "
     }
 }
+
+# the token now lives only in the closures
+Remove-Variable -Name waveToken, waveState, waveEnterBlock, waveEnter -ErrorAction SilentlyContinue

@@ -35,6 +35,8 @@ describe("the wiring that no test can render", () => {
         const app = read("app.tsx");
         assert.include(app, 'windowOutlineColor(workspace?.meta?.["ws:accent"], workspace?.color)');
         assert.include(app, "<WindowOutline />");
+        // the class is what carries the border style, the position and the click-through: without it the border is gone
+        assert.include(app, '<div className="window-outline" style={{ borderColor: color, borderWidth: WindowOutlineWidthPx }} />');
         assert.equal(app.split("<WindowOutline />").length - 1, 1);
         assert.include(app, "borderColor: color, borderWidth: WindowOutlineWidthPx");
         // nothing is filled: no background in the component

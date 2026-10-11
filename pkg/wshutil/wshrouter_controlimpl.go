@@ -210,6 +210,7 @@ func (impl *WshRouterControlImpl) AuthenticateTokenCommand(ctx context.Context, 
 	log.Printf("wshrouter authenticate-token success linkid=%d routeid=%q", linkId, rtnData.RouteId)
 	impl.Router.trustLink(linkId, LinkKind_Leaf)
 	impl.Router.bindRoute(linkId, rtnData.RouteId, true)
+	impl.Router.SetLinkAuthBlockId(linkId, rtnData.RpcContext.BlockId)
 
 	return rtnData, nil
 }

@@ -1,6 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { assert, describe, test } from "vitest";
 import { authorizeWebNav, MaxTitleLength, MaxUrlLength, schemeOf, webNavigate, WebNavTarget } from "./emain-webnav";
 
@@ -140,5 +142,24 @@ describe("who may be navigated", () => {
         assert.isAbove(auth, -1);
         assert.isBelow(auth, contents, "authorization comes before the web contents are looked up");
         assert.include(body, "allLoadedTabViews?.has(data.tabid)");
+    });
+});
+
+describe("the caller of a web command (source pin: the handler needs a window)", () => {
+    const src = readFileSync(path.join(__dirname, "emain-wsh.ts"), "utf8");
+    const body = src.slice(src.indexOf("async handle_webnav"), src.indexOf("async handle_notify"));
+    test("emain asks the server whether the caller may act on the block, with the route that the router stamped", () => {
+        assert.include(body, "RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid })");
+    });
+    test("the question comes before any window, tab or web contents is looked at", () => {
+        const ask = body.indexOf("WebNavAuthorizeCommand");
+        assert.isAbove(ask, -1);
+        for (const later of ["getWaveWindowByWorkspaceId(", "allLoadedTabViews", "BlockInfoCommand", "getWebContentsByBlockId("]) {
+            assert.isAbove(body.indexOf(later), ask, later + " must come after the question");
+        }
+    });
+    test("the caller is never taken from the request", () => {
+        assert.notInclude(body, "data.callerroute");
+        assert.notInclude(body, "data.callerblock");
     });
 });

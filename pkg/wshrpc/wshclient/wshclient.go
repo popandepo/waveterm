@@ -1066,6 +1066,12 @@ func WebNavCommand(w *wshutil.WshRpc, data wshrpc.CommandWebNavData, opts *wshrp
 	return resp, err
 }
 
+// command "webnavauthorize", wshserver.WebNavAuthorizeCommand
+func WebNavAuthorizeCommand(w *wshutil.WshRpc, data wshrpc.CommandWebNavAuthorizeData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "webnavauthorize", data, opts)
+	return err
+}
+
 // command "webselector", wshserver.WebSelectorCommand
 func WebSelectorCommand(w *wshutil.WshRpc, data wshrpc.CommandWebSelectorData, opts *wshrpc.RpcOpts) ([]string, error) {
 	resp, err := sendRpcRequestCallHelper[[]string](w, "webselector", data, opts)

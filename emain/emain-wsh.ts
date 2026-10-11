@@ -40,6 +40,9 @@ export class ElectronWshClientType extends WshClient {
         if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
             throw new Error("blockid must be a full block id");
         }
+        // the caller is the block behind the source route that the router stamped on this message (a session cannot choose it): it may act only on a
+        // web tile in its own workspace. Asked before any window, tab or web contents is looked at.
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid });
         const ww = getWaveWindowByWorkspaceId(data.workspaceid);
         if (ww == null) {
             throw new Error(`no window found with workspace ${data.workspaceid}`);

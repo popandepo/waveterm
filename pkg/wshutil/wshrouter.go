@@ -62,6 +62,7 @@ type linkMeta struct {
 	trusted       bool
 	linkKind      string
 	sourceRouteId string
+	authBlockId   string // the block id in the token that this leaf link authenticated with (set once, by the router; the peer cannot choose it)
 	client        AbstractRpcClient
 }
 
@@ -795,6 +796,34 @@ func (router *WshRouter) bindRouteLocally(linkId baseds.LinkId, routeId string, 
 	}
 	router.routeMap[routeId] = linkId
 	return nil
+}
+
+// SetLinkAuthBlockId records the block id that the token of a leaf link carried. Only the router's own authentication calls this.
+func (router *WshRouter) SetLinkAuthBlockId(linkId baseds.LinkId, blockId string) {
+	router.lock.Lock()
+	defer router.lock.Unlock()
+	lm := router.linkMap[linkId]
+	if lm == nil || lm.linkKind != LinkKind_Leaf {
+		return
+	}
+	lm.authBlockId = blockId
+}
+
+// BlockIdForSourceRoute is the block id of the token behind a source route (the route that the router stamps as the source of every message from a
+// leaf link), or "" when the route is not the source route of a leaf link on this router (a remote caller behind another router, a route that was
+// never authenticated, a link that is gone).
+func (router *WshRouter) BlockIdForSourceRoute(routeId string) string {
+	router.lock.Lock()
+	defer router.lock.Unlock()
+	linkId, ok := router.routeMap[routeId]
+	if !ok {
+		return ""
+	}
+	lm := router.linkMap[linkId]
+	if lm == nil || lm.linkKind != LinkKind_Leaf || lm.sourceRouteId != routeId {
+		return ""
+	}
+	return lm.authBlockId
 }
 
 func (router *WshRouter) bindRoute(linkId baseds.LinkId, routeId string, isSourceRoute bool) error {

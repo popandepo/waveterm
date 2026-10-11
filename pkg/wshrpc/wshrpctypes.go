@@ -137,6 +137,7 @@ type WshRpcInterface interface {
 	// emain
 	WebSelectorCommand(ctx context.Context, data CommandWebSelectorData) ([]string, error)
 	WebNavCommand(ctx context.Context, data CommandWebNavData) (*CommandWebNavRtnData, error)
+	WebNavAuthorizeCommand(ctx context.Context, data CommandWebNavAuthorizeData) error // asked by emain: may the caller of a web command act on this block?
 	NotifyCommand(ctx context.Context, notificationOptions WaveNotificationOptions) error
 	FocusWindowCommand(ctx context.Context, windowId string) error
 	ElectronEncryptCommand(ctx context.Context, data CommandElectronEncryptData) (*CommandElectronEncryptRtnData, error)
@@ -476,6 +477,12 @@ type CommandWebNavData struct {
 	BlockId     string `json:"blockid"`
 	TabId       string `json:"tabid"`
 	Action      string `json:"action"` // reload, back, forward or url
+}
+
+// CallerRoute is the source route that the router stamped on the web command (emain reads it from the message, the sender cannot choose it).
+type CommandWebNavAuthorizeData struct {
+	CallerRoute string `json:"callerroute"`
+	BlockId     string `json:"blockid"`
 }
 
 type CommandWebNavRtnData struct {

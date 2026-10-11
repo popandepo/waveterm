@@ -9,7 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
-import { webNavigate } from "./emain-webnav";
+import { authorizeWebNav, webNavigate } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
 export class ElectronWshClientType extends WshClient {
@@ -47,6 +47,8 @@ export class ElectronWshClientType extends WshClient {
         if (!ww.allLoadedTabViews?.has(data.tabid)) {
             throw new Error(`the tab ${data.tabid} is not loaded in its window (show it once, then ask again)`);
         }
+        // none of the ids is taken on trust: the block must be the one named, in the tab and the workspace named, and a web tile
+        authorizeWebNav(data, await RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid));
         const wc = await getWebContentsByBlockId(ww, data.tabid, data.blockid);
         if (wc == null) {
             throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);

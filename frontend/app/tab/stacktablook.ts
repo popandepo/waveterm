@@ -109,3 +109,8 @@ export function stackTabAttention(level: unknown, reason: unknown): StackTabAtte
     }
     return { kind: a.level, reason: a.reason };
 }
+
+// The colour of a badge icon (wsh badge --color, written by any program): validated like every colour that is drawn; null draws the default colour.
+export function badgeColorValue(raw: unknown): string | null {
+    return memberColorValue(raw);
+}

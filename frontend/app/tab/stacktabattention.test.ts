@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { assert, describe, test } from "vitest";
 import { attentionClearDelayMs, AttentionClearAfterStayMs, AttentionClearAfterSwitchMs, clearsOnFocus, ClearAttentionMeta } from "../store/attentionclear";
-import { stackTabAttention } from "./stacktablook";
+import { badgeColorValue, stackTabAttention } from "./stacktablook";
 
 describe("the mark on a member's strip tab", () => {
     test("info, need and urgent give their kind and the reason; nothing set gives no mark", () => {
@@ -25,6 +25,23 @@ describe("the mark on a member's strip tab", () => {
         assert.equal(stackTabAttention("need", "x".repeat(121)).kind, "none");
         assert.equal(stackTabAttention(5, "x").kind, "none");
         assert.equal(stackTabAttention({}, {}).kind, "none");
+    });
+});
+
+describe("the colour of a badge icon on the strip tab", () => {
+    test("a colour that passes is used; anything else (a program wrote it) is not drawn", () => {
+        assert.equal(badgeColorValue("#ff8800"), "#ff8800");
+        assert.equal(badgeColorValue("tomato"), "tomato");
+        for (const bad of [undefined, null, "", "url(http://x/a.png)", "var(--accent-color)", "red; background: blue", "rgb(1,\n2,3)", 5, {}]) {
+            assert.isNull(badgeColorValue(bad), String(bad));
+        }
+    });
+
+    test("the label draws the badge colour only through that check", () => {
+        const label = readFileSync(path.join(__dirname, "stacktablabel.tsx"), "utf8");
+        assert.include(label, "const badgeColor = badgeColorValue(badge?.color);");
+        assert.include(label, "style={{ color: badgeColor ?? undefined }}");
+        assert.notInclude(label, "badge.color");
     });
 });
 

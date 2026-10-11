@@ -6,7 +6,7 @@ import { getBlockMetaKeyAtom } from "@/store/global";
 import { makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, useMemo } from "react";
-import { drawnTitle, lastSegment, stackTabAttention, stackTabLook } from "./stacktablook";
+import { badgeColorValue, drawnTitle, lastSegment, stackTabAttention, stackTabLook } from "./stacktablook";
 
 // The label of a member's tab: its symbol (icon or emoji) and name. The member's colour is drawn as a line under the tab and, on the shown
 // member's tab, as a tint; both are spans of the label that the strip's stylesheet places against the tab (the tab is position: relative).
@@ -20,6 +20,8 @@ export const StackTabLabel = memo(({ blockId }: { blockId: string }) => {
     const attentionLevel = useAtomValue(getBlockMetaKeyAtom(blockId, "attention:level"));
     const attentionReason = useAtomValue(getBlockMetaKeyAtom(blockId, "attention:reason"));
     const badge = useAtomValue(getBlockBadgeAtom(blockId));
+    // a badge comes from any program (wsh badge --color): its colour passes the same validation as every other colour that is drawn
+    const badgeColor = badgeColorValue(badge?.color);
     const label = drawnTitle(title) || (cwd ? lastSegment(cwd) : null) || view || blockId.slice(0, 8);
     const look = useMemo(() => stackTabLook(frameIcon, icon, iconColor), [frameIcon, icon, iconColor]);
     const attention = useMemo(() => stackTabAttention(attentionLevel, attentionReason), [attentionLevel, attentionReason]);
@@ -34,7 +36,7 @@ export const StackTabLabel = memo(({ blockId }: { blockId: string }) => {
             {badge?.icon != null && (
                 <i
                     className={makeIconClass(badge.icon, true, { defaultIcon: "circle-small" }) + " stack-tab-badge"}
-                    style={{ color: badge.color || undefined }}
+                    style={{ color: badgeColor ?? undefined }}
                 />
             )}
             {label}

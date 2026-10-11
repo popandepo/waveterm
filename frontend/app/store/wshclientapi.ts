@@ -1068,6 +1068,18 @@ export class RpcApiType {
         return client.wshRpcCall("waveinfo", null, opts);
     }
 
+    // command "webnav" [call]
+    WebNavCommand(client: WshClient, data: CommandWebNavData, opts?: RpcOpts): Promise<CommandWebNavRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "webnav", data, opts);
+        return client.wshRpcCall("webnav", data, opts);
+    }
+
+    // command "webnavauthorize" [call]
+    WebNavAuthorizeCommand(client: WshClient, data: CommandWebNavAuthorizeData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "webnavauthorize", data, opts);
+        return client.wshRpcCall("webnavauthorize", data, opts);
+    }
+
     // command "webselector" [call]
     WebSelectorCommand(client: WshClient, data: CommandWebSelectorData, opts?: RpcOpts): Promise<string[]> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "webselector", data, opts);

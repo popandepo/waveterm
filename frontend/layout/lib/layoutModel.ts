@@ -11,6 +11,7 @@ import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
+import { replaceEphemeral } from "./ephemeralreplace";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -1542,11 +1543,39 @@ export class LayoutModel {
         await this.closeNode(this.focusedNodeId);
     }
 
-    newEphemeralNode(blockId: string) {
-        if (this.getter(this.ephemeralNode)) {
-            this.closeNode(this.getter(this.ephemeralNode).id);
-        }
+    // a question about the ephemeral block on screen is open; only one at a time
+    private ephemeralReplaceOpen = false;
 
+    newEphemeralNode(blockId: string) {
+        const previous = this.getter(this.ephemeralNode);
+        if (previous == null) {
+            this.showEphemeralNode(blockId);
+            return;
+        }
+        if (this.ephemeralReplaceOpen) {
+            fireAndForget(async () => {
+                await this.onNodeDelete?.({ blockId } as TabLayoutData);
+            });
+            return;
+        }
+        this.ephemeralReplaceOpen = true;
+        fireAndForget(async () => {
+            try {
+                await replaceEphemeral(previous.data.blockId, {
+                    closeAfterConfirm: this.closeBlockAfterConfirm,
+                    closePrevious: () => this.closeNode(previous.id),
+                    showNew: () => this.showEphemeralNode(blockId),
+                    discardNew: async () => {
+                        await this.onNodeDelete?.({ blockId } as TabLayoutData);
+                    },
+                });
+            } finally {
+                this.ephemeralReplaceOpen = false;
+            }
+        });
+    }
+
+    private showEphemeralNode(blockId: string) {
         const ephemeralNode = newLayoutNode(undefined, undefined, undefined, { blockId });
         this.setter(this.ephemeralNode, ephemeralNode);
 

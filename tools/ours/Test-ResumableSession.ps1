@@ -22,6 +22,7 @@ $workDir = Join-Path $profileDir '.claude-work'
 $throw = Join-Path $root 'throwaway'
 foreach ($d in $root, $profileDir, $personal, $cfg, $oldDir, $workDir, $throw, (Join-Path $cfg 'projects'), (Join-Path $cfg 'projects\some-folder')) { Make-Dir $d }
 $env:USERPROFILE = $profileDir
+$env:RESUMABLE_TEST_WSHROOT = $root
 try {
     # ---- the choice between create and resume ----
     $firstOut = & $script -SessionId $id -ConfigDir $cfg -Model m1 -Effort low -PermissionMode auto -Name n1 -Prompt 'hello' -DryRun
@@ -84,6 +85,9 @@ switch ($PathMode) {
     'swap-nodir' { $env:WAVETERM_SWAPTOKEN = '11111111-aaaa-bbbb-cccc-222222222222'; $env:WAVETERM_WSHBINDIR = $WshDir }
 }
 $extra = @{}
+if ($env:RESUMABLE_TEST_WSHROOT) { $extra.WshRoot = $env:RESUMABLE_TEST_WSHROOT }
+if ($env:RESUMABLE_TEST_INHERIT) { $env:WAVETERM_JWT = 'inherited-jwt'; $env:WAVETERM_BLOCKID = 'inherited-block'; $env:WAVETERM_TABID = 'inherited-tab'; $env:WAVETERM_WORKSPACEID = 'inherited-ws' }
+if ($env:RESUMABLE_TEST_DECOYDIR) { $env:PATH = $env:RESUMABLE_TEST_DECOYDIR + $sep + $env:PATH }
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
 if ($ExtraName) { $extra.Name = $ExtraName }
 if ($env:RESUMABLE_TEST_SWAPTIMEOUT) { $extra.SwapTimeoutSeconds = [int]$env:RESUMABLE_TEST_SWAPTIMEOUT }
@@ -178,11 +182,15 @@ using System.Threading;
 class P {
     static int Main(string[] a) {
         string argsFile = Environment.GetEnvironmentVariable("SWAP_ARGS");
+        string self = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+        if (File.Exists(Path.Combine(Path.GetDirectoryName(self), "decoy.marker"))) argsFile = Environment.GetEnvironmentVariable("RESUMABLE_TEST_DECOYARGS");
         if (argsFile != null) File.WriteAllText(argsFile, string.Join(" ", a));
         if (Environment.GetEnvironmentVariable("SWAP_HANG") == "1") Thread.Sleep(20000);
         if (Environment.GetEnvironmentVariable("SWAP_FAIL") == "1") return 1;
         string o = Environment.GetEnvironmentVariable("SWAP_OUTPUT");
+        if (Environment.GetEnvironmentVariable("SWAP_FLOOD") == "1") { for (int i = 0; i < 400; i++) Console.Out.WriteLine("$env:EVIL = \"" + new string('x', 1000) + "\""); return 0; }
         if (o != null) Console.Out.Write(File.ReadAllText(o));
+        if (Environment.GetEnvironmentVariable("SWAP_CHILD_PIPE") == "1") { Console.Out.Flush(); var si = new System.Diagnostics.ProcessStartInfo("ping", "-n 15 127.0.0.1"); si.UseShellExecute = false; System.Diagnostics.Process.Start(si); return 0; }
         if (Environment.GetEnvironmentVariable("SWAP_FAIL_AFTER") == "1") return 1;
         return 0;
     }
@@ -257,6 +265,64 @@ class P {
     Check 'a token and no wsh folder does not stop the session, and the token is removed' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text)"
     $r = Run-Child 'swap-nodir' $cfg '' '' $swapDir
     Check 'a token and a wsh folder without a wsh.exe does not stop the session' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN')) "exit=$($r.Code) $($r.Text)"
+    # ---- round 2 of the review of the swap: where wsh is run from, one deadline, no inherited access, sizes ----
+    # a folder under .claude, one outside the allowed root, a junction under the root that leads to .claude: wsh.exe in them is never run
+    $evilBin = Join-Path $oldDir 'bin'
+    Make-Dir $evilBin
+    Copy-Item -LiteralPath $swapExe -Destination (Join-Path $evilBin 'wsh.exe'); $made.Add((Join-Path $evilBin 'wsh.exe'))
+    $outsideBin = Join-Path $env:TEMP ('swap-outside-' + [guid]::NewGuid().ToString('N'))
+    Make-Dir $outsideBin
+    Copy-Item -LiteralPath $swapExe -Destination (Join-Path $outsideBin 'wsh.exe'); $made.Add((Join-Path $outsideBin 'wsh.exe'))
+    $juncBin = Join-Path $root 'bin-link'
+    $null = New-Item -ItemType Junction -Path $juncBin -Target $evilBin; $made.Add($juncBin)
+    foreach ($case in @(@('under .claude', $evilBin), @('outside the allowed root', $outsideBin), @('a junction under the root that leads into .claude', $juncBin))) {
+        Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
+        $r = Run-Child 'swap' $cfg '' '' $case[1]
+        Check ("wsh.exe in a folder " + $case[0] + " is never run (the stub's argument file is not written), the PATH does not get it, the session starts") ((-not (Test-Path -LiteralPath $swapArgs)) -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Lines -contains ('PATHLAST: ' + $case[1])) -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text)"
+    }
+    # the named folder's wsh.exe runs, not one that comes earlier on the PATH
+    $decoyDir = Join-Path $root 'decoybin'
+    Make-Dir $decoyDir
+    Copy-Item -LiteralPath $swapExe -Destination (Join-Path $decoyDir 'wsh.exe'); $made.Add((Join-Path $decoyDir 'wsh.exe'))
+    Make-File (Join-Path $decoyDir 'decoy.marker') 'x'
+    $decoyArgs = Join-Path $root 'decoy-args.txt'
+    $env:RESUMABLE_TEST_DECOYDIR = $decoyDir; $env:RESUMABLE_TEST_DECOYARGS = $decoyArgs
+    Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check "the wsh.exe of the named folder is the one that runs, not a decoy earlier on the PATH" ((Test-Path -LiteralPath $swapArgs) -and -not (Test-Path -LiteralPath $decoyArgs)) "named ran=$(Test-Path -LiteralPath $swapArgs) decoy ran=$(Test-Path -LiteralPath $decoyArgs)"
+    Remove-Item Env:RESUMABLE_TEST_DECOYDIR, Env:RESUMABLE_TEST_DECOYARGS -ErrorAction SilentlyContinue
+    # one deadline for the read and the exit: a wsh whose child keeps the pipe open, and one that floods
+    $env:RESUMABLE_TEST_SWAPTIMEOUT = '1'
+    $env:SWAP_CHILD_PIPE = '1'
+    $t0 = Get-Date
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    $took = ((Get-Date) - $t0).TotalSeconds
+    Check 'a wsh that exits but leaves a child holding the pipe is cut at the deadline, the session starts without wsh access' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and $took -lt 9 -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) took=$took $($r.Text)"
+    Remove-Item Env:SWAP_CHILD_PIPE -ErrorAction SilentlyContinue
+    $env:SWAP_FLOOD = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'an output above 256 KB is refused as a whole (nothing from it is taken)' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text.Substring(0, [Math]::Min(300, $r.Text.Length)))"
+    Remove-Item Env:SWAP_FLOOD -ErrorAction SilentlyContinue
+    Remove-Item Env:RESUMABLE_TEST_SWAPTIMEOUT -ErrorAction SilentlyContinue
+    # a line above 16 KB is ignored, the lines next to it are taken
+    $bigFile = Join-Path $root 'swap-big.txt'
+    Make-File $bigFile ([string]::Join([string][char]10, @(('$env:WAVETERM_JWT = "' + ('x' * 20000) + '"'), '$env:WAVETERM_BLOCKID = "block-big"')))
+    $env:SWAP_OUTPUT = $bigFile
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a line with a value above 16 KB is ignored, the next line is still taken' (-not ($r.Text -match 'WAVETERM_JWT') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-big')) $r.Text.Substring(0, [Math]::Min(300, $r.Text.Length))
+    $env:SWAP_OUTPUT = $swapOut
+    # inherited access: removed when an exchange was tried and failed, replaced on success, left alone when there was no token at all
+    $env:RESUMABLE_TEST_INHERIT = '1'
+    $env:SWAP_FAIL = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'after a failed exchange the inherited WAVETERM_JWT, BLOCKID, TABID and WORKSPACEID are removed' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'inherited-') -and -not ($r.Text -match 'WAVETERM_JWT')) $r.Text
+    Remove-Item Env:SWAP_FAIL -ErrorAction SilentlyContinue
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'after a successful exchange the values are the ones wsh gave, not the inherited ones' (($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1') -and -not ($r.Text -match 'inherited-block')) $r.Text
+    $r = Run-Child 'set'
+    Check 'with no swap token at all an inherited variable is left alone (a shell already exchanged it)' ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=inherited-block') $r.Text
+    Remove-Item Env:RESUMABLE_TEST_INHERIT -ErrorAction SilentlyContinue
+
     $r = Run-Child 'set'
     Check 'without a swap token wsh is not called and nothing is added' (-not ($r.Text -match 'WAVETERM_JWT') -and -not ($r.Text -match 'could not be exchanged')) $r.Text
     Remove-Item Env:SWAP_OUTPUT, Env:SWAP_ARGS, Env:RESUMABLE_TEST_NOWSH -ErrorAction SilentlyContinue

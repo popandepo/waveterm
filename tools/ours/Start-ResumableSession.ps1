@@ -18,6 +18,7 @@ param(
     [string[]]$PluginDir = @(),
     [string]$Command = 'claude',
     [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 5,
+    [string]$WshRoot = (Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin'),
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -138,6 +139,21 @@ foreach ($pd in @($PluginDir | Where-Object { $_ })) {
 $statusSession = $null
 if ($Name) { $statusSession = $Name + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4) }
 
+# The folder that wsh.exe is run from (and put on the PATH): fully qualified, not plainly at or below .claude or .claude-work (checked before anything is
+# opened), existing, and with its final path at or below $WshRoot and not at or below .claude or .claude-work. Returns the final path, or $null.
+function Resolve-WshFolder([string]$dir) {
+    if ([string]::IsNullOrWhiteSpace($dir) -or $dir -notmatch '^[A-Za-z]:[\\/]') { return $null }
+    if (Test-PlainlyForbidden $dir) { return $null }
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $null }
+    $final = Get-FinalPath $dir
+    $homeFinal = Get-FinalPath $env:USERPROFILE
+    $rootFinal = if ($WshRoot -match '^[A-Za-z]:[\\/]') { Get-FinalPath $WshRoot } else { $null }
+    if (-not $final -or -not $homeFinal -or -not $rootFinal) { return $null }
+    foreach ($bad in '.claude', '.claude-work') { if (Test-Under $final "$homeFinal\$bad") { return $null } }
+    if (-not (Test-Under $final $rootFinal)) { return $null }
+    return $final
+}
+
 # ---- the rest -----------------------------------------------------------------------------------------------------------------------------------------------
 if ($SessionId -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\z') { throw "SessionId must be a guid: $SessionId" }
 # A prompt that starts with a dash would be read by claude as an option, whatever it was meant to say.
@@ -191,8 +207,8 @@ if ($Name) { try { $Host.UI.RawUI.WindowTitle = $Name } catch { } }
 function Get-FullDir([string]$d) { try { return [IO.Path]::GetFullPath($d).TrimEnd('\', '/') } catch { return $null } }
 try {
     $wshDir = $env:WAVETERM_WSHBINDIR
-    if ($wshDir -and $wshDir -match '^[A-Za-z]:[\\/]' -and (Test-Path -LiteralPath $wshDir -PathType Container)) {
-        $wshFull = Get-FullDir $wshDir
+    $wshFull = Resolve-WshFolder $wshDir
+    if ($wshFull) {
         $current = [string]$env:PATH
         $entries = @($current -split [IO.Path]::PathSeparator | Where-Object { $_ })
         if ($wshFull -and -not ($entries | Where-Object { (Get-FullDir $_) -ieq $wshFull })) {
@@ -204,18 +220,29 @@ try {
 # needs (WAVETERM_JWT, BLOCKID, TABID, WORKSPACEID ...). The shells that Wave starts exchange it themselves (wavepwsh.ps1); a program started directly never
 # does, and a session that was resumed after a restart sits idle past the 5 minutes. So it is exchanged HERE, before claude starts, and claude and every tool
 # shell below it inherit the variables.
-#  - wsh is the wsh.exe in the folder Wave names (WAVETERM_WSHBINDIR, an existing fully qualified folder), run ONCE with "token <token> pwsh" and a time limit.
+#  - wsh is the wsh.exe in the folder Wave names (WAVETERM_WSHBINDIR), run ONCE with "token <token> pwsh". That folder is the only one a program is ever run
+#    from, so it gets the same gates as the config and plugin folders: fully qualified; a plain-spelling refusal of .claude and .claude-work before any file
+#    system call; then its FINAL path must be at or below -WshRoot (default %LOCALAPPDATA%\WaveFork\profile\data\bin: what Wave sets, its data folder plus
+#    "bin"; a test names its own root) and never at or below .claude or .claude-work. The same folder is checked before it goes on the PATH.
+#  - The token must be a plain token (Wave mints a UUID): letters, digits, dash, underscore, 8 to 64 characters, no leading dash; anything else is no token
+#    and wsh is not called. It goes in as an argument list element, never joined into a string.
+#  - One deadline (-SwapTimeoutSeconds, default 5) covers the whole exchange: the read of the output and the exit. At the deadline wsh is killed and the
+#    session goes on. The output is read in pieces and refused above 256 KB; a line above 16 KB is ignored.
 #  - What it prints is PARSED, never run: only lines of the exact form  $env:NAME = "value"  with NAME on the fixed list below are taken; every other line is
 #    ignored (a command, a subexpression, an assignment to PATH or to another name, a line with more after the value). Inside the value Wave escapes a double
 #    quote, a backtick and a dollar sign with a backtick; that is all that is undone. A value that holds a newline, a control character or any other
-#    backtick sequence is refused.
+#    backtick sequence is refused. A non-zero exit means nothing is taken.
 #  - The token never reaches the screen or an error message. It is on the command line of the wsh call while that runs (a few milliseconds; another process of
 #    the same user can list it then, as it can read this process's environment all along); it is single use, and it is removed from this process's environment
-#    afterwards, so claude and its shells never see a spent token.
-#  - A failed, slow or refused exchange never stops the session: it starts without wsh access and one plain line says so.
+#    afterwards (an empty one too), so claude and its shells never see a spent token.
+#  - A failed, slow or refused exchange never stops the session: it starts without wsh access and one plain line says so. When an exchange was tried and did
+#    not succeed, any WAVETERM_JWT, BLOCKID, TABID and WORKSPACEID that were inherited are removed too, so that they are present only after a success.
 $SwapVariables = @('WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID', 'WAVETERM_CLIENTID', 'WAVETERM_CONN', 'WAVETERM_VERSION', 'WAVETERM', 'TERM_PROGRAM')
+$SwapMaxOutputChars = 262144
+$SwapMaxLineChars = 16384
 
 function ConvertFrom-WshAssignment([string]$line) {
+    if ($line.Length -gt $SwapMaxLineChars) { return $null }
     $m = [regex]::Match($line, '^\$env:([A-Z][A-Z0-9_]*) = "((?:[^"`$]|`["`$`])*)"$')
     if (-not $m.Success -or $SwapVariables -cnotcontains $m.Groups[1].Value) { return $null }
     $value = $m.Groups[2].Value.Replace('``', [string][char]1).Replace('`"', '"').Replace('`$', '$').Replace([string][char]1, '`')
@@ -225,12 +252,12 @@ function ConvertFrom-WshAssignment([string]$line) {
 
 function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
     $token = $env:WAVETERM_SWAPTOKEN
-    if (-not $token) { return $true }
+    if (-not $token) { return $false }
     # Wave mints a UUID (36 characters: hex digits and dashes). Anything that is not a plain token (a space, a quote, a leading dash, a very long text) is no
     # token: wsh is not called, so a token can never become extra arguments of the call.
     if ($token -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9_-]{7,63}$') { return $false }
-    $binDir = $env:WAVETERM_WSHBINDIR
-    if (-not $binDir -or $binDir -notmatch '^[A-Za-z]:[\\/]' -or -not (Test-Path -LiteralPath $binDir -PathType Container)) { return $false }
+    $binDir = Resolve-WshFolder $env:WAVETERM_WSHBINDIR
+    if (-not $binDir) { return $false }
     $wsh = Join-Path $binDir 'wsh.exe'
     if (-not (Test-Path -LiteralPath $wsh -PathType Leaf)) { return $false }
     $proc = $null
@@ -242,16 +269,29 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        $deadlineMs = $timeoutSeconds * 1000
         $proc = [System.Diagnostics.Process]::Start($psi)
-        $outTask = $proc.StandardOutput.ReadToEndAsync()
         $null = $proc.StandardError.ReadToEndAsync()
-        if (-not $proc.WaitForExit($timeoutSeconds * 1000)) {
-            try { $proc.Kill() } catch { }
-            return $false
+        # one deadline for the read and the exit: the output is read in pieces (a wsh whose child keeps the pipe open, or one that never ends, ends at the
+        # deadline), and above the size limit it is refused
+        $text = New-Object System.Text.StringBuilder
+        $buffer = New-Object 'char[]' 4096
+        $reader = $proc.StandardOutput
+        while ($true) {
+            $left = $deadlineMs - $clock.ElapsedMilliseconds
+            if ($left -le 0) { try { $proc.Kill($true) } catch { }; return $false }
+            $read = $reader.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $read.Wait([int]$left)) { try { $proc.Kill($true) } catch { }; return $false }
+            if ($read.Result -le 0) { break }
+            [void]$text.Append($buffer, 0, $read.Result)
+            if ($text.Length -gt $SwapMaxOutputChars) { try { $proc.Kill($true) } catch { }; return $false }
         }
+        $left = $deadlineMs - $clock.ElapsedMilliseconds
+        if ($left -le 0 -or -not $proc.WaitForExit([int]$left)) { try { $proc.Kill($true) } catch { }; return $false }
         if ($proc.ExitCode -ne 0) { return $false }
         $taken = 0
-        foreach ($line in ($outTask.Result -split "`r?`n")) {
+        foreach ($line in ($text.ToString() -split "`r?`n")) {
             $parsed = ConvertFrom-WshAssignment $line
             if ($parsed) { Set-Item -Path "env:$($parsed.Name)" -Value $parsed.Value; $taken++ }
         }
@@ -263,11 +303,15 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
     }
 }
 
-if ($env:WAVETERM_SWAPTOKEN) {
+if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
     $swapped = $false
     try { $swapped = Invoke-WaveTokenSwap $SwapTimeoutSeconds } catch { }
     Remove-Item Env:WAVETERM_SWAPTOKEN -ErrorAction SilentlyContinue
-    if (-not $swapped) { [Console]::Error.WriteLine('Note: the Wave token could not be exchanged, so this session starts without wsh access (restart the block to get it).') }
+    if (-not $swapped) {
+        # a failed exchange leaves nothing that looks like access: whatever was inherited is removed
+        foreach ($n in 'WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID') { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
+        [Console]::Error.WriteLine('Note: the Wave token could not be exchanged, so this session starts without wsh access (restart the block to get it).')
+    }
 }
 $claudeArgs = @(Get-ClaudeArgs)
 & $Command @claudeArgs

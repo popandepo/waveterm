@@ -11,11 +11,28 @@ param(
     [string]$PermissionMode,
     [switch]$SkipPermissions,
     [string]$Prompt,
-    [string]$ConfigDir = $(if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }),
+    [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
+    [switch]$ThrowawayConfig,
     [string]$Command = 'claude',
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
+# There is NO default config folder. A missing CLAUDE_CONFIG_DIR would make Claude fall back to %USERPROFILE%\.claude, which belongs to the work side of this
+# machine and must never be read or written by a personal session. Allowed: a folder under .claude-personal, or a throwaway folder named with -ThrowawayConfig
+# (a test). Anything that resolves to .claude or .claude-work, or below them, is refused, whatever the switch says. Exit code 2, before anything starts.
+function Test-ConfigDirAllowed([string]$dir, [bool]$throwaway) {
+    if ([string]::IsNullOrWhiteSpace($dir)) { return $false }
+    $full = [IO.Path]::GetFullPath($dir).TrimEnd('\', '/')
+    $h = $env:USERPROFILE.TrimEnd('\', '/')
+    foreach ($bad in '.claude', '.claude-work') { $r = "$h\$bad"; if ($full -ieq $r -or $full.StartsWith($r + '\', [StringComparison]::OrdinalIgnoreCase)) { return $false } }
+    $ok = "$h\.claude-personal"
+    if ($full -ieq $ok -or $full.StartsWith($ok + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return $throwaway
+}
+if (-not (Test-ConfigDirAllowed $ConfigDir $ThrowawayConfig.IsPresent)) {
+    [Console]::Error.WriteLine("Refusing to start Claude: config folder '$ConfigDir' is empty, is .claude or .claude-work (or below them), or is not under .claude-personal. Set CLAUDE_CONFIG_DIR.")
+    exit 2
+}
 if ($SessionId -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') { throw "SessionId must be a guid: $SessionId" }
 
 function Test-SessionExists([string]$root, [string]$id) {
@@ -46,12 +63,16 @@ Get-ChildItem env: |
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
 if ($Name) { $Host.UI.RawUI.WindowTitle = $Name }
 # Wave puts the folder of wsh on the PATH of the shells it starts (wavepwsh.ps1), not of a program that it starts directly, as this one is. A Claude session
-# in a tile that cannot run wsh cannot use the rest of Wave, so the folder Wave names (WAVETERM_WSHBINDIR) is put on the PATH here, once.
+# in a tile that cannot run wsh cannot use the rest of Wave, so the folder Wave names (WAVETERM_WSHBINDIR) is put on the PATH here, once. It goes AFTER the
+# entries that are already there (a tool of the same name that is already there wins), only when it is an absolute path to an existing folder, and is not added
+# when the same folder is already there under another spelling (compared as full paths, case-insensitive, trailing separators ignored).
+function Get-FullDir([string]$d) { try { return [IO.Path]::GetFullPath($d).TrimEnd('\', '/') } catch { return $null } }
 $wshDir = $env:WAVETERM_WSHBINDIR
-if ($wshDir -and (Test-Path -LiteralPath $wshDir -PathType Container)) {
+if ($wshDir -and [IO.Path]::IsPathRooted($wshDir) -and (Test-Path -LiteralPath $wshDir -PathType Container)) {
+    $wshFull = Get-FullDir $wshDir
     $entries = @($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ })
-    if (-not ($entries | Where-Object { $_.TrimEnd('\', '/') -ieq $wshDir.TrimEnd('\', '/') })) {
-        $env:PATH = $wshDir + [IO.Path]::PathSeparator + $env:PATH
+    if (-not ($entries | Where-Object { (Get-FullDir $_) -ieq $wshFull })) {
+        $env:PATH = $env:PATH.TrimEnd([IO.Path]::PathSeparator) + [IO.Path]::PathSeparator + $wshFull
     }
 }
 $claudeArgs = @(Get-ClaudeArgs)

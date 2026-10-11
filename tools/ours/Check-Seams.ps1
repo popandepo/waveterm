@@ -94,6 +94,7 @@ $seams = @(
     @('attention-meta-keys', 'pkg/waveobj/wtypemeta.go', 'AttentionLevel  string', 'the block meta keys attention:level and attention:reason'),
     @('ephemeral-replace-asks', 'frontend/layout/lib/layoutModel.ts', 'replaceEphemeral(previous.data.blockId', 'a new ephemeral block asks before it closes the old one'),
     @('attention-clearing', 'frontend/app/app.tsx', '<AttentionAutoClearing />', 'the window clears the focused block attention mark'),
+    @('top-tab-colour', 'frontend/app/tab/tab.tsx', 'topTabLook(flagColor, active)', 'the top row tab draws its colour'),
     @('stack-menu-hook', 'frontend/app/block/blockframe-header.tsx', 'label: "Turn into a stack"', 'the block menu offers stack mode'),
     @('member-look-menu-hook', 'frontend/app/block/blockframe-header.tsx', '...buildMemberLookItems(', 'the block menu offers Set colour and Set icon'),
     @('stack-tab-menu-hook', 'frontend/layout/lib/stacktabstrip.tsx', 'layoutModel.onStackTabMenu(', 'a right click on a strip tab opens the member menu'),

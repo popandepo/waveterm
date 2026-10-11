@@ -787,3 +787,13 @@ strip tab of a stack member. A member's tab reads `attention:level` and `attenti
   source pins on the label, the stylesheet (the ring pulses, the dot does not, reduced motion stops it, the member's line is untouched) and the app wiring (timer re-checks focus, writes both keys); mutation table: the ring for need too, no validation, info clearing, clearing without window focus, no reduced-motion rule, no hover text: each red.
 - **NOT RUN, window check:** `wsh attention need --reason "x"` in one tile of a stack while another member is shown: a dot on the first member's tab with the reason on hover; `urgent`: the pulsing outline; click the tab (it takes the focus) and the mark goes after half a second;
   `wsh attention info` shows the icon and stays; the pulse stops with "reduce motion" on; a long tab name keeps the dot visible.
+## 38. The top row shows the tab colour (colour work, step 4)
+
+By the settled scheme (the "SETTLED 11 Oct" row of the colour mock-up): the ACTIVE top tab is filled with its tab colour (`tab:flagcolor`, 20 percent) and has its line under it (the full colour, 2 px); the other tabs
+that have a colour show only a dimmer line (55 percent); a tab without a colour looks as before. The top bar itself is not filled, the gaps between the tiles and the headers are not touched, and no edge mark is added. The
+rule is `topTabLook` (`frontend/app/tab/toptablook.ts`): the colour goes through `memberColorValue` (section 28), so a value that is not accepted draws nothing; the two small elements (`tab-colour-fill`,
+`tab-colour-line`) sit inside the tab behind its name. The existing flag glyph on the tab is unchanged.
+- **RAN:** vitest for active, inactive and every value that must draw nothing, named colours and functions, and source pins (the tab draws both elements from the rule, before its name; the stylesheet only adds the two
+  small elements); mutation table: fill on the other tabs, full line on the other tabs, no validation, no fill, no line: each red.
+- **NOT in this step:** the vertical tab bar (`app:tabbar` left; its tab component is a different one and is not changed), the window outline (step 5), the workspace button.
+- **NOT RUN, window check:** a tab with a flag colour: when active it is tinted with a line under it, when not active only a dimmer line; the bar behind the tabs stays unfilled; a tab without colour is as before; the close button and the name stay readable on the tint.

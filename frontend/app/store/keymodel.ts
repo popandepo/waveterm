@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { WaveAIModel } from "@/app/aipanel/waveai-model";
-import { confirmCloseBlock } from "@/app/store/closeblock";
+import { closeBlockAfterConfirm } from "@/app/store/closeblock";
 import { FocusManager } from "@/app/store/focusManager";
 import {
     atoms,
@@ -174,14 +174,11 @@ function uxCloseBlock(blockId: string) {
     const node = layoutModel.getNodeByBlockId(blockId);
     if (node) {
         fireAndForget(async () => {
-            if (await confirmCloseBlock(blockId)) {
-                await layoutModel.closeNode(node.id);
+            const closed = await closeBlockAfterConfirm(blockId, () => layoutModel.closeNode(node.id));
+            if (closed && isAIFileDiff && isAIPanelOpen) {
+                setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
             }
         });
-
-        if (isAIFileDiff && isAIPanelOpen) {
-            setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
-        }
     }
 }
 
@@ -227,15 +224,20 @@ function genericClose() {
     const blockData = blockAtom ? globalStore.get(blockAtom) : null;
     const isAIFileDiff = blockData?.meta?.view === "aifilediff";
 
+    // The node is chosen now, before the question: if focus moves while the box is open, the block that was asked about is the one that
+    // closes (or nothing closes), never another one that was not asked about.
+    const nodeId = focusedNode?.id;
     fireAndForget(async () => {
-        if (blockId == null || (await confirmCloseBlock(blockId))) {
+        let closed = true;
+        if (blockId == null || nodeId == null) {
             await layoutModel.closeFocusedNode();
+        } else {
+            closed = await closeBlockAfterConfirm(blockId, () => layoutModel.closeNode(nodeId));
+        }
+        if (closed && isAIFileDiff && isAIPanelOpen) {
+            setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
         }
     });
-
-    if (isAIFileDiff && isAIPanelOpen) {
-        setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
-    }
 }
 
 function switchBlockByBlockNum(index: number) {

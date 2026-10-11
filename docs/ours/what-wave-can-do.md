@@ -434,8 +434,13 @@ still queued "not closed" and empties the queue, so a caller (the window, or `ws
 The X on a stack member closed its block, and so stopped the program in it, with no question (it called `closeNode` directly); the block header
 menu and the close key did the same (upstream behaviour). Now all three ask first, but only when a program is running: a native box
 "This closes the program running in it. It cannot be undone." with Cancel (Esc) and Close Block (Enter). The state comes from the controller
-(`GetControllerStatus`, the same state as `status` in `wsh api list`): `running` asks; no program (a web tile, a file view), an ended or
-not-started program does not; a state that cannot be read asks. The last block of a tab still goes through the tab question. A block closed by
+(`GetControllerStatus`, the same state as `status` in `wsh api list`) for the views that have programs (`term`, `tsunami`): `running` asks;
+only `done` (ended) and `init` (not started), or a view without a program (web, preview, files), close silently. Anything else asks: a controller that
+is missing for a terminal, an empty or unknown state, a state that cannot be read, a view that cannot be read. Only one box per block at a time (a
+second click on the X while the box is open does nothing); the block that was asked about is the one that closes, even if focus moves
+while the box is open; Cancel touches nothing. The box is shown only to a Wave tab view (a web tile cannot reach it). **Named exception:** a
+command (`wsh deleteblock`, the backend delete action, the local API) never asks, because nobody is there to answer; it is a different thing from
+a click on an X, and a test pins that the delete case and `closeNode` do not call the question. The last block of a tab still goes through the tab question. A block closed by
 a command (`wsh deleteblock`, the backend delete action) is never asked, because there is nobody to answer.
 - **RAN:** vitest for which states ask, the answer deciding, a failed read asking, a failed dialog keeping the block, and source pins on the
   four call sites, on the commands not asking, and on the electron side (type, preload, handler with the message capped, preview stub).

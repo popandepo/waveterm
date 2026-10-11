@@ -140,7 +140,7 @@ describe("a title as the strip draws it", () => {
         assert.equal(drawnTitle("build"), "build");
         assert.equal(drawnTitle("x".repeat(200))?.length, 60);
         assert.isNull(drawnTitle("a\nb"));
-        assert.isNull(drawnTitle("a‮b"));
+        assert.isNull(drawnTitle("a\u202eb"));
         assert.isNull(drawnTitle("  "));
         assert.isNull(drawnTitle(5));
     });

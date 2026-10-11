@@ -92,7 +92,7 @@ func SymbolValue(raw string) string {
 		}
 	}
 	value := strings.TrimSpace(raw)
-	if value == "" || hasMisplacedJoiner(value) {
+	if value == "" || hasMisplacedJoiner(value) || !joinerOnlyInEmojiSequences(value) {
 		return ""
 	}
 	if iconNameShape.MatchString(value) {
@@ -126,4 +126,45 @@ func makeNameSet(names string) map[string]bool {
 		set[n] = true
 	}
 	return set
+}
+
+// A joiner belongs only inside an emoji sequence: the character before it (past any variation selector or skin tone) and the one after it must both be
+// emoji. "a" joiner "b" is refused. The window's own rule (parseTabSymbol) only refuses a joiner at an edge, doubled or next to
+// white space, so the record is stricter here too, on purpose.
+func joinerOnlyInEmojiSequences(value string) bool {
+	runes := []rune(value)
+	for i, r := range runes {
+		if r != zeroWidthJoiner {
+			continue
+		}
+		before, after := false, false
+		for j := i - 1; j >= 0; j-- {
+			if runes[j] == 0xFE0F || runes[j] == 0x20E3 || (runes[j] >= 0x1F3FB && runes[j] <= 0x1F3FF) {
+				continue
+			}
+			before = isPictographic(runes[j])
+			break
+		}
+		if i+1 < len(runes) {
+			after = isPictographic(runes[i+1])
+		}
+		if !before || !after {
+			return false
+		}
+	}
+	return true
+}
+
+func isPictographic(r rune) bool {
+	switch {
+	case r >= 0x1F000 && r <= 0x1FAFF:
+		return true
+	case r >= 0x2600 && r <= 0x27BF, r >= 0x2300 && r <= 0x23FF, r >= 0x2B00 && r <= 0x2BFF, r >= 0x2190 && r <= 0x21FF:
+		return true
+	}
+	switch r {
+	case 0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x3030, 0x303D, 0x3297, 0x3299:
+		return true
+	}
+	return false
 }

@@ -39,7 +39,7 @@ func TestColorValueRefusesEverythingElse(t *testing.T) {
 
 func TestSymbolValueAcceptsIconNamesAndShortText(t *testing.T) {
 	for _, good := range []string{"rocket", "solid@rocket", "regular@bell", "brands@github", "custom@thing", "rocket+spin", "rocket+beat+fw", "a",
-		cp(0x1F680), "AB", cp(0x1F468, 0x200d, 0x1F469, 0x200d, 0x1F467), cp(0x1F44D, 0x1F3FD), "  rocket  "} {
+		cp(0x1F680), "AB", cp(0x1F468, 0x200d, 0x1F469, 0x200d, 0x1F467), cp(0x1F3F3, 0xFE0F, 0x200d, 0x1F308), cp(0x1F469, 0x1F3FD, 0x200d, 0x1F4BB), cp(0x1F44D, 0x1F3FD), "  rocket  "} {
 		if got := SymbolValue(good); got != strings.TrimSpace(good) {
 			t.Errorf("%q must pass as %q, got %q", good, strings.TrimSpace(good), got)
 		}
@@ -52,6 +52,7 @@ func TestSymbolValueRefusesMarkupHiddenCharactersAndLongValues(t *testing.T) {
 		"a" + cp(0x2028) + "b", "a" + cp(0x2066) + "b", cp(0x200d) + "a", "a" + cp(0x200d), "a" + cp(0x200d, 0x200d) + "b", "a " + cp(0x200d) + "b",
 		strings.Repeat("a", 41), "ABC", cp(0x1F680, 0x1F680, 0x1F680), "solid@" + strings.Repeat("a", 40), "Rocket", "rocket+blink", "../x", "a\nb",
 		strings.Repeat("x", 100000),
+		"a" + cp(0x200d) + "b", "ab" + cp(0x200d) + "c", cp(0x1F44D, 0x200d) + "a", "a" + cp(0x200d, 0x1F44D), cp(0x1F468, 0x200d) + "x" + cp(0x200d, 0x1F467),
 		"a" + cp(0x200b), cp(0x202e) + "a", "a" + cp(7), cp(0x2066) + "b", "b" + cp(0x2028), cp(0xfeff) + "a", "a" + cp(0xad),
 	}
 	for _, b := range bad {

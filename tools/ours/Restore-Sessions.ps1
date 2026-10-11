@@ -21,6 +21,7 @@ param(
     [string]$Starter = (Join-Path $PSScriptRoot 'Start-ResumableSession.ps1'),
     [string]$Wsh = 'wsh',
     [string]$Shell = 'pwsh',
+    [string]$PluginDir = $(if (Test-Path -LiteralPath 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' -PathType Container) { 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' } else { '' }),
     [string]$ConfigDir = (Join-Path $env:USERPROFILE '.claude-personal'),
     [string[]]$SessionId = @(),
     [switch]$Execute
@@ -85,6 +86,7 @@ foreach ($s in $sessions) {
         if ($AllowedModes -contains $pm) { $pmText = $pm } else { "NOTE    $label : permission mode '$pm' is not passed on, the session starts in its default mode" }
     }
     $starterArgs = @('-NoLogo', '-File', $Starter, '-SessionId', $id, '-ConfigDir', $ConfigDir)
+    if ($PluginDir) { $starterArgs += '-PluginDir', $PluginDir }
     if ($s.session.name) { $starterArgs += '-Name', "$($s.session.name)" }
     if ($s.session.model) { $starterArgs += '-Model', "$($s.session.model)" }
     if ($s.session.effort) { $starterArgs += '-Effort', "$($s.session.effort)" }

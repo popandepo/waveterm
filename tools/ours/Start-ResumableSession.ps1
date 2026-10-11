@@ -14,6 +14,7 @@ param(
     [string]$Prompt,
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
+    [string[]]$PluginDir = @(),
     [string]$Command = 'claude',
     [switch]$DryRun
 )
@@ -95,6 +96,26 @@ if (-not $resolvedConfig) {
 }
 $ConfigDir = $resolvedConfig
 
+# Plugin folders (--plugin-dir): each must be fully qualified, an existing folder, and (after links are resolved) never at or below .claude or .claude-work.
+# What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
+$pluginPaths = @()
+foreach ($pd in @($PluginDir | Where-Object { $_ })) {
+    $okPlugin = $null
+    if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-Path -LiteralPath $pd -PathType Container)) {
+        $pf = Get-FinalPath $pd
+        $hf = Get-FinalPath $env:USERPROFILE
+        if ($pf -and $hf -and -not (Test-Under $pf "$hf\.claude") -and -not (Test-Under $pf "$hf\.claude-work")) { $okPlugin = $pf }
+    }
+    if (-not $okPlugin) {
+        [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is not a fully qualified existing folder, or is at or below .claude or .claude-work.")
+        exit 2
+    }
+    $pluginPaths += $okPlugin
+}
+# The key of the status page for this start: <name>-<4 hex>, new at every start (a restart gives a new one). Set after the environment is cleaned.
+$statusSession = $null
+if ($Name) { $statusSession = $Name + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4) }
+
 # ---- the rest -----------------------------------------------------------------------------------------------------------------------------------------------
 if ($SessionId -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\z') { throw "SessionId must be a guid: $SessionId" }
 # A prompt that starts with a dash would be read by claude as an option, whatever it was meant to say.
@@ -117,6 +138,7 @@ function Test-SessionExists([string]$root, [string]$id) {
 
 function Get-ClaudeArgs {
     $a = @()
+    foreach ($pp in $pluginPaths) { $a += '--plugin-dir', $pp }
     if ($SkipPermissions) { $a += '--dangerously-skip-permissions' } elseif ($PermissionMode) { $a += '--permission-mode', $PermissionMode }
     $exists = Test-SessionExists $ConfigDir $SessionId
     if ($exists) { $a += '--resume', $SessionId } else { $a += '--session-id', $SessionId }
@@ -127,14 +149,16 @@ function Get-ClaudeArgs {
     return $a
 }
 
-if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; return }
+if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; return }
 
 Get-ChildItem env: |
-    Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
+    Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
         'GIT_ASKPASS', 'GIT_TERMINAL_PROMPT', 'NoDefaultCurrentDirectoryInExePath' } |
     ForEach-Object { Remove-Item "env:$($_.Name)" -ErrorAction SilentlyContinue }
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
+# The status page's hook writes nothing unless STATUS_SESSION is set; a key inherited from the session that opened this block would be the wrong one.
+if ($Name) { $env:STATUS_SESSION = $statusSession; $env:STATUS_TAB = $Name }
 if ($Name) { try { $Host.UI.RawUI.WindowTitle = $Name } catch { } }
 
 # Wave puts the folder of wsh on the PATH of the shells it starts (wavepwsh.ps1), not of a program that it starts directly, as this one is. A Claude session

@@ -48,7 +48,7 @@ try {
     Make-File $stub @'
 param()
 $lines = @("ARGS: " + ($args -join ' '))
-Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR' } | ForEach-Object { $lines += "ENV: $($_.Name)=$($_.Value)" }
+Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -like 'STATUS_*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR' } | ForEach-Object { $lines += "ENV: $($_.Name)=$($_.Value)" }
 $lines += 'PATHLAST: ' + (@($env:PATH -split ';' | Where-Object { $_ })[-1])
 $lines += 'PATHCOUNT: ' + (@($env:PATH -split ';' | Where-Object { $_ -ieq $env:RESUMABLE_TEST_WSHDIR }).Count)
 $found = Get-Command wsh -ErrorAction SilentlyContinue
@@ -59,10 +59,11 @@ Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
 '@
     $child = Join-Path $root 'child.ps1'
     Make-File $child @'
-param($Script, $Stub, $Record, $WshDir, $PathMode, $Cfg, $Id, [string]$ExtraPrompt)
+param($Script, $Stub, $Record, $WshDir, $PathMode, $Cfg, $Id, [string]$ExtraPrompt, [string]$ExtraName)
 $env:CLAUDE_CONFIG_DIR = 'X:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
 $env:RESUMABLE_TEST_RECORD = $Record
 $env:RESUMABLE_TEST_WSHDIR = $WshDir
+$env:STATUS_SESSION = 'stale-1234'; $env:STATUS_TAB = 'stale'
 $sep = ';'
 switch ($PathMode) {
     'set' { $env:WAVETERM_WSHBINDIR = $WshDir }
@@ -81,6 +82,7 @@ switch ($PathMode) {
 }
 $extra = @{}
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
+if ($ExtraName) { $extra.Name = $ExtraName }
 & $Script -SessionId $Id -ConfigDir $Cfg -Command $Stub -Model m1 @extra
 exit $LASTEXITCODE
 '@
@@ -90,10 +92,11 @@ exit $LASTEXITCODE
     Make-File (Join-Path $wshDir 'wsh.cmd') '@echo wsh-from-wave'
     Make-File (Join-Path $otherDir 'wsh.cmd') '@echo wsh-already-there'
     $env:RESUMABLE_TEST_OTHERDIR = $otherDir
-    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '') {
+    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '', [string]$name = '') {
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
         $a = @('-NoProfile', '-File', $child, '-Script', $script, '-Stub', $stub, '-Record', $rec, '-WshDir', $wshDir, '-PathMode', $mode, '-Cfg', $cfgDir, '-Id', $id)
         if ($prompt) { $a += '-ExtraPrompt', $prompt }
+        if ($name) { $a += '-ExtraName', $name }
         $errFile = Join-Path $root 'child-error.txt'
         & pwsh @a 2>$errFile | Out-Null
         $code = $LASTEXITCODE
@@ -126,6 +129,31 @@ exit $LASTEXITCODE
     Check 'the same folder under another spelling (case, dot dot, trailing slash) is not added again' (-not ($r.Lines -contains "PATHLAST: $wshDir")) $r.Text
     $r = Run-Child 'other'
     Check 'a wsh that is already on the PATH wins over the one Wave names' (($r.Lines -contains 'WSHOUT: wsh-already-there') -and ($r.Lines -contains "PATHLAST: $wshDir")) $r.Text
+
+    # ---- the status page's keys ----
+    $r = Run-Child 'set'
+    Check 'without -Name no STATUS_SESSION or STATUS_TAB reaches the program, and the inherited ones are removed' (-not ($r.Text -match 'ENV: STATUS_')) $r.Text
+    $r1 = Run-Child 'set' $cfg '' 'n1'
+    $r2 = Run-Child 'set' $cfg '' 'n1'
+    $s1 = ($r1.Lines | Where-Object { $_ -like 'ENV: STATUS_SESSION=*' }) -replace '^ENV: STATUS_SESSION=', ''
+    $s2 = ($r2.Lines | Where-Object { $_ -like 'ENV: STATUS_SESSION=*' }) -replace '^ENV: STATUS_SESSION=', ''
+    Check 'with -Name STATUS_SESSION is <name>-<4 hex> and STATUS_TAB is the name' (($s1 -match '^n1-[0-9a-f]{4}$') -and ($r1.Lines -contains 'ENV: STATUS_TAB=n1')) $r1.Text
+    Check 'every start gets a new STATUS_SESSION' (($s1 -match '^n1-') -and ($s2 -match '^n1-') -and ($s1 -ne $s2)) "$s1 $s2"
+    $dryName = & $script -SessionId $id -ConfigDir $cfg -Name n1 -DryRun
+    Check 'the dry run prints the status key and tab' ($dryName[2] -match '^status=n1-[0-9a-f]{4} tab=n1$') ($dryName -join ' | ')
+
+    # ---- plugin folders ----
+    $plug = Join-Path $root 'plugin one'; Make-Dir $plug
+    $d = & $script -SessionId $id -ConfigDir $cfg -PluginDir $plug -Model m1 -DryRun
+    Check 'a plugin folder is passed as --plugin-dir, ahead of the other arguments, as its resolved path' ($d[0].StartsWith("--plugin-dir $plug ")) $d[0]
+    $d2 = & $script -SessionId $id -ConfigDir $cfg -PluginDir $plug, $throw -DryRun
+    Check 'two plugin folders are both passed' (([regex]::Matches($d2[0], '--plugin-dir')).Count -eq 2) $d2[0]
+    $plugFile = Join-Path $root 'plugin-file.txt'; Make-File $plugFile 'x'
+    $juncP = Join-Path $root 'plugin-junction'; $null = New-Item -ItemType Junction -Path $juncP -Target $oldDir; $made.Add($juncP)
+    foreach ($pc in @(@('relative', 'plugin one'), @('a folder that does not exist', ($root + '\nope')), @('a file', $plugFile), @('.claude', $oldDir), @('below .claude-work', $workDir), @('a junction that leads to .claude', $juncP))) {
+        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pc[1] -DryRun 2>$null | Out-Null
+        Check ("plugin folder '" + $pc[0] + "' is refused with exit code 2") ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
+    }
 
     # ---- the prompt ----
     $r = Run-Child 'set' $cfg '-x starts with a dash'

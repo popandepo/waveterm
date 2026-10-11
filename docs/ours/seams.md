@@ -108,6 +108,9 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | controller start decision | `pkg/blockcontroller/shellcontroller.go` | `shouldRunCommand(...)` | `wsh session start --restart` depends on `cmd:runonstart` blocks starting again |
 | program status | `pkg/blockcontroller/blockcontroller.go` | `GetBlockControllerRuntimeStatus`, `Status_Running`, `Status_Done`, `Status_Init` | the status of a block's program in `wsh api list` and in the state record |
 | close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
+| shell environment | `pkg/blockcontroller/blockcontroller.go` | `token.Env["WAVETERM_CONN"] = remoteName` | per-block PowerShell history file is added to the environment next to it |
+| block deleted | `pkg/wcore/block.go` | `sendBlockCloseEvent(blockId)` | the block's history file is removed right after |
+| PowerShell start-up | `pkg/util/shellutil/shellintegration/pwsh_wavepwsh.sh` | `Remove-Item Env:WAVETERM_SWAPTOKEN` | the history path is set right after |
 | tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
 | tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |
 

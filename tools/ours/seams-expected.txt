@@ -18,6 +18,7 @@ conn-keywords
 controller-run-decision
 create-block-focused
 create-block-target
+delete-block-event
 delete-block-rpc
 dev-config-home
 dev-data-home
@@ -30,6 +31,7 @@ layout-node-type
 layout-rootnode-any
 layout-update-helper
 ping-gated-on-telemetry
+pwsh-init-swaptoken
 server-resolve-simple-id
 stack-add-hook
 stack-create-block-hook
@@ -50,6 +52,7 @@ state-record-start-hook
 svc-closetab
 svc-createtab
 svc-setactivetab
+swaptoken-env-conn
 tab-badge-atom
 tab-badges-component
 tab-badges-flag

@@ -168,6 +168,9 @@
         "term:durable": {
           "type": "boolean"
         },
+        "term:perblockhistory": {
+          "type": "boolean"
+        },
         "term:showsplitbuttons": {
           "type": "boolean"
         },

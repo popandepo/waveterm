@@ -9,6 +9,22 @@ if ($waveterm_swaptoken_output -and $waveterm_swaptoken_output -ne "") {
 Remove-Variable -Name waveterm_swaptoken_output
 Remove-Item Env:WAVETERM_SWAPTOKEN
 
+# Per-block command history (setting term:perblockhistory): PSReadLine's one shared history file makes every new shell show the last
+# command typed in any other. Pointing it at this block's own file before the first prompt means the history is read from there (an
+# empty one for a new block); if the line editor is already running, its history is replaced with the block's file.
+if ($env:WAVETERM_PWSH_HISTFILE) {
+    try {
+        Set-PSReadLineOption -HistorySavePath $env:WAVETERM_PWSH_HISTFILE
+        try {
+            [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
+            if (Test-Path -LiteralPath $env:WAVETERM_PWSH_HISTFILE) {
+                Get-Content -LiteralPath $env:WAVETERM_PWSH_HISTFILE | ForEach-Object { [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($_) }
+            }
+        } catch { }
+    } catch { }
+    Remove-Item Env:WAVETERM_PWSH_HISTFILE
+}
+
 # Load Wave completions
 wsh completion powershell | Out-String | Invoke-Expression
 

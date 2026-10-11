@@ -14,7 +14,9 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/telemetry"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
+	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -191,6 +193,9 @@ func DeleteBlock(ctx context.Context, blockId string, recursive bool) error {
 		SendActiveTabUpdate(ctx, parentWorkspaceId, newActiveTabId)
 	}
 	sendBlockCloseEvent(blockId)
+	if err := shellutil.RemoveBlockHistory(wavebase.GetWaveDataDir(), blockId); err != nil {
+		log.Printf("DeleteBlock: %v", err)
+	}
 	return nil
 }
 

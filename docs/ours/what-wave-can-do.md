@@ -446,7 +446,7 @@ a command (`wsh deleteblock`, the backend delete action) is never asked, because
 - **RAN:** vitest for which states ask, the answer deciding, a failed read asking, a failed dialog keeping the block, and source pins on the
   four call sites, on the commands not asking, and on the electron side (type, preload, handler with the message capped, preview stub).
 - **NOT RUN, window check:** the box itself. Put a `ping -t localhost` in a stack member and click its X (the box appears; Cancel keeps it
-  running; Close Block ends it); the same for the header menu "Close Block" and Ctrl+Shift+W; a web tile or an idle shell closes with no box.
+  running; Close Block ends it); the same for the header menu "Close Block" and for Alt+W (the close key is `Cmd:w`, and Cmd is Alt on Windows; Alt+Shift+W closes the whole TAB through the tab question; Ctrl+Shift+W is not bound to anything); Ctrl+Shift+X (replace the block by a launcher) and the X or Alt+W with the AI panel open and a non-empty chat ask the same way. A web tile closes with no box. **An idle shell asks too:** the state `running` is the shell process itself, and the PowerShell integration of this build sends no "a command is running" state, so there is no way to tell an idle prompt from a running command (the fork would need the shell-integration command state for PowerShell, or a check for child processes of the shell).
 ## 23. Drag a tab out of its stack, reorder tabs (step E)
 
 Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of

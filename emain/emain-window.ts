@@ -10,6 +10,7 @@ import { globalEvents } from "emain/emain-events";
 import path from "path";
 import { debounce } from "throttle-debounce";
 import { CloseTabCountUnknown, makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
+import { CloseBlockButtons, closeBlockAnswer } from "./closetabprompt";
 import {
     getGlobalIsQuitting,
     getGlobalIsRelaunching,
@@ -902,12 +903,12 @@ ipcMain.handle("confirm-close-block", async (event, message: unknown) => {
         type: "question",
         defaultId: 1, // Enter activates "Close Block"
         cancelId: 0, // Esc activates "Cancel"
-        buttons: ["Cancel", "Close Block"],
+        buttons: CloseBlockButtons,
         title: "Confirm",
         message: text,
     };
     const result = await dialog.showMessageBox(ww, options);
-    return result.response === 1;
+    return closeBlockAnswer(result.response);
 });
 
 ipcMain.on("switch-workspace", (event, workspaceId) => {

@@ -1,6 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { closeTabPrompt } from "./closetabprompt";
 
@@ -28,5 +30,27 @@ describe("asking before a tab is closed", () => {
         expect(closeTabPrompt(false, null).ask).toBe(true);
         expect(closeTabPrompt(false, undefined).ask).toBe(true);
         expect(closeTabPrompt(false, null).message).toContain("blocks");
+    });
+});
+
+describe("the answer of the box that asks before one block is closed", () => {
+    test("only Close Block closes; Cancel, Escape and anything else keep the block", async () => {
+        const { closeBlockAnswer, CloseBlockButtons } = await import("./closetabprompt");
+        expect(CloseBlockButtons).toEqual(["Cancel", "Close Block"]);
+        expect(closeBlockAnswer(1)).toBe(true);
+        expect(closeBlockAnswer(0)).toBe(false);
+        for (const other of [-1, 2, 5, NaN, undefined as unknown as number]) {
+            expect(closeBlockAnswer(other)).toBe(false);
+        }
+    });
+
+    test("the handler uses them: Cancel is the Esc button and Close Block the default", () => {
+        const win = readFileSync(path.join(__dirname, "emain-window.ts"), "utf8");
+        const handler = win.slice(win.indexOf('ipcMain.handle("confirm-close-block"'));
+        const body = handler.slice(0, handler.indexOf("\n});"));
+        expect(body).toContain("buttons: CloseBlockButtons");
+        expect(body).toContain("defaultId: 1");
+        expect(body).toContain("cancelId: 0");
+        expect(body).toContain("closeBlockAnswer(result.response)");
     });
 });

@@ -369,7 +369,7 @@ describe("the routes", () => {
         const keymodel = read("frontend/app/store/keymodel.ts");
         const ux = keymodel.slice(keymodel.indexOf("function uxCloseBlock"), keymodel.indexOf("function genericClose"));
         expect(ux.indexOf("getStaticTabBlockCount() === 1")).toBeGreaterThan(-1);
-        expect(ux.lastIndexOf("simpleCloseStaticTab()")).toBeLessThan(ux.indexOf("closeBlockAfterConfirm("));
+        expect(ux.lastIndexOf("simpleCloseStaticTab()")).toBeLessThan(ux.lastIndexOf("closeBlockAfterConfirm("));
         const generic = keymodel.slice(keymodel.indexOf("function genericClose"));
         expect(generic.indexOf("blockCount === 1")).toBeLessThan(generic.indexOf("closeFocusedBlockByUser("));
     });
@@ -406,5 +406,62 @@ describe("the routes", () => {
         expect(body).toContain("cancelId: 0");
         expect(body).not.toContain("showMessageBox(options)");
         expect(read("frontend/preview/mock/preview-electron-api.ts")).toContain("confirmCloseBlock:");
+    });
+});
+
+describe("more routes (review of the run-the-code reviewer)", () => {
+    const read = (rel: string) => readFileSync(path.join(__dirname, "..", "..", "..", rel), "utf8");
+
+    test("the layout model keeps the callback that the tab content gives it, and the ephemeral backdrop goes through the strip close", () => {
+        const model = read("frontend/layout/lib/layoutModel.ts");
+        expect(model).toContain("this.closeBlockAfterConfirm = contents.closeBlockAfterConfirm;");
+        const tile = read("frontend/layout/lib/TileLayout.tsx");
+        const backdrop = tile.slice(tile.indexOf('className="ephemeral-node-backdrop"'));
+        expect(backdrop.slice(0, 700)).toContain("closeStripTab(layoutModel.closeBlockAfterConfirm");
+        expect(backdrop.slice(0, 700)).not.toMatch(/layoutModel\.closeNode\(ephemeralNode/);
+    });
+
+    test("the routes that replace a block by a launcher (and delete it 300 ms later) ask first: header X and menu, close key, Ctrl+Shift+X", () => {
+        const keymodel = read("frontend/app/store/keymodel.ts");
+        for (const name of ["function uxCloseBlock", "function genericClose"]) {
+            const fn = keymodel.slice(keymodel.indexOf(name));
+            const body = fn.slice(0, fn.indexOf("\n}\n"));
+            const replaceAt = body.indexOf("replaceBlock(");
+            expect(replaceAt, name).toBeGreaterThan(-1);
+            expect(body.lastIndexOf("closeBlockAfterConfirm(", replaceAt), name).toBeGreaterThan(-1);
+        }
+        const x = keymodel.slice(keymodel.indexOf('globalKeyMap.set("Ctrl:Shift:x"'));
+        const xBody = x.slice(0, x.indexOf("\n    });"));
+        expect(xBody.indexOf("closeBlockAfterConfirm(")).toBeGreaterThan(-1);
+        expect(xBody.indexOf("closeBlockAfterConfirm(")).toBeLessThan(xBody.indexOf("replaceBlock("));
+    });
+
+    test("no key named Ctrl+Shift+W is claimed anywhere: the close key is Cmd:w (Alt+W on Windows)", () => {
+        const keymodel = read("frontend/app/store/keymodel.ts");
+        expect(keymodel).toContain('globalKeyMap.set("Cmd:w", () => {');
+        expect(keymodel).not.toContain("Ctrl:Shift:w");
+        expect(read("frontend/app/store/closeblock.ts")).not.toContain("Ctrl+Shift+W");
+        const docs = read("docs/ours/what-wave-can-do.md");
+        for (const m of docs.matchAll(/Ctrl+Shift+W[^;]{0,30}/g)) {
+            expect(m[0]).toContain("is not bound");
+        }
+    });
+});
+
+describe("the close of a block that cannot be identified holds one question at a time", () => {
+    test("a second one while the first box is open does not ask again", async () => {
+        let release: (v: boolean) => void = () => {};
+        const open = new Promise<boolean>((r) => (release = r));
+        const asked: string[] = [];
+        const ask = async (m: string) => (asked.push(m), await open);
+        const closed: string[] = [];
+        const first = closeUnidentifiedAfterConfirm(() => void closed.push("a"), ask);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(await closeUnidentifiedAfterConfirm(() => void closed.push("b"), ask)).toBe(false);
+        release(true);
+        expect(await first).toBe(true);
+        expect(asked.length).toBe(1);
+        expect(closed).toEqual(["a"]);
     });
 });

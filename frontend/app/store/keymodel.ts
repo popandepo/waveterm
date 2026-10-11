@@ -153,8 +153,15 @@ function uxCloseBlock(blockId: string) {
         const aiModel = WaveAIModel.getInstance();
         const shouldSwitchToAI = !globalStore.get(aiModel.isChatEmptyAtom) || aiModel.hasNonEmptyInput();
         if (shouldSwitchToAI) {
-            replaceBlock(blockId, { meta: { view: "launcher" } }, false);
-            setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+            // the block is replaced by a launcher and DELETED 300 ms later (see replaceBlock): the same question as for a close
+            fireAndForget(async () => {
+                const replaced = await closeBlockAfterConfirm(blockId, async () => {
+                    await replaceBlock(blockId, { meta: { view: "launcher" } }, false);
+                });
+                if (replaced) {
+                    setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+                }
+            });
             return;
         }
     }
@@ -198,8 +205,15 @@ function genericClose() {
             const layoutModel = getLayoutModelForStaticTab();
             const focusedNode = globalStore.get(layoutModel.focusedNode);
             if (focusedNode) {
-                replaceBlock(focusedNode.data.blockId, { meta: { view: "launcher" } }, false);
-                setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+                const focusedBlockId = focusedNode.data.blockId;
+                fireAndForget(async () => {
+                    const replaced = await closeBlockAfterConfirm(focusedBlockId, async () => {
+                        await replaceBlock(focusedBlockId, { meta: { view: "launcher" } }, false);
+                    });
+                    if (replaced) {
+                        setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+                    }
+                });
                 return;
             }
         }
@@ -641,14 +655,11 @@ function registerGlobalKeys() {
         if (blockId == null) {
             return true;
         }
-        replaceBlock(
-            blockId,
-            {
-                meta: {
-                    view: "launcher",
-                },
-            },
-            true
+        // replaces the block by a launcher and deletes it 300 ms later: a running program is asked about first
+        fireAndForget(() =>
+            closeBlockAfterConfirm(blockId, async () => {
+                await replaceBlock(blockId, { meta: { view: "launcher" } }, true);
+            })
         );
         return true;
     });

@@ -1,6 +1,7 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { fireAndForget } from "@/util/util";
 import { getSettingsKeyAtom } from "@/app/store/global";
 import clsx from "clsx";
 import { toPng } from "html-to-image";
@@ -23,6 +24,7 @@ import { LayoutModel } from "./layoutModel";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
 import "./stackstrip.scss";
 import { tileItemType } from "./dndtypes";
+import { closeStripTab } from "./stackclose";
 import { StackStrips } from "./stacktabstrip";
 import "./tilelayout.scss";
 import {
@@ -186,7 +188,14 @@ function NodeBackdrops({ layoutModel }: { layoutModel: LayoutModel }) {
                 <div
                     className="ephemeral-node-backdrop"
                     onClick={() => {
-                        layoutModel.closeNode(ephemeralNode?.id);
+                        // an ephemeral block is closed through the same question as any block (a missing question closes nothing)
+                        if (ephemeralNode?.id != null) {
+                            fireAndForget(() =>
+                                closeStripTab(layoutModel.closeBlockAfterConfirm, ephemeralNode.data?.blockId, ephemeralNode.id, (id) =>
+                                    layoutModel.closeNode(id)
+                                )
+                            );
+                        }
                     }}
                     style={{ "--block-blur": blockBlurStr } as CSSProperties}
                 />

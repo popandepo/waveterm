@@ -71,6 +71,7 @@ const DefaultDeps: ConfirmCloseDeps = {
 // One question per block at a time: a second click on the same X while the first question is open is ignored (it resolves false, so
 // the caller does nothing), not another box.
 const pendingQuestions = new Set<string>();
+const UnidentifiedLockKey = "\u0000unidentified";
 
 // The question itself, without the one-per-block lock (the callers hold it).
 async function askAboutBlock(blockId: string, deps: ConfirmCloseDeps): Promise<boolean> {
@@ -121,17 +122,26 @@ export async function closeUnidentifiedAfterConfirm(
     close: () => Promise<void> | void,
     ask: (message: string) => Promise<boolean> = DefaultDeps.ask
 ): Promise<boolean> {
-    let yes = false;
-    try {
-        yes = await ask(UnknownBlockQuestion);
-    } catch (e) {
-        console.log("confirm close block: the question could not be shown, keeping the block", e);
-    }
-    if (!yes) {
+    // one such question at a time, held through the close like the per-block lock
+    if (pendingQuestions.has(UnidentifiedLockKey)) {
         return false;
     }
-    await close();
-    return true;
+    pendingQuestions.add(UnidentifiedLockKey);
+    try {
+        let yes = false;
+        try {
+            yes = await ask(UnknownBlockQuestion);
+        } catch (e) {
+            console.log("confirm close block: the question could not be shown, keeping the block", e);
+        }
+        if (!yes) {
+            return false;
+        }
+        await close();
+        return true;
+    } finally {
+        pendingQuestions.delete(UnidentifiedLockKey);
+    }
 }
 
 // Closes a block after the question, if the answer is yes. `close` closes exactly the node that was chosen before the question (not
@@ -158,7 +168,7 @@ export async function closeBlockAfterConfirm(
     }
 }
 
-// The close of the focused block by the user (Ctrl+Shift+W): the block and its node are chosen BEFORE the question; a block that cannot be
+// The close of the focused block by the user (the close key, Cmd:w, which is Alt+W on Windows): the block and its node are chosen BEFORE the question; a block that cannot be
 // identified is always asked about. Resolves with whether something was closed.
 export async function closeFocusedBlockByUser(
     target: {

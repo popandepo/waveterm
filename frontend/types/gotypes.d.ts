@@ -350,6 +350,7 @@ declare global {
     // wshrpc.CommandDeleteBlockData
     type CommandDeleteBlockData = {
         blockid: string;
+        refuserunning?: boolean;
     };
 
     // wshrpc.CommandDeleteFileData

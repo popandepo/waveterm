@@ -349,13 +349,18 @@ from the server; a move is validated as a whole before the first member moves, s
 
 Deleting a block stops the program in it, and a script or a session that deletes a tile by command could kill a program by accident (the
 click on an X asks since the close-one-block question; a command has nobody to ask, so it refuses instead, as `wsh session close` and `wsh tab close`
-already do). `wsh deleteblock` now reads the block's view and, for a terminal or a tsunami app, its program state, and deletes without
-`--force` only when the answer is known: the view has no program (web, preview, files) or the program has `done`. A running program, one that is
-starting (`init`), a missing or unknown state, or a state that cannot be read all refuse with a message that names `--force`. A block whose meta
-cannot be read also refuses. `--force` deletes as before.
-- **RAN:** Go test of the decision (running, starting, no state, unknown state, unreadable state refuse; ended terminal, web and preview pass;
-  `--force` passes in every case).
-- **NOT RUN:** against a live Wave. Anything of mine that deletes terminals by command (the repro script) now passes `--force`.
+already do). Without `--force`, `wsh deleteblock` sends the request with `refuserunning` set, and **wavesrv makes the check in the same call that
+deletes** (`DeleteBlockCommand`: read the block's view and its program state, refuse or delete), so a program cannot start between a check in
+the command and the delete; what is left is the database write itself. The rule is `blockstatus.DeleteRefusal`: silent only when the answer is
+known: the view is one of the registered views known to have no program (web, preview, files, ...), or its program has `done`. A running or starting
+(`init`) program, a missing or unknown state, a state that cannot be read, an unknown or mistyped or missing view, and a block that cannot be read all
+refuse, with a message that names `--force`. `--force` deletes as before. Other callers of the delete call (`wsh slot close`, the block controller) do not set the
+field and keep their behaviour.
+- **RAN:** Go tests: the rule (the silent cases and every refused case, each refusal names `--force`); the server's check against a real store
+  (a running terminal, an ended one, no controller, an unreadable state, a web tile, an unknown view, a block that is not there); that the command
+  builds its request with `refuserunning` unless `--force` and does not build its own request that skips it; that the server checks before it deletes
+  and only when asked; `task generate` for the type.
+- **NOT RUN:** against a live Wave. Anything of mine that deletes terminals by command (the repro script) passes `--force`.
 ## 21. A session block that comes back after Wave restarts (`wsh session start --restart --meta`)
 
 `wsh session start --restart` marks the block so that Wave starts its program again at every start of the app (the

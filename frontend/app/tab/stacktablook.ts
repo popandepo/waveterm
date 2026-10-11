@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { attentionOf } from "@/app/store/attention";
 import { validateCssColor } from "@/util/color-validator";
 import { parseTabSymbol, TabSymbol } from "./tabsymbol";
 
@@ -92,4 +93,24 @@ export function drawnTitle(raw: unknown): string | null {
         return null;
     }
     return value.length > MaxTitleLength ? value.slice(0, MaxTitleLength - 3) + "..." : value;
+}
+
+export interface StackTabAttention {
+    kind: "none" | "info" | "need" | "urgent";
+    reason: string;
+}
+
+// The mark a member's strip tab shows for the attention of its block (attention:level and attention:reason, written by any program, so read only
+// through attentionOf: an orange level without a reason, a bad level or a reason with hidden characters is no mark at all).
+export function stackTabAttention(level: unknown, reason: unknown): StackTabAttention {
+    const a = attentionOf(level, reason);
+    if (a.level === "") {
+        return { kind: "none", reason: "" };
+    }
+    return { kind: a.level, reason: a.reason };
+}
+
+// The colour of a badge icon (wsh badge --color, written by any program): validated like every colour that is drawn; null draws the default colour.
+export function badgeColorValue(raw: unknown): string | null {
+    return memberColorValue(raw);
 }

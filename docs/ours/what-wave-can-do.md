@@ -503,6 +503,16 @@ non-stack, stack of one, unknown id, focus lands on the shown tab).
   page, has the keyboard focus; the onboarding screens switch all global keys off. **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
   `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.
 
+## 25b. Right click copies or pastes in a terminal (setting `term:rightclickpaste`, on in this fork)
+
+Wave opened its context menu on every right click, and he had to pick Paste from it (found in his window check, 11 Oct 2026). With the setting on, a right click in a terminal
+works as in Windows Terminal: it copies the selection (trimmed as the menu's Copy does, then the selection is cleared) or, with nothing selected, pastes
+(the same native paste as the menu item). Shift or Ctrl held while right clicking still opens the menu, so the other items (open a link,
+magnify, send to Wave AI) stay reachable. The setting is off upstream and on in this fork's defaults; set it to false for the old behaviour.
+- **RAN:** vitest for the decision (setting off or unset gives the menu whatever is selected; on: copy with a selection, paste without; Shift or
+  Ctrl gives the menu) and source pins on the wiring and on the setting in the types, the default config and the docs; `task generate` diff is only the setting.
+- **NOT RUN, window check:** right click with nothing selected (pastes), select text and right click (copies, selection goes away), Shift + right
+  click (menu).
 ## 26. Is the program in a block still running? (`status` in `wsh api list` and in the state record)
 
 Each block that has a program now shows one of three words: `running`, `exited` (with its exit code, also `0` for a clean exit) or

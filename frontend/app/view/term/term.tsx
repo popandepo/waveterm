@@ -378,6 +378,9 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         (e: React.MouseEvent<HTMLDivElement>) => {
             e.preventDefault();
             e.stopPropagation();
+            if (model.handleRightClick(e.shiftKey || e.ctrlKey)) {
+                return;
+            }
             const menuItems = model.getContextMenuItems();
             ContextMenuModel.getInstance().showContextMenu(menuItems, e);
         },

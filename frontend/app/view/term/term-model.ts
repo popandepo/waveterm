@@ -40,6 +40,7 @@ import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
+import { rightClickAction } from "./rightclick";
 import { computeTheme, DefaultTermTheme, isLikelyOnSameHost, trimTerminalSelection } from "./termutil";
 import { TermWrap, WebGLSupported } from "./termwrap";
 
@@ -820,6 +821,34 @@ export class TermViewModel implements ViewModel {
             forcerestart: true,
             rtopts: { termsize: termsize },
         });
+    }
+
+    // Right click as Windows Terminal does it (setting term:rightclickpaste): copy the selection, or paste when nothing is selected.
+    // Returns true when the click was handled, false when the context menu should open.
+    handleRightClick(menuModifier: boolean): boolean {
+        const terminal = this.termRef.current?.terminal;
+        const action = rightClickAction(
+            globalStore.get(getSettingsKeyAtom("term:rightclickpaste")),
+            !!terminal?.hasSelection(),
+            menuModifier
+        );
+        if (action === "menu") {
+            return false;
+        }
+        if (action === "paste") {
+            getApi().nativePaste();
+            return true;
+        }
+        const selection = terminal.getSelection();
+        if (selection) {
+            const text =
+                globalStore.get(getSettingsKeyAtom("term:trimtrailingwhitespace")) !== false
+                    ? trimTerminalSelection(selection)
+                    : selection;
+            navigator.clipboard.writeText(text);
+        }
+        terminal.clearSelection();
+        return true;
     }
 
     getContextMenuItems(): ContextMenuItem[] {

@@ -442,7 +442,9 @@ describe("more routes (review of the run-the-code reviewer)", () => {
         expect(keymodel).not.toContain("Ctrl:Shift:w");
         expect(read("frontend/app/store/closeblock.ts")).not.toContain("Ctrl+Shift+W");
         const docs = read("docs/ours/what-wave-can-do.md");
-        for (const m of docs.matchAll(/Ctrl+Shift+W[^;]{0,30}/g)) {
+        const mentions = [...docs.matchAll(/Ctrl\+Shift\+W[^;]{0,30}/g)];
+        expect(mentions.length).toBeGreaterThan(0);
+        for (const m of mentions) {
             expect(m[0]).toContain("is not bound");
         }
     });

@@ -7,6 +7,7 @@ api-path-rpc
 api-set-active-tab-rpc
 api-set-block-focus-rpc
 api-startup-hook
+attention-meta-keys
 autoupdate-default-off
 badge-store-memory
 block-runtime-status
@@ -25,12 +26,14 @@ dev-config-home
 dev-data-home
 electron-bell-rpc
 electron-wsh-client
+ephemeral-replace-asks
 layout-addchildat
 layout-balance
 layout-focus-reducer
 layout-node-type
 layout-rootnode-any
 layout-update-helper
+member-look-menu-hook
 ping-gated-on-telemetry
 pwsh-init-swaptoken
 server-resolve-simple-id
@@ -45,6 +48,7 @@ stack-move-layout-action
 stack-overlay-strip-hook
 stack-reorder-reducer
 stack-rpc-interface
+stack-tab-menu-hook
 stack-ui-backend-actions
 stack-ui-geometry-hook
 stack-ui-label-hook

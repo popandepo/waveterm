@@ -9,6 +9,7 @@ import { useDrag } from "react-dnd";
 import { tileItemType } from "./dndtypes";
 import type { LayoutModel } from "./layoutModel";
 import { closeStripTab } from "./stackclose";
+import { makeStripTabMenuInfo } from "./stacktabmenu";
 import { buildStripTabs, stripsToShow } from "./stackgeometry";
 import type { LayoutNode, LayoutNodeAdditionalProps } from "./types";
 import { setTransform } from "./utils";
@@ -29,7 +30,9 @@ const StripTab = memo(
         layoutModel,
         tab,
         node,
+        stackSize,
     }: {
+        stackSize: number;
         layoutModel: LayoutModel;
         tab: ReturnType<typeof buildStripTabs>[number];
         node: LayoutNode;
@@ -65,6 +68,25 @@ const StripTab = memo(
                 data-blockid={tab.blockId}
                 data-nodeid={tab.nodeId}
                 onClick={() => layoutModel.focusNode(tab.nodeId)}
+                onContextMenu={(e) => {
+                    if (layoutModel.onStackTabMenu == null) {
+                        return;
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    layoutModel.onStackTabMenu(
+                        makeStripTabMenuInfo(
+                            {
+                                closeAfterConfirm: layoutModel.closeBlockAfterConfirm,
+                                closeNode: (id) => layoutModel.closeNode(id),
+                                takeNodeOutOfStack: (id) => layoutModel.takeNodeOutOfStack(id),
+                            },
+                            tab,
+                            stackSize
+                        ),
+                        e
+                    );
+                }}
             >
                 <span className="stack-tab-label">
                     {layoutModel.renderStackTabLabel?.(tab.blockId) ?? tab.blockId.slice(0, 8)}
@@ -119,6 +141,7 @@ const StackStrip = memo(({ layoutModel, stackId, props }: StackStripProps) => {
                     layoutModel={layoutModel}
                     tab={tab}
                     node={leafs.find((l) => l.id === tab.nodeId)}
+                    stackSize={tabs.length}
                 />
             ))}
             <button

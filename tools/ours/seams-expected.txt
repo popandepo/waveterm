@@ -89,6 +89,7 @@ upstream-tab-commands
 upstream-tab-files
 upstream-tab-group
 upstream-tab-icon
+window-outline
 window-queue-close-tab
 window-set-active-tab
 workspace-atom

@@ -797,3 +797,12 @@ rule is `topTabLook` (`frontend/app/tab/toptablook.ts`): the colour goes through
   small elements); mutation table: fill on the other tabs, full line on the other tabs, no validation, no fill, no line: each red.
 - **NOT in this step:** the vertical tab bar (`app:tabbar` left; its tab component is a different one and is not changed), the window outline (step 5), the workspace button.
 - **NOT RUN, window check:** a tab with a flag colour: when active it is tinted with a line under it, when not active only a dimmer line; the bar behind the tabs stays unfilled; a tab without colour is as before; the close button and the name stay readable on the tint.
+## 39. The window outline in the workspace colour (colour work, step 5)
+
+By the settled scheme ("workspace = outline around the window, top bar not filled"): a 3 px border round the whole window in the colour of the workspace: its accent (`ws:accent`, set with `wsh workspace style`) when
+there is a valid one, else the colour of the workspace itself. No colour, no outline. It is a border only (`window-outline` in `app.tsx` and `app.scss`): it fills nothing, takes no mouse events, and sits above the
+content and below the modals and typeaheads (z-index 50). The colours go through `memberColorValue` (section 28): a value that is not accepted counts as not set.
+- **RAN:** vitest for the accent first, then the workspace colour, none, and every value that must not pass; source pins (one outline, from the workspace's accent and colour, a border without any background, no mouse
+  events, z-index 50).
+- **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
+  changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.

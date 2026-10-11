@@ -12,6 +12,7 @@ import {
 import { ClearAttentionMeta } from "@/app/store/attentionclear";
 import { scheduleAttentionClear } from "@/app/store/attentionschedule";
 import { ClientModel } from "@/app/store/client-model";
+import { windowOutlineColor, WindowOutlineWidthPx } from "@/app/windowoutline";
 import { FocusManager } from "@/app/store/focusManager";
 import { GlobalModel } from "@/app/store/global-model";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -408,6 +409,14 @@ const AttentionAutoClearing = () => {
     }, [focusedBlockId, level, reason, documentHasFocus]);
 
     return null;
+// The outline round the whole window in the workspace's colour (see windowoutline.ts): a border only, it fills nothing and takes no mouse events.
+const WindowOutline = () => {
+    const workspace = useAtomValue(atoms.workspace);
+    const color = windowOutlineColor(workspace?.meta?.["ws:accent"], workspace?.color);
+    if (color == null) {
+        return null;
+    }
+    return <div className="window-outline" style={{ borderColor: color, borderWidth: WindowOutlineWidthPx }} />;
 };
 
 const AppInner = () => {
@@ -441,6 +450,7 @@ const AppInner = () => {
             <BadgeAutoClearing />
             <AttentionAutoClearing />
             <AccentController />
+            <WindowOutline />
             <DndProvider backend={HTML5Backend}>
                 <Workspace />
             </DndProvider>

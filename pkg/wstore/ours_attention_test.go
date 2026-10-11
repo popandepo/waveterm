@@ -183,13 +183,23 @@ func TestAnEmptyExpectedValueNeverMatches(t *testing.T) {
 func TestTheCompareAndTheWriteAreOneStep(t *testing.T) {
 	ctx := initAttentionTestStore(t)
 	b := insertBlock(t, ctx, waveobj.MetaMapType{"attention:level": "need", "attention:reason": "old"})
+	attempting := make(chan struct{})
 	rivalDone := make(chan struct{})
+	rivalErr := make(chan error, 1)
 	var rivalFinishedInsideTheStep bool
 	attentionClearBeforeWrite = func() {
 		go func() {
 			defer close(rivalDone)
-			_ = UpdateObjectMeta(waveobj.ContextWithUpdates(ctx), waveobj.MakeORef(waveobj.OType_Block, b.OID), waveobj.MetaMapType{"attention:level": "need", "attention:reason": "new"}, false)
+			close(attempting)
+			rivalErr <- UpdateObjectMeta(waveobj.ContextWithUpdates(ctx), waveobj.MakeORef(waveobj.OType_Block, b.OID), waveobj.MetaMapType{"attention:level": "need", "attention:reason": "new"}, false)
 		}()
+		// the barrier: the rival has started its write attempt before the clear is allowed to go on
+		select {
+		case <-attempting:
+		case <-time.After(5 * time.Second):
+			t.Error("the rival never started its write attempt")
+			return
+		}
 		select {
 		case <-rivalDone:
 			rivalFinishedInsideTheStep = true
@@ -208,6 +218,9 @@ func TestTheCompareAndTheWriteAreOneStep(t *testing.T) {
 	case <-rivalDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the rival write never finished")
+	}
+	if err := <-rivalErr; err != nil {
+		t.Fatalf("the rival's write must succeed once the clear is done: %v", err)
 	}
 	got := getBlock(t, ctx, b.OID).Meta
 	if got["attention:level"] != "need" || got["attention:reason"] != "new" {

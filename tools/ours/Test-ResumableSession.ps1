@@ -32,19 +32,28 @@ Set-Content $stub @'
 param()
 $lines = @("ARGS: " + ($args -join ' '))
 Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR' } | ForEach-Object { $lines += "ENV: $($_.Name)=$($_.Value)" }
+$lines += 'PATH0: ' + (($env:PATH -split ';')[0])
+$lines += 'PATHCOUNT: ' + (@($env:PATH -split ';' | Where-Object { $_ -ieq $env:RESUMABLE_TEST_WSHDIR }).Count)
+$found = Get-Command wsh -ErrorAction SilentlyContinue
+$lines += 'WSH: ' + $(if ($found) { $found.Source } else { 'none' })
 Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
 '@
 # The launch runs in a child PowerShell process: the starter removes CLAUDE* and colour variables from the environment of the
 # process it runs in, and this test must not leave the developer's own shell changed.
 $child = Join-Path $root 'child.ps1'
 Set-Content $child @'
-param($Script, $Id, $Root, $Stub, $Record)
+param($Script, $Id, $Root, $Stub, $Record, $WshDir, $PathMode)
 $env:CLAUDE_CONFIG_DIR = 'C:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
 $env:RESUMABLE_TEST_RECORD = $Record
+$env:RESUMABLE_TEST_WSHDIR = $WshDir
+if ($PathMode -eq 'set') { $env:WAVETERM_WSHBINDIR = $WshDir } elseif ($PathMode -eq 'missing') { $env:WAVETERM_WSHBINDIR = $WshDir + '-nope' } elseif ($PathMode -eq 'already') { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = $WshDir + ';' + $env:PATH } else { Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
 & $Script -SessionId $Id -ConfigDir $Root -Command $Stub -Model m1
 '@
 $shellBefore = @('CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE', 'NO_COLOR', 'FORCE_COLOR') | ForEach-Object { "$_=" + [Environment]::GetEnvironmentVariable($_) }
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $child -Script $script -Id $id -Root $root -Stub $stub -Record $rec | Out-Null
+$wshDir = Join-Path $root 'wshbin'
+$null = New-Item -ItemType Directory -Path $wshDir
+Set-Content (Join-Path $wshDir 'wsh.cmd') '@echo off'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $child -Script $script -Id $id -Root $root -Stub $stub -Record $rec -WshDir $wshDir -PathMode set | Out-Null
 $recorded = @(Get-Content -LiteralPath $rec)
 $shellAfter = @('CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE', 'NO_COLOR', 'FORCE_COLOR') | ForEach-Object { "$_=" + [Environment]::GetEnvironmentVariable($_) }
 Check 'this shell is left as it was (the launch ran in a child process)' (($shellBefore -join '|') -eq ($shellAfter -join '|')) (($shellBefore -join '|') + ' -> ' + ($shellAfter -join '|'))
@@ -52,6 +61,17 @@ Check 'the launched program gets the searched config folder, not the inherited o
 Check 'the inherited child-session markers are gone' (-not ($recorded -match 'ENV: (CLAUDE_CODE_CHILD_SESSION|CLAUDECODE)=')) ($recorded -join ' | ')
 Check 'NO_COLOR is gone' (-not ($recorded -match 'ENV: NO_COLOR=')) ($recorded -join ' | ')
 Check 'the launched program gets the resume arguments' (($recorded -join ' ') -match "ARGS: --resume $id") ($recorded -join ' | ')
-Remove-Item $stub, $rec, $child -ErrorAction SilentlyContinue
+Check 'the folder of wsh is first on the PATH of the launched program' ($recorded -contains "PATH0: $wshDir") ($recorded -join ' | ')
+Check 'wsh can be run from there' (($recorded -join ' ') -match [regex]::Escape("WSH: $wshDir")) ($recorded -join ' | ')
+
+foreach ($mode in 'missing', 'unset') {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $child -Script $script -Id $id -Root $root -Stub $stub -Record $rec -WshDir $wshDir -PathMode $mode | Out-Null
+    $r = @(Get-Content -LiteralPath $rec)
+    Check "with WAVETERM_WSHBINDIR $mode the PATH is left alone" (-not ($r -contains "PATH0: $wshDir") -and ($r -contains 'PATHCOUNT: 0')) ($r -join ' | ')
+}
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $child -Script $script -Id $id -Root $root -Stub $stub -Record $rec -WshDir $wshDir -PathMode already | Out-Null
+$r = @(Get-Content -LiteralPath $rec)
+Check 'a folder that is already on the PATH is not added again' ($r -contains 'PATHCOUNT: 1') ($r -join ' | ')
+Remove-Item $stub, $rec, $child, (Join-Path $wshDir 'wsh.cmd'), $wshDir -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $root "projects\some-folder\$id.jsonl"), (Join-Path $root 'projects\some-folder'), (Join-Path $root 'projects'), $root
 if ($fail -gt 0) { exit 1 }

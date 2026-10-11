@@ -45,5 +45,14 @@ Get-ChildItem env: |
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
 if ($Name) { $Host.UI.RawUI.WindowTitle = $Name }
+# Wave puts the folder of wsh on the PATH of the shells it starts (wavepwsh.ps1), not of a program that it starts directly, as this one is. A Claude session
+# in a tile that cannot run wsh cannot use the rest of Wave, so the folder Wave names (WAVETERM_WSHBINDIR) is put on the PATH here, once.
+$wshDir = $env:WAVETERM_WSHBINDIR
+if ($wshDir -and (Test-Path -LiteralPath $wshDir -PathType Container)) {
+    $entries = @($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ })
+    if (-not ($entries | Where-Object { $_.TrimEnd('\', '/') -ieq $wshDir.TrimEnd('\', '/') })) {
+        $env:PATH = $wshDir + [IO.Path]::PathSeparator + $env:PATH
+    }
+}
 $claudeArgs = @(Get-ClaudeArgs)
 & $Command @claudeArgs

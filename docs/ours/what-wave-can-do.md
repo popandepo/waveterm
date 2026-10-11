@@ -763,3 +763,21 @@ stack, and when another top tab was shown and then this one again. Switching to 
   (2) put two of them into one stack and switch between the members ten times: forms, scroll position, video time; (3) the same in two windows and two workspaces, then switch workspace and back: which reload
   (expected: all of the other workspace); (4) open more tabs than the cache size (10) and come back to the first: does the web tile reload; (5) a hidden member's audio is muted (PR 27) and un-muted when shown;
   (6) close one web tile with a filled form: no question (it has no program), the others untouched; (7) restart Wave: web tiles reload (nothing keeps a form across a restart).
+
+## 40. A session opened in a tile comes back after Wave restarts (the starter, and what opens it)
+
+The chain, with who does what: a script that opens a session (outside this repository: `Open-WaveSession.ps1` of the owner's tools, called by `Wave-Sessions.ps1 open`) calls `wsh session start --restart --meta session:id=<guid>
+--meta session:name=... (and model, effort, permissionmode when given)`. Wave then (1) marks the block `cmd:runonstart=true` and `cmd:runonce=false` so it starts the SAME command again at every start of the app, in the same block, keeping the
+earlier output (`cmd:clearonstart=false`); (2) keeps the `session:*` keys on the block, which is what puts it into the `sessions` index of the state record (`<data dir>\state\wave-state.json`: only blocks that carry a session id are
+listed there; `Restore-Sessions.ps1` reads that index). The command Wave starts again is `tools/ours/Start-ResumableSession.ps1`: its first start creates the session under the id (`--session-id`), every later start resumes it
+(`--resume`). `--restart` is refused for a command line with a bare `--session-id` or an inline shell command (section 21), so a plain launcher cannot be used with it.
+- **The starter puts the folder of wsh on the PATH** (`WAVETERM_WSHBINDIR`, once, only if the folder exists and is not there yet). Wave adds that folder to the PATH of the shells it starts, not of a program it starts directly (as this one is), so a
+  Claude session in a tile could not run `wsh` by name. RAN: `Test-ResumableSession.ps1` (the folder is first on the PATH of the launched program and wsh resolves there; a missing or unset variable leaves the PATH alone; a folder that is
+  already there is not added again; red when the PATH line is removed and when the duplicate check is removed).
+- **A block opened the OLD way** (`--restart` not given; the keys are `cmd:runonce=true` and no `session:*`) is not started again at a restart (it is marked run once): it comes back as an empty finished block with its old output, and it is not in
+  the record. It can be marked from inside Wave with `wsh setmeta -b <block> cmd:runonce=false cmd:clearonstart=false session:id=<guid> session:name=<name>` plus `cmd` and `cmd:args` replaced by the resumable starter's command line (the old command
+  would create the session again with its id and be refused as already in use): possible but NOT RUN, and it needs the session's real id (a session that Claude named itself has an id that only the session knows); reopening it with the new script
+  is the safe way, and `claude --resume <id>` in a new tile brings the conversation back.
+- **NOT RUN (a window and a restart are needed; the owner's PC was in use, so no dev window was opened):** open a session, see it in the record, stop and start a dev Wave, see the block start again and resume the same id. The parts are tested
+  separately: the starter's choice between create and resume and the PATH (self test above), the meta rules and the restart decision of the controller (section 21), the index of the record (section 24), and the opening script's arguments (dry-run self test
+  in the owner's tools folder: restart on, the five meta keys, the starter by a stable path, no inline code, no `--session-id`).

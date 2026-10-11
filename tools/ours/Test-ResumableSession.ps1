@@ -154,8 +154,19 @@ exit $LASTEXITCODE
         & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pc[1] -DryRun 2>$null | Out-Null
         Check ("plugin folder '" + $pc[0] + "' is refused with exit code 2") ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     }
+    foreach ($pp2 in @($oldDir, (Join-Path $workDir 'x'), ($personal + '\..\.claude'))) {
+        $perr = Join-Path $root 'plugin-error.txt'
+        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pp2 -DryRun 2>$perr | Out-Null
+        $ptext = Get-Content -LiteralPath $perr -Raw
+        Remove-Item -LiteralPath $perr -ErrorAction SilentlyContinue
+        Check ("plugin folder '" + $pp2.Replace($root, '<root>') + "' is refused by its plain spelling, before anything is opened") (($LASTEXITCODE -eq 2) -and ($ptext -match 'plain spelling \(nothing was opened\)')) "exit=$LASTEXITCODE $ptext"
+    }
 
     # ---- the prompt ----
+    foreach ($lead in '-x', ' -x', "`t-x", "  `t -x") {
+        $rd = Run-Child 'set' $cfg ($lead + ' starts with a dash')
+        Check ("a prompt that starts with '" + $lead.Replace("`t", '<tab>') + "' is refused with exit 2 and nothing is started") (($rd.Code -eq 2) -and $rd.Lines.Count -eq 0) "exit=$($rd.Code) $($rd.Text)"
+    }
     $r = Run-Child 'set' $cfg '-x starts with a dash'
     Check 'a prompt that starts with a dash is refused with exit 2 and nothing is started' (($r.Code -eq 2) -and $r.Lines.Count -eq 0) "exit=$($r.Code) $($r.Text)"
     $quoted = 'say "hi" and a\"b c'
@@ -202,6 +213,7 @@ exit $LASTEXITCODE
         @('a folder next to .claude-personal with the same start', $evil, $false),
         @('a throwaway folder without the switch', $throw, $false)
     )
+    $plainCases = @('.claude', '.claude with the switch', 'below .claude', '.CLAUDE in capitals', '.claude-work', 'below .claude-work', 'dot dot out of .claude-personal into .claude', 'forward slashes into .claude', '8.3 name of the profile into .claude')
     foreach ($c in $cases) {
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
         $a = @('-NoProfile', '-File', $script, '-SessionId', $id, '-Command', $stub)
@@ -209,7 +221,14 @@ exit $LASTEXITCODE
         if ($c[2]) { $a += '-ThrowawayConfig' }
         $env:RESUMABLE_TEST_RECORD = $rec
         Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
-        & pwsh @a 2>$null | Out-Null
+        $errPath = Join-Path $root 'refuse-error.txt'
+        & pwsh @a 2>$errPath | Out-Null
+        $refusalText = if (Test-Path -LiteralPath $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '' }
+        Remove-Item -LiteralPath $errPath -ErrorAction SilentlyContinue
+        $wantPlain = $plainCases -contains $c[0]
+        $gotPlain = $refusalText -match 'by its plain spelling \(nothing was opened\)'
+        if ($wantPlain) { Check ("config folder '" + $c[0] + "' is refused by its plain spelling, before anything is opened") $gotPlain $refusalText }
+        else { Check ("config folder '" + $c[0] + "' needs the resolver (it is not refused by its plain spelling)") (-not $gotPlain) $refusalText }
         Check ("config folder '" + $c[0] + "' is refused with exit code 2 and nothing is started") (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE record=$(Test-Path -LiteralPath $rec)"
     }
     $env:CLAUDE_CONFIG_DIR = $oldDir

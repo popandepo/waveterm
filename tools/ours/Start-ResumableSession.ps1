@@ -75,11 +75,23 @@ function Test-Under([string]$path, [string]$root) {
     return ($path -ieq $root) -or $path.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)
 }
 
+# The plain-spelling gate: after "..", slashes and capitals are read as text (no file system call, nothing is opened), a path at or below
+# <profile>\.claude or <profile>\.claude-work is refused at once. Only what passes this gate is looked at on disk (the final path resolution below).
+function Test-PlainlyForbidden([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($env:USERPROFILE) -or $env:USERPROFILE -notmatch '^[A-Za-z]:[\\/]') { return $false }
+    $textFull = [IO.Path]::GetFullPath($path).TrimEnd('\', '/')
+    $textHome = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\', '/')
+    foreach ($bad in '.claude', '.claude-work') { if (Test-Under $textFull "$textHome\$bad") { return $true } }
+    return $false
+}
+$script:ConfigRefusedByPlainSpelling = $false
+
 # Returns the resolved full path of the folder when it may be used, otherwise $null.
 function Resolve-AllowedConfigDir([string]$dir, [bool]$throwaway) {
     if ([string]::IsNullOrWhiteSpace($dir)) { return $null }
     if ($dir -notmatch '^[A-Za-z]:[\\/]') { return $null }
     if ([string]::IsNullOrWhiteSpace($env:USERPROFILE) -or $env:USERPROFILE -notmatch '^[A-Za-z]:[\\/]') { return $null }
+    if (Test-PlainlyForbidden $dir) { $script:ConfigRefusedByPlainSpelling = $true; return $null }
     $final = Get-FinalPath $dir
     $homeFinal = Get-FinalPath $env:USERPROFILE
     if (-not $final -or -not $homeFinal) { return $null }
@@ -90,6 +102,10 @@ function Resolve-AllowedConfigDir([string]$dir, [bool]$throwaway) {
 }
 
 $resolvedConfig = Resolve-AllowedConfigDir $ConfigDir $ThrowawayConfig.IsPresent
+if (-not $resolvedConfig -and $script:ConfigRefusedByPlainSpelling) {
+    [Console]::Error.WriteLine("Refusing to start Claude: config folder '$ConfigDir' is at or below .claude or .claude-work by its plain spelling (nothing was opened).")
+    exit 2
+}
 if (-not $resolvedConfig) {
     [Console]::Error.WriteLine("Refusing to start Claude: config folder '$ConfigDir' is empty, not fully qualified, at or below .claude or .claude-work (after links are resolved), or not under .claude-personal. Set CLAUDE_CONFIG_DIR.")
     exit 2
@@ -101,6 +117,10 @@ $ConfigDir = $resolvedConfig
 $pluginPaths = @()
 foreach ($pd in @($PluginDir | Where-Object { $_ })) {
     $okPlugin = $null
+    if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-PlainlyForbidden $pd)) {
+        [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is at or below .claude or .claude-work by its plain spelling (nothing was opened).")
+        exit 2
+    }
     if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-Path -LiteralPath $pd -PathType Container)) {
         $pf = Get-FinalPath $pd
         $hf = Get-FinalPath $env:USERPROFILE
@@ -119,7 +139,7 @@ if ($Name) { $statusSession = $Name + '-' + [guid]::NewGuid().ToString('N').Subs
 # ---- the rest -----------------------------------------------------------------------------------------------------------------------------------------------
 if ($SessionId -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\z') { throw "SessionId must be a guid: $SessionId" }
 # A prompt that starts with a dash would be read by claude as an option, whatever it was meant to say.
-if ($Prompt -and $Prompt.StartsWith('-')) {
+if ($Prompt -and $Prompt.TrimStart().StartsWith('-')) {
     [Console]::Error.WriteLine('Refusing to start Claude: the prompt starts with a dash and would be read as an option. Start it with a word.')
     exit 2
 }

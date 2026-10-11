@@ -40,7 +40,7 @@ import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
-import { rightClickAction } from "./rightclick";
+import { runRightClick } from "./rightclick";
 import { computeTheme, DefaultTermTheme, isLikelyOnSameHost, trimTerminalSelection } from "./termutil";
 import { TermWrap, WebGLSupported } from "./termwrap";
 
@@ -824,33 +824,37 @@ export class TermViewModel implements ViewModel {
     }
 
     // Right click as Windows Terminal does it (setting term:rightclickpaste): copy the selection, or paste when nothing is selected.
-    // Returns true when the click was handled, false when the context menu should open.
+    // Returns true when the click was handled, false when the context menu should open. The paste goes to THIS terminal: it takes the
+    // keyboard focus before the native paste is sent (see runRightClick). A program that takes the mouse itself keeps the click.
     handleRightClick(menuModifier: boolean): boolean {
         const terminal = this.termRef.current?.terminal;
-        const action = rightClickAction(
-            globalStore.get(getSettingsKeyAtom("term:rightclickpaste")),
-            !!terminal?.hasSelection(),
-            menuModifier
-        );
-        if (action === "menu") {
+        if (terminal == null) {
             return false;
         }
-        if (action === "paste") {
-            getApi().nativePaste();
-            return true;
-        }
-        const selection = terminal.getSelection();
-        if (selection) {
-            const text =
-                globalStore.get(getSettingsKeyAtom("term:trimtrailingwhitespace")) !== false
-                    ? trimTerminalSelection(selection)
-                    : selection;
-            navigator.clipboard.writeText(text);
-        }
-        terminal.clearSelection();
-        return true;
+        return runRightClick({
+            rightClickPaste: globalStore.get(getSettingsKeyAtom("term:rightclickpaste")),
+            hasSelection: !!terminal.hasSelection(),
+            programTakesMouse: ((terminal as any).modes?.mouseTrackingMode ?? "none") !== "none",
+            menuModifier,
+            focusThisTerminal: () => {
+                this.nodeModel.focusNode();
+                terminal.focus();
+            },
+            nativePaste: () => getApi().nativePaste(),
+            copySelection: () => {
+                const selection = terminal.getSelection();
+                if (!selection) {
+                    return;
+                }
+                const text =
+                    globalStore.get(getSettingsKeyAtom("term:trimtrailingwhitespace")) !== false
+                        ? trimTerminalSelection(selection)
+                        : selection;
+                navigator.clipboard.writeText(text);
+            },
+            clearSelection: () => terminal.clearSelection(),
+        });
     }
-
     getContextMenuItems(): ContextMenuItem[] {
         const menu: ContextMenuItem[] = [];
         const hasSelection = this.termRef.current?.terminal?.hasSelection();

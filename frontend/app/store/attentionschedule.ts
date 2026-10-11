@@ -10,8 +10,8 @@ export interface AttentionClearEnv {
     focusedBlockId: () => string | undefined;
     // the attention keys of a block right now
     read: (blockId: string) => { level: unknown; reason: unknown };
-    // writes null to both keys of the block
-    clear: (blockId: string) => void;
+    // asks the server to clear the mark of the block if it is STILL exactly (level, reason): the compare and the write are one step there
+    clear: (blockId: string, level: string, reason: string) => void;
 }
 
 export interface AttentionClearRequest {
@@ -28,6 +28,10 @@ export interface AttentionClearRequest {
 // the mark is still exactly the one that was planned for (level and reason): a newer mark that a program wrote meanwhile is never erased.
 // What this cannot close: the write itself takes a round trip to the server, and a mark written during that round trip is erased (there is no
 // compare-and-set on block meta).
+function asText(v: unknown): string {
+    return typeof v === "string" ? v : "";
+}
+
 export function scheduleAttentionClear(req: AttentionClearRequest, env: AttentionClearEnv): (() => void) | undefined {
     if (!req.blockId) {
         return undefined;
@@ -47,7 +51,7 @@ export function scheduleAttentionClear(req: AttentionClearRequest, env: Attentio
         if (now.level !== req.level || now.reason !== req.reason) {
             return;
         }
-        env.clear(req.blockId);
+        env.clear(req.blockId, asText(req.level), asText(req.reason));
     }, delay);
     return () => clearTimeout(timeoutId);
 }
@@ -58,15 +62,15 @@ export interface AttentionClearSources {
     documentHasFocus: () => boolean;
     focusedBlockId: () => string | undefined;
     readMeta: (blockId: string, key: string) => unknown;
-    writeMeta: (blockId: string, meta: { [key: string]: null }) => void;
+    clearIf: (blockId: string, level: string, reason: string) => void;
 }
 
-export function makeAttentionClearEnv(src: AttentionClearSources, clearMeta: { [key: string]: null }): AttentionClearEnv {
+export function makeAttentionClearEnv(src: AttentionClearSources): AttentionClearEnv {
     return {
         documentHasFocus: () => src.documentHasFocus(),
         focusedBlockId: () => src.focusedBlockId(),
         read: (blockId) => ({ level: src.readMeta(blockId, "attention:level"), reason: src.readMeta(blockId, "attention:reason") }),
-        clear: (blockId) => src.writeMeta(blockId, clearMeta),
+        clear: (blockId, level, reason) => src.clearIf(blockId, level, reason),
     };
 }
 

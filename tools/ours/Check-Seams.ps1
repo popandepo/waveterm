@@ -91,6 +91,7 @@ $seams = @(
     @('stack-rpc-interface', 'pkg/wshrpc/wshrpctypes.go', 'StackBlockCommand(ctx context.Context, data CommandStackBlockData) error', 'wsh group add, remove, activate and stack move'),
     @('stack-layout-queue', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackInsert', 'back-end layout actions for stacks'),
     @('stack-move-layout-action', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackMove', 'wsh stack move queues this action'),
+    @('attention-meta-keys', 'pkg/waveobj/wtypemeta.go', 'AttentionLevel  string', 'the block meta keys attention:level and attention:reason'),
     @('stack-menu-hook', 'frontend/app/block/blockframe-header.tsx', 'label: "Turn into a stack"', 'the block menu offers stack mode'),
     @('stack-add-hook', 'frontend/app/tab/tabcontent.tsx', 'onStackAdd,', 'the + on a strip opens the widget-bar type menu'),
     @('stack-create-in-stack-helper', 'frontend/app/store/global.ts', 'async function createBlockInStack(', 'creates a new block straight into a stack'),

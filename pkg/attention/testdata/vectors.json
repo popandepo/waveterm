@@ -1,0 +1,32 @@
+{
+  "check": [
+    {"level": "info", "reason": "", "ok": true, "reason_out": ""},
+    {"level": "info", "reason": "  done building  ", "ok": true, "reason_out": "done building"},
+    {"level": "need", "reason": "waiting for your say-so on the release", "ok": true, "reason_out": "waiting for your say-so on the release"},
+    {"level": "urgent", "reason": "cannot continue without you", "ok": true, "reason_out": "cannot continue without you"},
+    {"level": "need", "reason": "", "ok": false},
+    {"level": "urgent", "reason": "   ", "ok": false},
+    {"level": "loud", "reason": "x", "ok": false},
+    {"level": "", "reason": "x", "ok": false},
+    {"level": "Urgent", "reason": "x", "ok": false},
+    {"level": "need", "reason": "line one\nline two", "ok": false},
+    {"level": "need", "reason": "tab\there", "ok": false},
+    {"level": "need", "reason": "nul\u0000here", "ok": false},
+    {"level": "need", "reason": "hidden​space", "ok": false},
+    {"level": "need", "reason": "flip‮text", "ok": false},
+    {"level": "need", "reason": "para sep", "ok": false},
+    {"level": "info", "reason": "x", "ok": true, "reason_out": "x"},
+    {"level": "need", "reason": "EXACT120", "ok": true, "repeat_to": 120},
+    {"level": "need", "reason": "OVER120", "ok": false, "repeat_to": 121}
+  ],
+  "highest": [
+    {"levels": [], "want": ""},
+    {"levels": ["info"], "want": "info"},
+    {"levels": ["info", "need"], "want": "need"},
+    {"levels": ["need", "urgent", "info"], "want": "urgent"},
+    {"levels": ["", "info"], "want": "info"},
+    {"levels": ["bogus", "info"], "want": "info"},
+    {"levels": ["bogus"], "want": ""},
+    {"levels": ["urgent", "bogus"], "want": "urgent"}
+  ]
+}

@@ -637,3 +637,19 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 34. Attention marks, part 1: the meta, the command and the rules
+
+A block can say that it needs the owner. Two block meta keys carry it: `attention:level` (`info`, `need` or `urgent`) and `attention:reason` (text, at most 120 characters, no control, format or line characters;
+required for `need` and `urgent`, optional for `info`). The settled look (his words on the mock-up: "that's perfect, ship it"): info is an icon with no motion; need is an orange DOT only (stack tab, tile
+header, top tab), no outline or ring; urgent is a flashing orange outline and dot that climbs from the stack tab to the tile outline, the top tab, the taskbar and the workspace button. The orange levels clear when
+the owner really focuses the tile or when a session clears them; a pulse stops after five minutes and stays steady; a tile can be muted; reduced motion is respected. **This part builds only the rules, the keys and the
+command; nothing is drawn yet** (the drawing is the next parts).
+- **Commands:** `wsh attention info|need|urgent --reason "why" [-b block]` and `wsh attention clear [-b block]`. The reason is refused when it is missing for need or urgent, too long, or has hidden characters; the check is the
+  same one the window will apply when it draws, so a program that writes the meta without the command gets no mark for a bad value. Clear sets both keys to null. The keys are persisted block meta, so a need survives a
+  page rebuild, a tab view rebuild, a workspace switch and a restart of Wave.
+- **The rules, in two languages with one table of cases:** `pkg/attention` (Go) and `frontend/app/store/attention.ts` (TypeScript) both read `pkg/attention/testdata/vectors.json`; `Highest` / `highestAttention` is the highest level among
+  several (the rule for every container: the stack tab holds one block, a stack tile its members, a top tab its blocks).
+- **RAN:** Go tests (vectors, the meta reader, the command's meta and refusals, clear sets exactly two keys null, the command has three levels and clear) and vitest on the same vectors; red when the reason requirement is dropped
+  (Go and TypeScript).
+- **NOT RUN in a window:** `wsh attention` against a running Wave (the write is the same set-meta call as `wsh setmeta`).

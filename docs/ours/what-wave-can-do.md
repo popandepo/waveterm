@@ -637,3 +637,15 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 33. `--tab <ref>` on createblock, term, run and web open
+
+`wsh createblock|term|run|web open --tab <ref>` creates the block in another tab than the calling block's: `<ref>` is a tab id, `tab:<n>` or any reference that names a tab (the same
+resolver as `wsh tab switch`). Without `--tab` nothing changes (the tab of the calling block, `WAVETERM_TABID`). With `--tab` the command also works from a place that has no tab of its own.
+`--stack` and `--replace` need their target block to be in that tab: the command looks the target's tab up and refuses with a message that names both tabs (it does not send the request).
+- **RAN:** Go tests: the choice (no flag uses the environment, a blank flag is not given, the flag wins, the flag works without an environment, an unknown tab is refused and says `--tab`); the target check
+  (same tab, other tab, no target, unknown block); the four commands have the flag, default empty, use only the shared choice and check the target after applying it; red when the flag choice, the target
+  check and one command's flag are removed.
+- **NOT RUN in a window:** a block created in a tab that is not shown, in another workspace or window: whether the page of that tab applies the new block's layout action when it is loaded later (the back end queues
+  it per tab; that path is the one the page already uses when a tab is opened, but it is not verified here), and that the tab id resolves from a session of another workspace. The tab is NOT switched to, and the
+  new block takes focus only inside its own tab (use `--no-focus` as before).

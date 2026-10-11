@@ -26,6 +26,7 @@ var termCmd = &cobra.Command{
 
 func init() {
 	addStackFlag(termCmd)
+	addTabFlag(termCmd)
 	termCmd.Flags().BoolVarP(&termMagnified, "magnified", "m", false, "open view in magnified mode")
 	addNoFocusFlag(termCmd)
 	rootCmd.AddCommand(termCmd)
@@ -57,9 +58,9 @@ func termRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("getting absolute path: %w", err)
 	}
 
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
+	tabId, err := createTabId()
+	if err != nil {
+		return err
 	}
 
 	createMeta := map[string]any{
@@ -79,6 +80,9 @@ func termRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		Focused:   newBlockFocused(),
 	}
 	if err := applyStackTarget(&createBlockData); err != nil {
+		return err
+	}
+	if err := checkCreateTarget(&createBlockData); err != nil {
 		return err
 	}
 	oref, err := createBlockRPC(createBlockData)

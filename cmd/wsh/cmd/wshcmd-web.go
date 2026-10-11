@@ -46,6 +46,7 @@ func init() {
 	webOpenCmd.Flags().StringVarP(&webOpenReplaceBlock, "replace", "r", "", "replace block")
 	addNoFocusFlag(webOpenCmd)
 	addStackFlag(webOpenCmd)
+	addTabFlag(webOpenCmd)
 	webCmd.AddCommand(webOpenCmd)
 	webGetCmd.Flags().BoolVarP(&webGetInner, "inner", "", false, "get inner html (instead of outer)")
 	webGetCmd.Flags().BoolVarP(&webGetAll, "all", "", false, "get all matches (querySelectorAll)")
@@ -114,9 +115,9 @@ func webOpenRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("cannot use --replace and --magnified together")
 	}
 
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
+	tabId, err := createTabId()
+	if err != nil {
+		return err
 	}
 
 	wshCmd := wshrpc.CommandCreateBlockData{
@@ -135,6 +136,9 @@ func webOpenRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		wshCmd.TargetAction = wshrpc.CreateBlockAction_Replace
 	}
 	if err := applyStackTarget(&wshCmd); err != nil {
+		return err
+	}
+	if err := checkCreateTarget(&wshCmd); err != nil {
 		return err
 	}
 	oref, err := createBlockRPC(wshCmd)

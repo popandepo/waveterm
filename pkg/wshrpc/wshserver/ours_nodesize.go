@@ -6,12 +6,12 @@ package wshserver
 import "fmt"
 
 const (
-	MinCreateNodeSize = 1
-	MaxCreateNodeSize = 100
+	MinCreateNodeSize = 2
+	MaxCreateNodeSize = 50
 )
 
 // checkNodeSize validates the weight that a client asks for its new tile (CommandCreateBlockData.NodeSize) before anything is created: absent or 0
-// means the default weight (nil), 1 to 100 is kept, anything above is refused. The request comes from any client of the RPC, not only from wsh,
+// means the default weight (nil), 2 to 50 is kept, anything above is refused. The request comes from any client of the RPC, not only from wsh,
 // whose own check is a convenience.
 func checkNodeSize(size *uint) (*uint, error) {
 	if size == nil || *size == 0 {

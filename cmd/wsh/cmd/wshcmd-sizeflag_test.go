@@ -16,12 +16,12 @@ func TestChooseNodeSize(t *testing.T) {
 	if got, err := chooseNodeSize(false, 0); got != nil || err != nil {
 		t.Fatalf("not given must give nothing: %v %v", got, err)
 	}
-	for _, bad := range []uint{0, 101, 100000} {
+	for _, bad := range []uint{0, 1, 51, 101, 100000} {
 		if got, err := chooseNodeSize(true, bad); err == nil || got != nil {
 			t.Fatalf("%d must be refused: %v %v", bad, got, err)
 		}
 	}
-	for _, good := range []uint{1, 7, 10, 100} {
+	for _, good := range []uint{2, 7, 10, 50} {
 		got, err := chooseNodeSize(true, good)
 		if err != nil || got == nil || *got != good {
 			t.Fatalf("%d must be accepted: %v %v", good, got, err)

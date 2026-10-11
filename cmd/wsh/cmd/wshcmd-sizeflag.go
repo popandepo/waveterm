@@ -12,8 +12,8 @@ import (
 
 const (
 	sizeFlagName = "size"
-	MinNodeSize  = 1
-	MaxNodeSize  = 100
+	MinNodeSize  = 2
+	MaxNodeSize  = 50
 )
 
 var createNodeSize uint
@@ -21,10 +21,10 @@ var createNodeSize uint
 // addSizeFlag adds --size to a command that creates a block. The layout gives every tile a weight (10 for a tile that nobody resized) and
 // splits the space in proportion to the weights, so a new tile of weight 7 next to a tile of weight 10 gets 7 of 17 parts (about 41 percent).
 func addSizeFlag(c *cobra.Command) {
-	c.Flags().UintVar(&createNodeSize, sizeFlagName, 0, "weight of the new tile in the layout, 1 to 100 (a tile that nobody resized has 10; 7 next to such a tile gives it about 41 percent of the width). It has an effect only when the block is added as a new tile, not with --replace or --stack")
+	c.Flags().UintVar(&createNodeSize, sizeFlagName, 0, "weight of the new tile in the layout, 2 to 50 (a tile that nobody resized has 10; 7 next to such a tile gives it about 41 percent of the width). It has an effect only when the block is added as a new tile, not with --replace or --stack")
 }
 
-// chooseNodeSize turns the value of --size into the field of the request: nothing when the flag was not given, an error for a value outside 1 to 100
+// chooseNodeSize turns the value of --size into the field of the request: nothing when the flag was not given, an error for a value outside 2 to 50
 // (a weight of 0 would give the tile no space, a huge one all of it).
 func chooseNodeSize(given bool, v uint) (*uint, error) {
 	if !given {

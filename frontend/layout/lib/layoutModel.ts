@@ -37,7 +37,8 @@ import {
     turnStackOff,
     unstackNode,
 } from "./layoutTree";
-import { applyStackLayout, canLayoutAsStack } from "./stackgeometry";
+import { applyStackLayout, canLayoutAsStack, stripTargetBelongsTo } from "./stackgeometry";
+import type { StripDropTarget } from "./stripdrop";
 import {
     ContentRenderer,
     FlexDirection,
@@ -143,6 +144,11 @@ export class LayoutModel {
      * Callback for the + on the tab strip of a stack.
      */
     onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
+
+    /**
+     * Closes a block after the question when a program is running (the X of a stack member); holds one question per block through the close.
+     */
+    closeBlockAfterConfirm?: (blockId: string, close: () => Promise<void> | void) => Promise<boolean>;
     /**
      * Callback that is invoked when a node is closed.
      */
@@ -265,6 +271,8 @@ export class LayoutModel {
      * True if the whole TileLayout container is being resized.
      */
     private isContainerResizing: PrimitiveAtom<boolean>;
+    // The tab of a strip that a dragged tab or tile is over right now (node id), for the drop indicator on that tab.
+    stripDropTarget: PrimitiveAtom<StripDropTarget | null>;
 
     constructor(
         tabAtom: Atom<Tab>,
@@ -315,6 +323,7 @@ export class LayoutModel {
 
         this.nodeModels = new Map();
         this.additionalProps = atom({});
+        this.stripDropTarget = atom(null) as PrimitiveAtom<StripDropTarget | null>;
 
         const resizeHandleListAtom = atom((get) => {
             const addlProps = get(this.additionalProps);
@@ -723,6 +732,7 @@ export class LayoutModel {
         this.renderPreview = contents.renderPreview;
         this.renderStackTabLabel = contents.renderStackTabLabel;
         this.onStackAdd = contents.onStackAdd;
+        this.closeBlockAfterConfirm = contents.closeBlockAfterConfirm;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {
             this.setter(this.gapSizePx, contents.gapSizePx);
@@ -742,6 +752,7 @@ export class LayoutModel {
                     this.pendingTreeAction.throttledValueAtom,
                     computeMoveNode(this.treeState, action as LayoutTreeComputeMoveNodeAction)
                 );
+                this.setter(this.stripDropTarget, null);
                 break;
             case LayoutTreeActionType.Move:
                 moveNode(this.treeState, action as LayoutTreeMoveNodeAction);
@@ -778,6 +789,7 @@ export class LayoutModel {
             }
             case LayoutTreeActionType.ClearPendingAction:
                 this.setter(this.pendingTreeAction.throttledValueAtom, undefined);
+                this.setter(this.stripDropTarget, null);
                 break;
             case LayoutTreeActionType.CommitPendingAction: {
                 const pendingAction = this.getter(this.pendingTreeAction.currentValueAtom);
@@ -787,6 +799,7 @@ export class LayoutModel {
                 }
                 this.treeReducer(pendingAction);
                 this.setter(this.pendingTreeAction.throttledValueAtom, undefined);
+                this.setter(this.stripDropTarget, null);
                 break;
             }
             case LayoutTreeActionType.FocusNode:
@@ -1593,6 +1606,19 @@ export class LayoutModel {
     /**
      * Callback that is invoked when a drag operation completes and the pending action should be committed.
      */
+    clearStripPending(stackOrder: string[]) {
+        if (stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget)?.nodeId)) {
+            this.treeReducer({ type: LayoutTreeActionType.ClearPendingAction });
+        }
+    }
+
+    setStripDropTarget(target: StripDropTarget | null) {
+        const current = this.getter(this.stripDropTarget);
+        if (current?.nodeId !== target?.nodeId || current?.side !== target?.side) {
+            this.setter(this.stripDropTarget, target);
+        }
+    }
+
     onDrop() {
         if (this.getter(this.pendingTreeAction.currentValueAtom)) {
             this.treeReducer({

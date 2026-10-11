@@ -5,10 +5,10 @@ import { fireAndForget } from "@/util/util";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { memo, useEffect, useMemo, useRef } from "react";
-import { useDrag, useDrop } from "react-dnd";
+import { useDrag } from "react-dnd";
 import { tileItemType } from "./dndtypes";
 import type { LayoutModel } from "./layoutModel";
-import { tabDropAction } from "./layoutTree";
+import { closeStripTab } from "./stackclose";
 import { buildStripTabs, stripsToShow } from "./stackgeometry";
 import type { LayoutNode, LayoutNodeAdditionalProps } from "./types";
 import { setTransform } from "./utils";
@@ -43,24 +43,14 @@ const StripTab = memo(
             }),
             [node]
         );
-        const [{ isOver }, drop] = useDrop(
-            () => ({
-                accept: tileItemType,
-                canDrop: (item: LayoutNode) =>
-                    tabDropAction(layoutModel.treeState.rootNode, item.id, tab.nodeId) != null,
-                drop: (item: LayoutNode) => {
-                    const action = tabDropAction(layoutModel.treeState.rootNode, item.id, tab.nodeId);
-                    if (action) {
-                        layoutModel.treeReducer(action);
-                    }
-                },
-                collect: (monitor) => ({ isOver: monitor.isOver({ shallow: true }) && monitor.canDrop() }),
-            }),
-            [layoutModel, tab.nodeId]
-        );
+        // The drop side lives in the overlay (OverlayStrip in TileLayout.tsx): during a drag the overlay covers the strip, so a drop
+        // target on the tab itself would never see the pointer.
+        const dropTarget = useAtomValue(layoutModel.stripDropTarget);
+        const isOver = dropTarget?.nodeId === tab.nodeId;
+        const dropSide = isOver ? dropTarget.side : null;
         useEffect(() => {
-            drag(drop(tabRef));
-        }, [drag, drop]);
+            drag(tabRef);
+        }, [drag]);
         return (
             <div
                 ref={tabRef}
@@ -69,8 +59,11 @@ const StripTab = memo(
                     focused: tab.focused,
                     dragging: isDragging,
                     "drop-over": isOver,
+                    "drop-before": dropSide === "before",
+                    "drop-after": dropSide === "after",
                 })}
                 data-blockid={tab.blockId}
+                data-nodeid={tab.nodeId}
                 onClick={() => layoutModel.focusNode(tab.nodeId)}
             >
                 <span className="stack-tab-label">
@@ -81,7 +74,11 @@ const StripTab = memo(
                     title="Close this tab and its terminal"
                     onClick={(e) => {
                         e.stopPropagation();
-                        fireAndForget(() => layoutModel.closeNode(tab.nodeId));
+                        fireAndForget(() =>
+                            closeStripTab(layoutModel.closeBlockAfterConfirm, tab.blockId, tab.nodeId, (id) =>
+                                layoutModel.closeNode(id)
+                            )
+                        );
                     }}
                 >
                     <i className="fa-sharp fa-solid fa-xmark" />

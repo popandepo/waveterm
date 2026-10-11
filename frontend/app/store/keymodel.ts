@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { WaveAIModel } from "@/app/aipanel/waveai-model";
+import { closeBlockAfterConfirm, closeFocusedBlockByUser } from "@/app/store/closeblock";
 import { FocusManager } from "@/app/store/focusManager";
 import {
     atoms,
@@ -152,8 +153,15 @@ function uxCloseBlock(blockId: string) {
         const aiModel = WaveAIModel.getInstance();
         const shouldSwitchToAI = !globalStore.get(aiModel.isChatEmptyAtom) || aiModel.hasNonEmptyInput();
         if (shouldSwitchToAI) {
-            replaceBlock(blockId, { meta: { view: "launcher" } }, false);
-            setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+            // the block is replaced by a launcher and DELETED 300 ms later (see replaceBlock): the same question as for a close
+            fireAndForget(async () => {
+                const replaced = await closeBlockAfterConfirm(blockId, async () => {
+                    await replaceBlock(blockId, { meta: { view: "launcher" } }, false);
+                });
+                if (replaced) {
+                    setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+                }
+            });
             return;
         }
     }
@@ -172,11 +180,12 @@ function uxCloseBlock(blockId: string) {
     const layoutModel = getLayoutModelForStaticTab();
     const node = layoutModel.getNodeByBlockId(blockId);
     if (node) {
-        fireAndForget(() => layoutModel.closeNode(node.id));
-
-        if (isAIFileDiff && isAIPanelOpen) {
-            setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
-        }
+        fireAndForget(async () => {
+            const closed = await closeBlockAfterConfirm(blockId, () => layoutModel.closeNode(node.id));
+            if (closed && isAIFileDiff && isAIPanelOpen) {
+                setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+            }
+        });
     }
 }
 
@@ -196,8 +205,15 @@ function genericClose() {
             const layoutModel = getLayoutModelForStaticTab();
             const focusedNode = globalStore.get(layoutModel.focusedNode);
             if (focusedNode) {
-                replaceBlock(focusedNode.data.blockId, { meta: { view: "launcher" } }, false);
-                setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+                const focusedBlockId = focusedNode.data.blockId;
+                fireAndForget(async () => {
+                    const replaced = await closeBlockAfterConfirm(focusedBlockId, async () => {
+                        await replaceBlock(focusedBlockId, { meta: { view: "launcher" } }, false);
+                    });
+                    if (replaced) {
+                        setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+                    }
+                });
                 return;
             }
         }
@@ -222,11 +238,20 @@ function genericClose() {
     const blockData = blockAtom ? globalStore.get(blockAtom) : null;
     const isAIFileDiff = blockData?.meta?.view === "aifilediff";
 
-    fireAndForget(layoutModel.closeFocusedNode.bind(layoutModel));
-
-    if (isAIFileDiff && isAIPanelOpen) {
-        setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
-    }
+    // The node is chosen now, before the question: if focus moves while the box is open, the block that was asked about is the one that
+    // closes (or nothing closes), never another one that was not asked about.
+    const nodeId = focusedNode?.id;
+    fireAndForget(async () => {
+        const closed = await closeFocusedBlockByUser({
+            blockId,
+            nodeId,
+            closeNode: (id) => layoutModel.closeNode(id),
+            closeFocused: () => layoutModel.closeFocusedNode(),
+        });
+        if (closed && isAIFileDiff && isAIPanelOpen) {
+            setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
+        }
+    });
 }
 
 function switchBlockByBlockNum(index: number) {
@@ -630,14 +655,11 @@ function registerGlobalKeys() {
         if (blockId == null) {
             return true;
         }
-        replaceBlock(
-            blockId,
-            {
-                meta: {
-                    view: "launcher",
-                },
-            },
-            true
+        // replaces the block by a launcher and deletes it 300 ms later: a running program is asked about first
+        fireAndForget(() =>
+            closeBlockAfterConfirm(blockId, async () => {
+                await replaceBlock(blockId, { meta: { view: "launcher" } }, true);
+            })
         );
         return true;
     });

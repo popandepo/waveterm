@@ -350,6 +350,7 @@ declare global {
     // wshrpc.CommandDeleteBlockData
     type CommandDeleteBlockData = {
         blockid: string;
+        refuserunning?: boolean;
     };
 
     // wshrpc.CommandDeleteFileData
@@ -1477,6 +1478,8 @@ declare global {
         "term:bellindicator"?: boolean;
         "term:osc52"?: string;
         "term:durable"?: boolean;
+        "term:perblockhistory"?: boolean;
+        "term:rightclickpaste"?: boolean;
         "term:showsplitbuttons"?: boolean;
         "term:trimtrailingwhitespace"?: boolean;
         "editor:minimapenabled"?: boolean;

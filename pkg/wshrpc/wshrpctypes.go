@@ -357,6 +357,8 @@ type CommandWaitForRouteData struct {
 
 type CommandDeleteBlockData struct {
 	BlockId string `json:"blockid"`
+	// RefuseRunning makes the server refuse, in the same call that deletes, a block whose program may still be running (see blockstatus.DeleteRefusal).
+	RefuseRunning bool `json:"refuserunning,omitempty"`
 }
 
 type CommandEventReadHistoryData struct {

@@ -10,6 +10,7 @@ import { globalEvents } from "emain/emain-events";
 import path from "path";
 import { debounce } from "throttle-debounce";
 import { CloseTabCountUnknown, makeCloseTabHandler, settlePendingCloses } from "./closetabhandler";
+import { CloseBlockButtons, closeBlockAnswer } from "./closetabprompt";
 import {
     getGlobalIsQuitting,
     getGlobalIsRelaunching,
@@ -888,6 +889,26 @@ ipcMain.handle("close-tab", async (event, workspaceId: string, tabId: string, co
         return false;
     }
     return await closeTabHandler(tabId, confirmClose, ww);
+});
+
+// One block with a running program is about to be closed from the UI. The question is the frontend's, the box is native like the tab one.
+ipcMain.handle("confirm-close-block", async (event, message: unknown) => {
+    // Only a Wave tab view may ask (a web tile's page, a stray window or a destroyed sender gets nothing, and no box is shown).
+    const ww = getWaveWindowByWebContentsId(event.sender.id);
+    if (ww == null) {
+        return false;
+    }
+    const text = typeof message === "string" ? message.slice(0, 500) : "Close this block?";
+    const options: Electron.MessageBoxOptions = {
+        type: "question",
+        defaultId: 1, // Enter activates "Close Block"
+        cancelId: 0, // Esc activates "Cancel"
+        buttons: CloseBlockButtons,
+        title: "Confirm",
+        message: text,
+    };
+    const result = await dialog.showMessageBox(ww, options);
+    return closeBlockAnswer(result.response);
 });
 
 ipcMain.on("switch-workspace", (event, workspaceId) => {

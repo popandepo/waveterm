@@ -35,3 +35,10 @@ export function wshCloseRefusal(blockCount: number | null | undefined, force: bo
               : `${blockCount} blocks`;
     return `the tab holds ${what}; closing it stops the programs in them and cannot be undone: use force to close it anyway`;
 }
+
+// The buttons of the box that asks before one block is closed, in the order they are shown. Only "Close Block" (index 1) closes: Cancel,
+// Escape, a dismissed box and any other result keep the block.
+export const CloseBlockButtons = ["Cancel", "Close Block"];
+export function closeBlockAnswer(response: number): boolean {
+    return response === CloseBlockButtons.indexOf("Close Block");
+}

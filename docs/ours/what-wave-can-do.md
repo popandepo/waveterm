@@ -345,6 +345,26 @@ Review notes on step C: a **tab as `--to` is refused with a message** (only bloc
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
 
+## 20a. `wsh deleteblock` refuses a block with a running program unless `--force`
+
+Deleting a block stops the program in it, and a script or a session that deletes a tile by command could kill a program by accident (the
+click on an X asks since the close-one-block question; a command has nobody to ask, so it refuses instead, as `wsh session close` and `wsh tab close`
+already do). Without `--force`, `wsh deleteblock` sends the request with `refuserunning` set, and **wavesrv makes the check in the same call that
+deletes** (`DeleteBlockCommand`: read the block's view and its program state, refuse or delete), so a program cannot start between a check in
+the command and the delete; what is left is the database write itself. The rule is `blockstatus.DeleteRefusal`: silent only when the answer is
+known: the view is one of the registered views known to have no program (web, preview, files, ...), or its program has `done`. A running or starting
+(`init`) program, a missing or unknown state, a state that cannot be read, an unknown or mistyped or missing view, and a block that cannot be read all
+refuse, with a message that names `--force`. `--force` deletes as before. Other callers of the delete call (`wsh slot close`, the block controller) do not set the
+field and keep their behaviour. **The check is opt-in per request:** a caller that does not set `refuserunning` (the `wsh slot close` command, and an older `wsh` binary that
+predates the field) deletes unchecked, as before; only the new `wsh deleteblock` asks for it.
+- **RAN:** Go tests: the rule (the silent cases and every refused case, each refusal names `--force`); the server's check against a real store
+  (a running terminal, an ended one, no controller, an unreadable state, a web tile, an unknown view, a block that is not there); that the command
+  builds its request with `refuserunning` unless `--force` and does not build its own request that skips it; that the server checks before it deletes
+  and only when asked; `task generate` for the type.
+- **Also run:** a route test against a real store (a running block is refused and kept, an unchecked request deletes, an ended block deletes, state "none" is refused);
+  the `--force` flag exists and defaults to off (renamed flag: red). **Not covered:** the live-controller path of the state read (`ShellProcStatus` from a registered
+  controller); a mutation there stays green because a registered controller needs a real shell process.
+- **NOT RUN:** against a live Wave. Anything of mine that deletes terminals by command (the repro script) passes `--force`.
 ## 21. A session block that comes back after Wave restarts (`wsh session start --restart --meta`)
 
 `wsh session start --restart` marks the block so that Wave starts its program again at every start of the app (the
@@ -429,6 +449,24 @@ Fourth pass on section 22: whatever leaves the window's action queue (a destroye
 still queued "not closed" and empties the queue, so a caller (the window, or `wsh tab close`) gets an answer instead of waiting
 (tested). The unchecked back-end `CloseTab` is reached only for `force` (no limit). A close that the owner confirmed without a count (both reads failed, and the dialog said so) goes through the checked call as "count unknown" (-2): the back end reads the tab itself and refuses if it cannot (tested on the window side, and a test pins that the Go constant is the same -2). The check and the delete are not one database transaction, because the delete is upstream code spanning many store calls; a block created in the same few microseconds is the one case not caught.
 
+## 22a. Closing one block that has a running program asks first (found in his window check, 11 Oct 2026)
+
+The X on a stack member closed its block, and so stopped the program in it, with no question (it called `closeNode` directly); the block header
+menu and the close key did the same (upstream behaviour). Now all three ask first, but only when a program is running: a native box
+"This closes the program running in it. It cannot be undone." with Cancel (Esc) and Close Block (Enter). The state comes from the controller
+(`GetControllerStatus`, the same state as `status` in `wsh api list`) for the views that have programs (`term`, `tsunami`, `vdom`): `running` asks;
+only `done` (ended) and `init` (not started), or a view that is KNOWN to have no program (the list of the registered views of this build, in
+`closeblock.ts`: web, preview, files, sysinfo, help, ...; a view name that is in neither list, such as one added by a later upstream version, asks), close silently. Anything else asks: a controller that
+is missing for a terminal, an empty or unknown state, a state that cannot be read, a view that cannot be read. Only one box per block at a time, held from the question until the close has finished (a
+second click on the X while the box is open, or while the close is running, does nothing); the block that was asked about is the one that closes, even if focus moves
+while the box is open; Cancel touches nothing. The box is shown only to a Wave tab view (a web tile cannot reach it). **Named exception:** a
+command (`wsh deleteblock`, the backend delete action, the local API) never asks, because nobody is there to answer; it is a different thing from
+a click on an X, and a test pins that the delete case and `closeNode` do not call the question. The last block of a tab still goes through the tab question. A block closed by
+a command (`wsh deleteblock`, the backend delete action) is never asked, because there is nobody to answer.
+- **RAN:** vitest for which states ask, the answer deciding, a failed read asking, a failed dialog keeping the block, and source pins on the
+  four call sites, on the commands not asking, and on the electron side (type, preload, handler with the message capped, preview stub).
+- **NOT RUN, window check:** the box itself. Put a `ping -t localhost` in a stack member and click its X (the box appears; Cancel keeps it
+  running; Close Block ends it); the same for the header menu "Close Block" and for Alt+W (the close key is `Cmd:w`, and Cmd is Alt on Windows; Alt+Shift+W closes the whole TAB through the tab question; Ctrl+Shift+W is not bound to anything); Ctrl+Shift+X (replace the block by a launcher) and the X or Alt+W with the AI panel open and a non-empty chat ask the same way. A web tile closes with no box. **An idle shell asks too:** the state `running` is the shell process itself, and the PowerShell integration of this build sends no "a command is running" state, so there is no way to tell an idle prompt from a running command (the fork would need the shell-integration command state for PowerShell, or a check for child processes of the shell).
 ## 23. Drag a tab out of its stack, reorder tabs (step E)
 
 Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of
@@ -448,6 +486,25 @@ seen with a mouse**. "The same node object" does not prove React keeps the termi
 terminal and note its process id; after the drag the marker must still be on the screen and the process id must be the same
 (`devdata/proof/drag-check.ps1` in the private test folder does the marker and the pid part with `wsh send` and `wsh screen`);
 (3) drop a tab on the middle of another tile, on another tab of the same strip, and on a tab of another strip.
+
+## 23a. Dropping a dragged tab on a stack's strip (found in his window check, 11 Oct 2026)
+
+Reordering by dropping a tab on another tab did nothing, and the highlight over a stack's tab bar showed "a new tile above". Cause: during a
+drag the overlay layer covers the layout and is the only thing that gets drag events; the tiles' overlay nodes cover only the body of a
+stack, so the strip had no drop target at all (the tab's own drop target, which I wrote, never saw the pointer) and the pointer over the strip
+kept the last pending action of the body. Now each strip has a drop target in the overlay (`OverlayStrip` in `TileLayout.tsx`): over the
+strip the only possible actions are those of a tab drop, chosen by the tab under the pointer (`stripTabAt`): inside the stack it reorders
+(dropped on the empty end or the + it goes to the end), from outside it joins the stack after that tab. The tab under the pointer gets the
+`drop-over` outline on the side where the tab will land (`drop-before` / `drop-after`); a body hover clears it, and a strip hover where nothing can be dropped clears the pending action of the body.
+- **Pinned only by source text (no DOM test environment here):** that the overlay renders the strips, that the strip asks `applyStripHover` and commits on drop, that the tab carries the
+  outline classes and the stylesheet has them. The decision itself (`stripHover`, `applyStripHover`) is tested as functions; a stale action left behind is red.
+  Known limit: over the dragged tab's own slot the drop is always allowed by the overlay (cursor only; the drop does nothing).
+- **RAN:** vitest for `stripTabAt` (inside, boundary, left of the first, the empty end, a gap, no tabs), for the tree rules at the end of a
+  strip, and source pins on the wiring (the overlay strip exists, the tab has no drop target of its own, a body move clears the outline).
+- **NOT RUN, window check:** the drag itself. Drag a tab over another tab of its strip (outline on the tab under the pointer, no
+  placeholder above the tile), drop (the tabs swap places, the terminal is not restarted); over the empty end of the strip (goes last); a
+  tab from another tile onto a strip (joins it); then move off the strip into the tile body (the outline goes away and the usual
+  tile placeholder returns).
 
 ## 24. The live state record (what runs where, readable from outside)
 
@@ -503,6 +560,52 @@ non-stack, stack of one, unknown id, focus lands on the shown tab).
   page, has the keyboard focus; the onboarding screens switch all global keys off. **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
   `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.
 
+## 25a. Command history per PowerShell tile (setting `term:perblockhistory`, on in this fork)
+
+PowerShell keeps one history file for the whole machine (`%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt`); every
+new shell loads it, so after a restart pressing Up in any tile showed the last command typed in another tile. Wave does nothing about history
+for PowerShell (checked: its start-up script has no history line). Now a local PowerShell block gets its own file, `<data dir>\history\<block id>.txt`
+(the block id survives a restart, so a tile gets its own history back; a new tile starts empty, as asked). The path travels in the shell's
+environment (`WAVETERM_PWSH_HISTFILE`, only for local PowerShell and only when the setting is not false) and Wave's PowerShell start-up script
+sets PSReadLine's `HistorySavePath` to it; if the line editor is already running, its history is replaced with the block's file. The variable
+is removed after use. When a block is deleted its history file is removed by name (one file, validated as a uuid so an id can never point
+outside the folder). Bash and zsh are left as they are (zsh already keeps Wave's own history file and merges it into `~/.zsh_history`).
+- **RAN:** Go tests (the path only for a uuid id, on unless switched off, local PowerShell only, the folder is made, removal takes exactly one file
+  and a bad id is ignored, the start-up script text sets the path inside a try); `task generate` for the setting (clean diff).
+- **Probed, not in a Wave window:** in a non-interactive PowerShell 7.6 with PSReadLine 2.4.5 the methods `ClearHistory`, `AddToHistory`,
+  `GetHistoryItems` exist, but they fail without a running line editor; the start-up script therefore sets the path first and only then tries
+  them, inside a try. Whether the path alone is enough before the first prompt, or the replace is needed, is the window check.
+  **Loading without doubling, and multi-line commands:** when the line editor is already running, the saved entries are put back with saving switched off
+  (and the save style restored afterwards, also on a failure), because with incremental saving every added entry would be appended to the file again and
+  every restart would double it. The file is read in PSReadLine's own format: a command of several lines has a backtick at the end of every line but the
+  last, and those lines are joined again; empty lines are skipped. Both are run in a real PowerShell by the Go tests (the save style goes off before the
+  first entry and back after the last, also when adding fails; with the switch-off removed that test goes red).
+  **Limit, on purpose:** the block only acts when the line editor has a `ClearHistory` method (PSReadLine 2.4.5 on pwsh 7.6, the one on his PC, is the version
+  this was checked against; Windows PowerShell 5.1 with PSReadLine 2.0.0 also has the method); an older one that had already loaded the shared file would show it anyway while saving to the block's file, so there the
+  history is left alone (the shared one). The start-up block is run in a real PowerShell by the Go tests: it sets the path from the environment,
+  removes the variable, and a failing or missing line editor neither breaks the start nor changes the path (with the path line removed the test goes red).
+- **NOT RUN, window check:** open a new PowerShell tile (Up shows nothing from other tiles); type two commands; quit Wave and start it again
+  (Up in the same tile shows those two, not other tiles' commands); delete the tile and look that `<data dir>\history\<id>.txt` is gone.
+## 25b. Right click copies or pastes in a terminal (setting `term:rightclickpaste`, on in this fork)
+
+Wave opened its context menu on every right click, and he had to pick Paste from it (found in his window check, 11 Oct 2026). With the setting on, a right click in a terminal
+works as in Windows Terminal: it copies the selection (trimmed as the menu's Copy does, then the selection is cleared) or, with nothing selected, pastes
+(the same native paste as the menu item). Shift or Ctrl held while right clicking still opens the menu, so the other items (open a link,
+magnify, send to Wave AI) stay reachable. The setting is off upstream and on in this fork's defaults; set it to false for the old behaviour.
+Two safeguards found in review. The paste goes to THIS terminal: it takes the block focus and the keyboard focus first, because the native paste lands
+in whichever element holds the focus (a right click on a terminal that did not hold it would otherwise paste into the one that did). A program that
+takes the mouse itself (vim, Claude Code: the terminal's mouse tracking is on) keeps the click: Wave opens no menu and copies and pastes nothing (Shift
++ right click still gives the menu). The paste is sent only when the terminal's input element really holds the keyboard focus: Wave waits for it (up to 300 ms) and
+pastes nothing at all if it does not settle, rather than risk the other terminal. The selection is cleared only after the clipboard took the copy. Multi-line text: the native
+paste ends in the terminal's own paste handler (xterm `paste`), which wraps the text in bracketed-paste markers when the program asked for them (PowerShell's
+line editor does), so a multi-line paste is not run by itself; a shell that does not ask for them (plain `cmd.exe`) receives it as typed, as with Ctrl+V;
+`term:allowbracketedpaste` (on by default) is the setting that switches that off.
+- **RAN:** vitest for the decision (setting off or unset gives the menu whatever is selected; on: copy with a selection, paste without; Shift or Ctrl, or a
+  program that takes the mouse, gives the menu), the whole click run against two terminals with different keyboard focus (a right click on B while A holds the
+  focus pastes into B; with the focus step removed that test goes red), and source pins on the wiring and the setting; `task generate` diff is only the setting.
+- **NOT RUN, window check:** right click with nothing selected (pastes, also into a terminal that did not have the focus), select text and right click (copies,
+  selection goes away), Shift + right click (menu), right click inside vim or Claude Code (the program gets it).
+
 ## 26. Is the program in a block still running? (`status` in `wsh api list` and in the state record)
 
 Each block that has a program now shows one of three words: `running`, `exited` (with its exit code, also `0` for a clean exit) or
@@ -516,3 +619,21 @@ program starts or exits (the `controllerstatus` event with a block scope now cou
   only allow-listed fields and never takes a status from meta. Check-Seams: 2 new rows (`block-runtime-status`, `block-status-values`).
 - **READ, not run:** a real program starting and exiting in a window and the file then changing; `wsh api list` against a live Wave.
 - **Review of section 26:** the record writer used to push its timer back on every event, so a program that restarts in a loop (events faster than the 300 ms debounce) would have kept the file stale for as long as the loop lasted. It now arms the timer on the first event and lets the later ones ride on it: at most one write per window, and at least one (a test sends an event every 10 ms for 600 ms and needs 5 to 16 builds while they last; the old writer gave 0). An exit event is driven end to end in a test with a real store: the file shows `exited` and the code, and the test goes red when the event is dropped.
+
+## 27. Put sessions back after a restart (`tools/ours/Restore-Sessions.ps1`)
+
+Reads the state record and, for every recorded session that is not running, starts it again in its own background tab with
+`wsh session start --restart`, running `Start-ResumableSession.ps1` (first start creates the session under its id, later starts resume
+it). A session that was a member of a stack is added to the group of another member with `wsh group add`, when one is known (a
+running member, or the first one restored here). **It only prints the plan unless `-Execute` is given.**
+- **Never starts a session that is already running:** a session counts as running when a file in the sessions folder
+  (`-SessionsDir`, default `~\.claude-personal\sessions`) names its id and the process in it is alive with the same start time (a reused
+  pid does not count). The check is made again right before each start. A folder or a file that cannot be read stops the script with
+  exit 1 and no wsh call: it cannot prove a session is not running.
+- **Never uses a bypass mode:** only `auto`, `default`, `acceptEdits` and `plan` are passed on; any other recorded mode (bypass,
+  skip-permissions) is dropped with a NOTE and the session starts in its default mode. The script has no switch for it.
+- **RAN:** `tools/ours/Test-RestoreSessions.ps1` (stand-in wsh, made-up record and sessions folder; count the GREEN lines it prints, incl. dry run calls nothing,
+  running skipped, dead pid and reused pid not counted, bypass and unknown modes dropped, a session that appears between the look and
+  the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
+- **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
+  stack membership is restored, not the tile's place in the tab).

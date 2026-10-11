@@ -1,6 +1,7 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { fireAndForget } from "@/util/util";
 import { getSettingsKeyAtom } from "@/app/store/global";
 import clsx from "clsx";
 import { toPng } from "html-to-image";
@@ -20,19 +21,24 @@ import { DropTargetMonitor, XYCoord, useDrag, useDragLayer, useDrop } from "reac
 import { debounce, throttle } from "throttle-debounce";
 import { useDevicePixelRatio } from "use-device-pixel-ratio";
 import { LayoutModel } from "./layoutModel";
+import { StripTabRect, stripsToShow } from "./stackgeometry";
+import { applyStripHover } from "./stripdrop";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
 import "./stackstrip.scss";
 import { tileItemType } from "./dndtypes";
+import { closeStripTab } from "./stackclose";
 import { StackStrips } from "./stacktabstrip";
 import "./tilelayout.scss";
 import {
     LayoutNode,
+    LayoutNodeAdditionalProps,
     LayoutTreeActionType,
     LayoutTreeComputeMoveNodeAction,
+    LayoutTreeSetPendingAction,
     ResizeHandleProps,
     TileLayoutContents,
 } from "./types";
-import { determineDropDirection } from "./utils";
+import { determineDropDirection, setTransform } from "./utils";
 
 
 
@@ -186,7 +192,14 @@ function NodeBackdrops({ layoutModel }: { layoutModel: LayoutModel }) {
                 <div
                     className="ephemeral-node-backdrop"
                     onClick={() => {
-                        layoutModel.closeNode(ephemeralNode?.id);
+                        // an ephemeral block is closed through the same question as any block (a missing question closes nothing)
+                        if (ephemeralNode?.id != null) {
+                            fireAndForget(() =>
+                                closeStripTab(layoutModel.closeBlockAfterConfirm, ephemeralNode.data?.blockId, ephemeralNode.id, (id) =>
+                                    layoutModel.closeNode(id)
+                                )
+                            );
+                        }
                     }}
                     style={{ "--block-blur": blockBlurStr } as CSSProperties}
                 />
@@ -347,12 +360,82 @@ const OverlayNodeWrapper = memo(({ layoutModel }: OverlayNodeWrapperProps) => {
         [leafs, additionalProps]
     );
 
+    const overlayStrips = stripsToShow(additionalProps).map(([stackId, props]) => (
+        <OverlayStrip key={"strip-" + stackId} layoutModel={layoutModel} stackId={stackId} props={props} />
+    ));
+
     return (
         <div key="overlay" className="overlay-container" style={{ top: 10000, ...overlayTransform }}>
             {overlayNodes}
+            {overlayStrips}
         </div>
     );
 });
+
+interface OverlayStripProps {
+    layoutModel: LayoutModel;
+    stackId: string;
+    props: LayoutNodeAdditionalProps;
+}
+
+/**
+ * The drop target of one stack's tab strip. During a drag the overlay layer covers the display layer, so the tabs themselves never see
+ * the pointer; and the tiles' overlay nodes cover only the body of a stack, so without this the strip would be dead (or, worse, would keep
+ * showing the last pending action of the body, such as inserting a new tile above). Over the strip the only possible actions are
+ * those of a tab drop: reorder inside the stack, or join the stack from outside.
+ */
+const OverlayStrip = memo(({ layoutModel, stackId, props }: OverlayStripProps) => {
+    const stripRef = useRef<HTMLDivElement>(null);
+    const [{ isOver }, drop] = useDrop(
+        () => ({
+            accept: tileItemType,
+            canDrop: () => true,
+            collect: (monitor) => ({ isOver: monitor.isOver({ shallow: true }) }),
+            drop: (_, monitor) => {
+                if (!monitor.didDrop()) {
+                    layoutModel.onDrop();
+                }
+            },
+            hover: throttle(50, (_, monitor: DropTargetMonitor<unknown, unknown>) => {
+                if (!monitor.isOver({ shallow: true })) {
+                    return;
+                }
+                const dragItem = monitor.getItem<LayoutNode>();
+                const pointer = monitor.getClientOffset();
+                const strip = document.querySelector(`.stack-strip[data-stackid="${stackId}"]`);
+                const tabs: StripTabRect[] = Array.from(strip?.querySelectorAll<HTMLElement>(".stack-tab") ?? []).map((el) => {
+                    const r = el.getBoundingClientRect();
+                    return { nodeId: el.dataset.nodeid, left: r.left, right: r.right };
+                });
+                applyStripHover(
+                    {
+                        setPending: (action) =>
+                            layoutModel.treeReducer({ type: LayoutTreeActionType.SetPendingAction, action } as LayoutTreeSetPendingAction),
+                        clearPending: () => layoutModel.treeReducer({ type: LayoutTreeActionType.ClearPendingAction }),
+                        setTarget: (target) => layoutModel.setStripDropTarget(target),
+                    },
+                    layoutModel.treeState.rootNode,
+                    dragItem?.id,
+                    tabs,
+                    pointer?.x
+                );
+            }),
+        }),
+        [layoutModel, stackId]
+    );
+    useEffect(() => {
+        drop(stripRef);
+    }, []);
+    // The pointer left the strip (into a gap, a body, nothing at all) or the drag ended: the outline and the pending action that this
+    // strip set go away. A strip clears only its own, so moving onto another strip keeps what that one just set.
+    useEffect(() => {
+        if (!isOver) {
+            layoutModel.clearStripPending(props.stack.order);
+        }
+    }, [isOver]);
+    return <div ref={stripRef} className="overlay-strip" style={setTransform(props.stack.strip)} />;
+});
+OverlayStrip.displayName = "OverlayStrip";
 
 interface OverlayNodeProps {
     /**

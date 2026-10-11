@@ -83,7 +83,11 @@
         opacity: 0.4;
     }
 
-    &.drop-over {
+    // the line is on the side where the dragged tab will land: left of the target when it comes from the right, right of it otherwise
+    &.drop-over.drop-before {
         box-shadow: inset 2px 0 0 var(--accent-color);
+    }
+    &.drop-over.drop-after {
+        box-shadow: inset -2px 0 0 var(--accent-color);
     }
 }

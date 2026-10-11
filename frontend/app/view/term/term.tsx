@@ -13,6 +13,7 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TermViewModel } from "@/app/view/term/term-model";
+import { menuModifierOf } from "@/app/view/term/rightclick";
 import { atoms, getOverrideConfigAtom, getSettingsPrefixAtom, WOS } from "@/store/global";
 import { fireAndForget, useAtomValueSafe } from "@/util/util";
 import { computeBgStyleFromMeta } from "@/util/waveutil";
@@ -378,6 +379,9 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         (e: React.MouseEvent<HTMLDivElement>) => {
             e.preventDefault();
             e.stopPropagation();
+            if (model.handleRightClick(menuModifierOf(e))) {
+                return;
+            }
             const menuItems = model.getContextMenuItems();
             ContextMenuModel.getInstance().showContextMenu(menuItems, e);
         },

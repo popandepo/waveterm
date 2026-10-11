@@ -881,5 +881,5 @@ Why the right side could not be grabbed: the row (`.tab-bar-wrapper`) is a drag 
 
 The change: the block at the right end is 96 px wider (`WindowDragStripWidth`), left of the window buttons, a drag region. It is part of the right container that `setSizeAndPosition` already measures, so the tabs get their width from what is left: they shrink to the minimum and then scroll (the scrolling is the existing overlay scrollbar), instead of taking the strip. The empty room right of the tabs when there are few tabs was already a drag region.
 
-- **NOT RUN, NOT BUILT:** written under the hold on builds and test runs; `frontend/app/tab/tabbarlayout.test.ts` (the width at zoom, the Windows case, source pins) has not been run.
+- **RAN (12 Oct 2026):** `npx vitest run frontend/app/tab/tabbarlayout.test.ts`: 6 passed; `npx tsc --noEmit`: 17 errors, the known baseline, none in the tab bar files. **Not run:** the window (a person is at the PC, so no window was shown), mutation checks of the tests.
 - **NOT RUN, window check:** at 1280 px with ten tabs, a 96 px strip left of the window buttons moves the window when dragged; the tabs scroll and the last tab can still be reached; a double click on the strip maximises (the system's behaviour for a drag region; not seen). The 3 px at the top above the tabs is unchanged and still thin.

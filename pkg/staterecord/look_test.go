@@ -51,6 +51,7 @@ func TestSymbolValueRefusesMarkupHiddenCharactersAndLongValues(t *testing.T) {
 		"a" + cp(0x2028) + "b", "a" + cp(0x2066) + "b", cp(0x200d) + "a", "a" + cp(0x200d), "a" + cp(0x200d, 0x200d) + "b", "a " + cp(0x200d) + "b",
 		strings.Repeat("a", 41), "ABC", cp(0x1F680, 0x1F680, 0x1F680), "solid@" + strings.Repeat("a", 40), "Rocket", "rocket+blink", "../x", "a\nb",
 		strings.Repeat("x", 100000),
+		"a" + cp(0x200b), cp(0x202e) + "a", "a" + cp(7), cp(0x2066) + "b", "b" + cp(0x2028), cp(0xfeff) + "a", "a" + cp(0xad),
 	}
 	for _, b := range bad {
 		if got := SymbolValue(b); got != "" {

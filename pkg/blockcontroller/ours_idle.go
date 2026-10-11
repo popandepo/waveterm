@@ -70,7 +70,7 @@ func (e lookError) Error() string { return string(e) }
 const errTooMany = lookError("too many processes below the shell")
 
 // the folders whose conhost.exe and OpenConsole.exe are the console host of the shell and not a program of the user
-func trustedConsoleDirs() []string {
+var trustedConsoleDirs = func() []string {
 	var dirs []string
 	if root := os.Getenv("SystemRoot"); root != "" {
 		dirs = append(dirs, filepath.Join(root, "System32"))
@@ -81,19 +81,29 @@ func trustedConsoleDirs() []string {
 	return dirs
 }
 
+// the timer and the result can both be ready when the select runs, and select may take either: a look that took longer than the limit is never
+// trusted, whichever it took
+func acceptLook(elapsed time.Duration, below []blockstatus.ChildProc, err error) ([]blockstatus.ChildProc, error) {
+	if elapsed > lookTimeout {
+		return nil, lookError("the look at the processes took too long")
+	}
+	return below, err
+}
+
 func lookBelowWithTimeout(pid int) ([]blockstatus.ChildProc, error) {
 	type result struct {
 		below []blockstatus.ChildProc
 		err   error
 	}
 	ch := make(chan result, 1)
+	start := time.Now()
 	go func() {
 		below, err := listBelow(pid)
 		ch <- result{below, err}
 	}()
 	select {
 	case r := <-ch:
-		return r.below, r.err
+		return acceptLook(time.Since(start), r.below, r.err)
 	case <-time.After(lookTimeout):
 		return nil, lookError("the look at the processes took too long")
 	}

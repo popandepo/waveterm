@@ -7,11 +7,13 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/shirou/gopsutil/v4/process"
 	"github.com/wavetermdev/waveterm/pkg/blockstatus"
 	"github.com/wavetermdev/waveterm/pkg/shellexec"
 )
@@ -21,12 +23,24 @@ func TestIdleHelperProcess(t *testing.T) {
 	switch os.Getenv("WAVE_TEST_HELPER") {
 	case "":
 		return
+	case "viacopy":
+		// the shell: starts the console-helper copy (WAVE_TEST_COPY) in the mode WAVE_TEST_COPYMODE
+		c := exec.Command(os.Getenv("WAVE_TEST_COPY"), "-test.run=TestIdleHelperProcess")
+		c.Env = append(os.Environ(), "WAVE_TEST_HELPER="+os.Getenv("WAVE_TEST_COPYMODE"))
+		if err := c.Start(); err != nil {
+			os.Exit(3)
+		}
+		time.Sleep(10 * time.Second)
 	case "parent", "grand":
 		next := "sleep"
 		if os.Getenv("WAVE_TEST_HELPER") == "grand" {
 			next = "parent"
 		}
-		c := exec.Command(os.Args[0], "-test.run=TestIdleHelperProcess")
+		self := os.Args[0]
+		if real := os.Getenv("WAVE_TEST_REAL"); real != "" {
+			self = real
+		}
+		c := exec.Command(self, "-test.run=TestIdleHelperProcess")
 		c.Env = append(os.Environ(), "WAVE_TEST_HELPER="+next)
 		if err := c.Start(); err != nil {
 			os.Exit(3)
@@ -158,5 +172,95 @@ func TestALookThatTakesTooLongIsNotIdle(t *testing.T) {
 	}
 	if time.Since(start) > 5*time.Second {
 		t.Fatalf("the look held the caller up")
+	}
+}
+
+// a copy of the test binary named conhost.exe in a folder of its own, which the test declares trusted
+func consoleHelperCopy(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	data, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyPath := filepath.Join(dir, "conhost.exe")
+	if err := os.WriteFile(copyPath, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := trustedConsoleDirs
+	trustedConsoleDirs = func() []string { return []string{dir} }
+	t.Cleanup(func() { trustedConsoleDirs = old })
+	return copyPath
+}
+
+// ends every process below pid (so that the helper copy can be removed with its folder)
+func killBelow(pid int) {
+	killTree(int32(pid))
+}
+
+func killTree(pid int32) {
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return
+	}
+	children, _ := p.Children()
+	for _, c := range children {
+		killTree(c.Pid)
+		_ = c.Kill()
+	}
+}
+
+func shellViaCopy(t *testing.T, copyPath, copyMode string) *ShellController {
+	c := exec.Command(os.Args[0], "-test.run=TestIdleHelperProcess")
+	c.Env = append(os.Environ(), "WAVE_TEST_HELPER=viacopy", "WAVE_TEST_COPY="+copyPath, "WAVE_TEST_COPYMODE="+copyMode, "WAVE_TEST_REAL="+os.Args[0])
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		killBelow(c.Process.Pid)
+		c.Process.Kill()
+		c.Wait()
+	})
+	return controllerFor(Status_Running, c)
+}
+
+func TestAConsoleHelperAloneBelowTheShellIsIdle(t *testing.T) {
+	copyPath := consoleHelperCopy(t)
+	sc := shellViaCopy(t, copyPath, "sleep")
+	waitUntil(t, "the helper copy is below the shell", func() bool {
+		below, err := listBelow(sc.ShellProc.Cmd.(shellexec.CmdWrap).Cmd.Process.Pid)
+		return err == nil && len(below) == 1
+	})
+	if !sc.isIdle() {
+		t.Fatalf("a trusted console helper alone below the shell is idle")
+	}
+}
+
+func TestAProgramBelowAConsoleHelperIsFoundOnlyByLookingDeeper(t *testing.T) {
+	// shell > conhost.exe (trusted, allowed) > a program: the immediate child alone would say idle
+	copyPath := consoleHelperCopy(t)
+	sc := shellViaCopy(t, copyPath, "parent")
+	waitUntil(t, "the program below the helper exists", func() bool {
+		below, err := listBelow(sc.ShellProc.Cmd.(shellexec.CmdWrap).Cmd.Process.Pid)
+		return err == nil && len(below) >= 2
+	})
+	if sc.isIdle() {
+		t.Fatalf("a program below the console helper must make the shell not idle")
+	}
+}
+
+func TestALookThatFinishedAfterTheLimitIsRefusedEvenWithItsResultReady(t *testing.T) {
+	oldTimeout := lookTimeout
+	defer func() { lookTimeout = oldTimeout }()
+	lookTimeout = 2 * time.Second
+	if _, err := acceptLook(2*time.Second+time.Millisecond, nil, nil); err == nil {
+		t.Fatalf("a look that took longer than the limit must be refused")
+	}
+	if _, err := acceptLook(time.Second, nil, nil); err != nil {
+		t.Fatalf("a look inside the limit is accepted: %v", err)
+	}
+	failed := errors.New("access denied")
+	if _, err := acceptLook(time.Second, nil, failed); err != failed {
+		t.Fatalf("a failed look keeps its error")
 	}
 }

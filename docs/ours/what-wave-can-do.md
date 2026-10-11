@@ -649,3 +649,9 @@ One question at a time: a third ephemeral block that arrives while the box is op
   non-local not idle, a failed look not idle); red when the failed look is ignored. vitest for the question: idle shell silent, child asks, failed look asks, other views and states unchanged.
 - **NOT RUN, window check:** a real PowerShell tile at its prompt closes with Alt+W and no box; with `ping -t 127.0.0.1` running it asks; the ephemeral replace with a running program in the old one.
   **Not known:** whether a PowerShell started by Wave on Windows has other helper children when idle (the conhost.exe is filtered; anything else would make an idle shell ask, which is the safe side).
+
+Second review of sections 30 and the idle check: while a replacement is under way every arriving ephemeral block is discarded (the guard is checked before the empty-slot path,
+because the slot can be empty for a moment while the old block closes). A discard that cannot be deleted is reported (`replaceEphemeral` returns `discarded: false`), its id is kept
+(`DiscardLedger`) and tried again when the next ephemeral block arrives; the tab's orphan clean-up when a layout loads is the last net. The idle look is refused when it took longer than
+2 seconds even if its result was ready at the same moment as the timer (`acceptLook`). The tests for the look use a tree whose immediate child is a trusted console helper (a copy of
+the test binary named conhost.exe in a folder declared trusted) and whose grandchild is a program: with the recursion removed they are red.

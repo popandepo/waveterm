@@ -32,10 +32,34 @@ export async function discardEphemeralBlock(
     return false;
 }
 
+// The ids of blocks that were to be discarded and could not be deleted. They are tried again later (and the orphan clean-up of the tab
+// that runs when a layout loads removes any that are still not in the layout); until then the failure stays in the log.
+export class DiscardLedger {
+    ids = new Set<string>();
+
+    add(blockId: string) {
+        this.ids.add(blockId);
+    }
+
+    async retryAll(deleteBlock: ((data: { blockId: string }) => Promise<void>) | undefined): Promise<void> {
+        for (const id of [...this.ids]) {
+            if (await discardEphemeralBlock(deleteBlock, id)) {
+                this.ids.delete(id);
+            }
+        }
+    }
+}
+
 // A new ephemeral block replaces the one on screen, and closing that one stops its program, so it goes through the close question like every
 // other user route. Answered "no", no question set up (a missing callback is not permission), or the question or the close failing: the old
-// block stays and the new block is discarded, because there is only one ephemeral place. Resolves with whether the new block is shown.
-export async function replaceEphemeral(previousBlockId: string, deps: EphemeralReplaceDeps): Promise<boolean> {
+// block stays and the new block is discarded, because there is only one ephemeral place. Resolves with whether the new block is shown and, if not, whether it was really deleted.
+export interface EphemeralReplaceResult {
+    shown: boolean;
+    // null when the new block was shown; otherwise whether the discarded block was really deleted (false: it is still in the back end)
+    discarded: boolean | null;
+}
+
+export async function replaceEphemeral(previousBlockId: string, deps: EphemeralReplaceDeps): Promise<EphemeralReplaceResult> {
     let closed = false;
     try {
         closed = deps.closeAfterConfirm == null ? false : await deps.closeAfterConfirm(previousBlockId, deps.closePrevious);
@@ -43,9 +67,9 @@ export async function replaceEphemeral(previousBlockId: string, deps: EphemeralR
         console.error("ephemeral block: the question or the close of the old block failed, keeping it", previousBlockId, e);
     }
     if (!closed) {
-        await deps.discardNew();
-        return false;
+        const discarded = (await deps.discardNew()) === true;
+        return { shown: false, discarded };
     }
     deps.showNew();
-    return true;
+    return { shown: true, discarded: null };
 }

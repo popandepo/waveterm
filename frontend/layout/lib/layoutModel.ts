@@ -11,7 +11,7 @@ import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
-import { discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
+import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -1546,14 +1546,19 @@ export class LayoutModel {
     // a question about the ephemeral block on screen is open; only one at a time
     private ephemeralReplaceOpen = false;
 
+    // blocks that were to be discarded and could not be deleted; tried again when the next ephemeral block arrives
+    private undiscardedEphemeralBlocks = new DiscardLedger();
+
     newEphemeralNode(blockId: string) {
+        fireAndForget(() => this.undiscardedEphemeralBlocks.retryAll(this.onNodeDelete));
+        // the guard comes first: while a replacement is under way the slot may be empty for a moment, and a block that arrives then must not take it
+        if (this.ephemeralReplaceOpen) {
+            fireAndForget(() => this.discardOrRemember(blockId));
+            return;
+        }
         const previous = this.getter(this.ephemeralNode);
         if (previous == null) {
             this.showEphemeralNode(blockId);
-            return;
-        }
-        if (this.ephemeralReplaceOpen) {
-            fireAndForget(() => discardEphemeralBlock(this.onNodeDelete, blockId));
             return;
         }
         this.ephemeralReplaceOpen = true;
@@ -1563,12 +1568,20 @@ export class LayoutModel {
                     closeAfterConfirm: this.closeBlockAfterConfirm,
                     closePrevious: () => this.closeNode(previous.id),
                     showNew: () => this.showEphemeralNode(blockId),
-                    discardNew: () => discardEphemeralBlock(this.onNodeDelete, blockId),
+                    discardNew: () => this.discardOrRemember(blockId),
                 });
             } finally {
                 this.ephemeralReplaceOpen = false;
             }
         });
+    }
+
+    private async discardOrRemember(blockId: string): Promise<boolean> {
+        const deleted = await discardEphemeralBlock(this.onNodeDelete, blockId);
+        if (!deleted) {
+            this.undiscardedEphemeralBlocks.add(blockId);
+        }
+        return deleted;
     }
 
     private showEphemeralNode(blockId: string) {

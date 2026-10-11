@@ -8,8 +8,6 @@ package staterecord
 
 import (
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/wavetermdev/waveterm/pkg/attention"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -47,7 +45,7 @@ type TabRec struct {
 	Name     string `json:"name"`
 	Position int    `json:"position"`
 	Active   bool   `json:"active"`
-	// FlagColor is the tab's colour (tab:flagcolor) as it was set, for a tool that draws the tab; empty when none or when it is not plain text.
+	// FlagColor is the tab's colour (tab:flagcolor) when it passes the colour rules of the window (look.go), else empty.
 	FlagColor string    `json:"flagcolor,omitempty"`
 	Tiles     []TileRec `json:"tiles"`
 }
@@ -75,8 +73,8 @@ type BlockRec struct {
 	Status   string            `json:"status,omitempty"`
 	ExitCode *int              `json:"exitcode,omitempty"`
 	Session  map[string]string `json:"session,omitempty"`
-	// How the block looks, for a tool that draws a picture of the workspace: the icon (frame:icon) and its colour (icon:color) as they were set, and the
-	// attention mark (attention:level and attention:reason) after the same rules the window uses (a mark that would draw nothing is not recorded).
+	// How the block looks, for a tool that draws a picture of the workspace, each only when it passes the rules that the window applies before it draws it
+	// (look.go for the icon and the colour, pkg/attention for the mark): the icon (frame:icon, else icon), its colour (icon:color), the attention mark.
 	Icon            string `json:"icon,omitempty"`
 	IconColor       string `json:"iconcolor,omitempty"`
 	AttentionLevel  string `json:"attentionlevel,omitempty"`
@@ -130,23 +128,6 @@ func (r Record) WithoutStamp() Record {
 
 func metaString(meta waveobj.MetaMapType, key string) string {
 	s, _ := meta[key].(string)
-	return s
-}
-
-const maxLookValueRunes = 60
-
-// lookString is a display value (an icon name, an emoji, a colour) that is written as it was set, when it is short plain text: no control, format or
-// separator characters, at most maxLookValueRunes code points. Anything else is left out rather than cut, so that the file never holds half a value.
-func lookString(meta waveobj.MetaMapType, key string) string {
-	s := metaString(meta, key)
-	if s == "" || utf8.RuneCountInString(s) > maxLookValueRunes {
-		return ""
-	}
-	for _, r := range s {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
-			return ""
-		}
-	}
 	return s
 }
 
@@ -301,6 +282,14 @@ func walkLayout(node any, out *[]tileSrc) {
 	}
 }
 
+// The symbol of a block as the window picks it: frame:icon when that passes the rules, else icon.
+func iconOf(meta waveobj.MetaMapType) string {
+	if v := SymbolValue(metaString(meta, "frame:icon")); v != "" {
+		return v
+	}
+	return SymbolValue(metaString(meta, "icon"))
+}
+
 func blockRec(blocks map[string]*waveobj.Block, statuses map[string]ProcStatus, blockId string, position int, active bool) (BlockRec, bool) {
 	b := blocks[blockId]
 	if b == nil {
@@ -311,8 +300,8 @@ func blockRec(blocks map[string]*waveobj.Block, statuses map[string]ProcStatus, 
 		level, reason = "", ""
 	}
 	return BlockRec{
-		Icon:            lookString(b.Meta, "frame:icon"),
-		IconColor:       lookString(b.Meta, "icon:color"),
+		Icon:            iconOf(b.Meta),
+		IconColor:       ColorValue(metaString(b.Meta, "icon:color")),
 		AttentionLevel:  level,
 		AttentionReason: reason,
 		Position:        position,
@@ -342,7 +331,7 @@ func BuildRecord(snap Snapshot) Record {
 			if tab == nil {
 				continue
 			}
-			tabRec := TabRec{TabId: tabId, Name: tab.Name, Position: tabIndex, Active: tabId == ws.ActiveTabId, FlagColor: lookString(tab.Meta, "tab:flagcolor"), Tiles: []TileRec{}}
+			tabRec := TabRec{TabId: tabId, Name: tab.Name, Position: tabIndex, Active: tabId == ws.ActiveTabId, FlagColor: ColorValue(metaString(tab.Meta, "tab:flagcolor")), Tiles: []TileRec{}}
 			var tiles []tileSrc
 			if layout := snap.Layouts[tab.LayoutState]; layout != nil {
 				walkLayout(layout.RootNode, &tiles)

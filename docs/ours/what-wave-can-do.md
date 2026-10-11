@@ -543,11 +543,15 @@ Review notes on section 24 (the state record), asked by the reviewer:
   holds the file open is retried for about two seconds before it is given up and tried again at the next change. A test with a real
   open reader on Windows fails if the retry is removed.
 - A test changes an object through the event stream and checks that the file changes (it fails if the observer is never registered).
-- **Look and attention in the record (added 11-Oct-2026, for a status page that is built outside Wave):** each block has `icon` (`frame:icon`), `iconcolor` (`icon:color`), `attentionlevel` and `attentionreason` (`attention:level`,
-  `attention:reason`), each tab has `flagcolor` (`tab:flagcolor`). The look values are written as they were set, only when they are short plain text (at most 60 code points, no control, format or separator characters); anything else is
-  left out, not cut. The mark goes through the same rule as the window (`pkg/attention`): a mark that would draw nothing (an orange level without a reason, a reason with hidden characters or over 120 code points, an unknown level) is not
-  recorded. No new event is needed: a change to a block or a tab object already rewrites the file. RAN: `go test ./pkg/staterecord/...` (with cgo, as the build does) including three new tests (the values are there, a tab without a colour
-  records none; unsafe values and a mark that draws nothing are absent; a changed reason changes the content, so the file is rewritten). NOT RUN: a real Wave writing the new fields (no window or dev instance was opened for this change).
+- **Look and attention in the record (added 11-Oct-2026, for a status page that is built outside Wave):** each block has `icon` (`frame:icon`, else `icon`), `iconcolor` (`icon:color`), `attentionlevel` and `attentionreason`
+  (`attention:level`, `attention:reason`), each tab has `flagcolor` (`tab:flagcolor`). Every one of them is written only when it passes the rules that the window applies before it draws it, and is left out otherwise (never cut or repaired):
+  the icon by the symbol rule (`pkg/staterecord/look.go` `SymbolValue`, a port of `parseTabSymbol`: a Font Awesome name of at most 40 characters or text of at most two graphemes and 32 bytes, no control, format or bidirectional characters, no stray
+  joiner), the colours by the colour rule (`ColorValue`, a port of `memberColorValue`: a hex colour, a colour function with plain arguments, or a CSS colour name, at most 64 characters, no hidden characters), the mark by `pkg/attention` (a
+  mark that would draw nothing is not recorded). One difference on purpose: the window asks the browser whether a colour keyword is a colour; the record accepts only the CSS colour names (plus transparent and currentcolor), so it is never looser.
+  The record file is written atomically (a temporary file, then a rename; a reader that holds the file open makes the replace retry), so a page that reads it never sees a half written file. No new event is needed: a change to a block or a tab
+  already rewrites it. RAN: `go test ./pkg/staterecord/...` with cgo, including the vectors of both rules, the record tests, and a chain test with a real store that sets a mark, changes its reason, then writes markup, style text and a hidden
+  character, and reads the FILE each time (the file changes, and none of the hostile text reaches it). NOT RUN: a real Wave writing the new fields. The colour rule's hidden-character check is redundant with its shapes (no shape allows such a character);
+  it is kept as the same defence the window has.
 
 
 ## 25. Keyboard: next and previous tab inside a tile

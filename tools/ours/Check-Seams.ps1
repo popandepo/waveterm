@@ -92,6 +92,7 @@ $seams = @(
     @('stack-layout-queue', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackInsert', 'back-end layout actions for stacks'),
     @('stack-move-layout-action', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackMove', 'wsh stack move queues this action'),
     @('attention-meta-keys', 'pkg/waveobj/wtypemeta.go', 'AttentionLevel  string', 'the block meta keys attention:level and attention:reason'),
+    @('ephemeral-replace-asks', 'frontend/layout/lib/layoutModel.ts', 'replaceEphemeral(previous.data.blockId', 'a new ephemeral block asks before it closes the old one'),
     @('stack-menu-hook', 'frontend/app/block/blockframe-header.tsx', 'label: "Turn into a stack"', 'the block menu offers stack mode'),
     @('member-look-menu-hook', 'frontend/app/block/blockframe-header.tsx', '...buildMemberLookItems(', 'the block menu offers Set colour and Set icon'),
     @('stack-tab-menu-hook', 'frontend/layout/lib/stacktabstrip.tsx', 'layoutModel.onStackTabMenu(', 'a right click on a strip tab opens the member menu'),

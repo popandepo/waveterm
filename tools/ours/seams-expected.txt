@@ -26,6 +26,7 @@ dev-config-home
 dev-data-home
 electron-bell-rpc
 electron-wsh-client
+ephemeral-replace-asks
 layout-addchildat
 layout-balance
 layout-focus-reducer

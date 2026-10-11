@@ -409,6 +409,8 @@ const AttentionAutoClearing = () => {
     }, [focusedBlockId, level, reason, documentHasFocus]);
 
     return null;
+};
+
 // The outline round the whole window in the workspace's colour (see windowoutline.ts): a border only, it fills nothing and takes no mouse events.
 const WindowOutline = () => {
     const workspace = useAtomValue(atoms.workspace);

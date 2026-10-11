@@ -36,7 +36,7 @@ func createBlockRun(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
 		metaSetStrs = args[1:]
 	}
-	tabId, err := createTabId()
+	tabId, err := createTabId(cmd)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func createBlockRun(cmd *cobra.Command, args []string) error {
 	if err := applyStackTarget(&data); err != nil {
 		return err
 	}
-	if err := checkCreateTarget(&data); err != nil {
+	if err := checkCreateTarget(cmd, &data); err != nil {
 		return err
 	}
 	oref, err := createBlockRPC(data)

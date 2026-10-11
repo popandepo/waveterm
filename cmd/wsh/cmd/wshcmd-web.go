@@ -105,17 +105,17 @@ func webOpenRun(cmd *cobra.Command, args []string) (rtnErr error) {
 
 	var replaceBlockORef *waveobj.ORef
 	if webOpenReplaceBlock != "" {
-		var err error
-		replaceBlockORef, err = resolveSimpleId(webOpenReplaceBlock)
+		id, err := resolveBlockRef(webOpenReplaceBlock)
 		if err != nil {
 			return fmt.Errorf("resolving -r blockid: %w", err)
 		}
+		replaceBlockORef = &waveobj.ORef{OType: waveobj.OType_Block, OID: id}
 	}
 	if replaceBlockORef != nil && webOpenMagnified {
 		return fmt.Errorf("cannot use --replace and --magnified together")
 	}
 
-	tabId, err := createTabId()
+	tabId, err := createTabId(cmd)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func webOpenRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err := applyStackTarget(&wshCmd); err != nil {
 		return err
 	}
-	if err := checkCreateTarget(&wshCmd); err != nil {
+	if err := checkCreateTarget(cmd, &wshCmd); err != nil {
 		return err
 	}
 	oref, err := createBlockRPC(wshCmd)

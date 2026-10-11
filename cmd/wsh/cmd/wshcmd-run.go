@@ -135,7 +135,7 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		createMeta[waveobj.MetaKey_Connection] = RpcContext.Conn
 	}
 
-	tabId, err := createTabId()
+	tabId, err := createTabId(cmd)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func runRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err := applyStackTarget(&createBlockData); err != nil {
 		return err
 	}
-	if err := checkCreateTarget(&createBlockData); err != nil {
+	if err := checkCreateTarget(cmd, &createBlockData); err != nil {
 		return err
 	}
 	oref, err := createBlockRPC(createBlockData)

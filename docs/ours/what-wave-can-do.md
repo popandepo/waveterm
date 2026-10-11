@@ -518,6 +518,11 @@ outside the folder). Bash and zsh are left as they are (zsh already keeps Wave's
 - **Probed, not in a Wave window:** in a non-interactive PowerShell 7.6 with PSReadLine 2.4.5 the methods `ClearHistory`, `AddToHistory`,
   `GetHistoryItems` exist, but they fail without a running line editor; the start-up script therefore sets the path first and only then tries
   them, inside a try. Whether the path alone is enough before the first prompt, or the replace is needed, is the window check.
+  **Loading without doubling, and multi-line commands:** when the line editor is already running, the saved entries are put back with saving switched off
+  (and the save style restored afterwards, also on a failure), because with incremental saving every added entry would be appended to the file again and
+  every restart would double it. The file is read in PSReadLine's own format: a command of several lines has a backtick at the end of every line but the
+  last, and those lines are joined again; empty lines are skipped. Both are run in a real PowerShell by the Go tests (the save style goes off before the
+  first entry and back after the last, also when adding fails; with the switch-off removed that test goes red).
   **Limit, on purpose:** the block only acts when the line editor has a `ClearHistory` method (PSReadLine 2.4.5 on pwsh 7.6, the one on his PC, is the version
   this was checked against); an older one that had already loaded the shared file would show it anyway while saving to the block's file, so there the
   history is left alone (the shared one). The start-up block is run in a real PowerShell by the Go tests: it sets the path from the environment,

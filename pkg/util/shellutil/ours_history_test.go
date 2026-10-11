@@ -151,3 +151,48 @@ func TestThePwshStartupLeavesHistoryAloneWhenThereIsNoVariableOrTheEditorFails(t
 		t.Fatalf("a failing line editor must not break the start or change the path, got:\n%s", out)
 	}
 }
+
+func TestTheHistoryFileIsReadInPSReadLinesOwnFormat(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "h.txt")
+	content := "echo one\r\nGet-ChildItem `\r\n  | Select-Object Name `\r\n  | Sort-Object\r\n\r\n   \r\necho two\r\ntrailing `\r\n"
+	if err := os.WriteFile(file, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := historyBlock(t) + "\n$e = @(_waveterm_history_entries $env:HF)\nWrite-Output ('count=' + $e.Count)\n$e | ForEach-Object { Write-Output ('entry=[' + ($_ -replace \"`n\", '<NL>') + ']') }\n"
+	out := runPwsh(t, script, "HF="+file)
+	for _, want := range []string{
+		"count=4",
+		"entry=[echo one]",
+		"entry=[Get-ChildItem <NL>  | Select-Object Name <NL>  | Sort-Object]",
+		"entry=[echo two]",
+		"entry=[trailing ]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestLoadingTheHistoryDoesNotSaveItAgain(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "h.txt")
+	if err := os.WriteFile(file, []byte("echo one\r\necho two\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := historyBlock(t) + `
+$log = New-Object System.Collections.Generic.List[string]
+_waveterm_load_history $env:HF { param($c) $log.Add('add:' + $c) } { 'SaveIncrementally' } { param($s) $log.Add('style:' + $s) }
+Write-Output ($log -join ' | ')
+$log.Clear()
+try {
+    _waveterm_load_history $env:HF { param($c) throw 'add failed' } { 'SaveIncrementally' } { param($s) $log.Add('style:' + $s) }
+} catch { }
+Write-Output ('after a failure: ' + ($log -join ' | '))
+`
+	out := runPwsh(t, script, "HF="+file)
+	if !strings.Contains(out, "style:SaveNothing | add:echo one | add:echo two | style:SaveIncrementally") {
+		t.Errorf("saving must be off while the entries go in and restored after:\n%s", out)
+	}
+	if !strings.Contains(out, "after a failure: style:SaveNothing | style:SaveIncrementally") {
+		t.Errorf("the save style must be restored also when adding fails:\n%s", out)
+	}
+}

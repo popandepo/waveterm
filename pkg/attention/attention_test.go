@@ -12,11 +12,12 @@ import (
 
 type vectors struct {
 	Check []struct {
-		Level     string `json:"level"`
-		Reason    string `json:"reason"`
-		Ok        bool   `json:"ok"`
-		ReasonOut string `json:"reason_out"`
-		RepeatTo  int    `json:"repeat_to"`
+		Level       string `json:"level"`
+		Reason      string `json:"reason"`
+		Ok          bool   `json:"ok"`
+		ReasonOut   string `json:"reason_out"`
+		RepeatText  string `json:"repeat_text"`
+		RepeatCount int    `json:"repeat_count"`
 	} `json:"check"`
 	Highest []struct {
 		Levels []string `json:"levels"`
@@ -44,15 +45,15 @@ func TestCheckAgainstTheSharedVectors(t *testing.T) {
 	}
 	for _, c := range v.Check {
 		reason := c.Reason
-		if c.RepeatTo > 0 {
-			reason = strings.Repeat("x", c.RepeatTo)
+		if c.RepeatCount > 0 {
+			reason = strings.Repeat(c.RepeatText, c.RepeatCount)
 		}
 		got, err := Check(c.Level, reason)
 		if c.Ok != (err == nil) {
 			t.Errorf("Check(%q, %q): ok=%v err=%v", c.Level, c.Reason, c.Ok, err)
 			continue
 		}
-		if c.Ok && c.RepeatTo == 0 && got != c.ReasonOut {
+		if c.Ok && c.RepeatCount == 0 && got != c.ReasonOut {
 			t.Errorf("Check(%q, %q) reason %q, want %q", c.Level, c.Reason, got, c.ReasonOut)
 		}
 	}

@@ -15,9 +15,16 @@
     {"level": "need", "reason": "hidden​space", "ok": false},
     {"level": "need", "reason": "flip‮text", "ok": false},
     {"level": "need", "reason": "para sep", "ok": false},
+    {"level": "need", "reason": "line sep", "ok": false},
+    {"level": "need", "reason": "ok﻿", "ok": false, "note": "a hidden character at the end is refused, not trimmed away"},
+    {"level": "need", "reason": "﻿ok", "ok": false, "note": "and at the start"},
+    {"level": "need", "reason": "ok\n", "ok": false, "note": "a trailing line break is refused too"},
     {"level": "info", "reason": "x", "ok": true, "reason_out": "x"},
-    {"level": "need", "reason": "EXACT120", "ok": true, "repeat_to": 120},
-    {"level": "need", "reason": "OVER120", "ok": false, "repeat_to": 121}
+    {"level": "need", "ok": true, "repeat_text": "x", "repeat_count": 120, "note": "exactly 120 code points"},
+    {"level": "need", "ok": false, "repeat_text": "x", "repeat_count": 121},
+    {"level": "need", "ok": true, "repeat_text": "é", "repeat_count": 60, "note": "60 letters with an accent each are 120 code points"},
+    {"level": "need", "ok": false, "repeat_text": "é", "repeat_count": 61, "note": "61 of them are 122 code points: the limit counts code points, not what the eye sees"},
+    {"level": "need", "ok": true, "repeat_text": "🚀", "repeat_count": 120, "note": "an emoji is one code point"}
   ],
   "highest": [
     {"levels": [], "want": ""},

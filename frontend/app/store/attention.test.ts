@@ -16,10 +16,10 @@ describe("the shared vectors (the same file the Go tests read)", () => {
 
     test("checkAttention agrees with Go on every case", () => {
         for (const c of vectors.check) {
-            const reason = c.repeat_to ? "x".repeat(c.repeat_to) : c.reason;
+            const reason = c.repeat_count ? c.repeat_text.repeat(c.repeat_count) : c.reason;
             const got = checkAttention(c.level, reason);
             assert.equal(got != null, c.ok, JSON.stringify(c));
-            if (c.ok && !c.repeat_to) {
+            if (c.ok && !c.repeat_count) {
                 assert.equal(got, c.reason_out, JSON.stringify(c));
             }
         }

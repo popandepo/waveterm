@@ -36,11 +36,17 @@ export function checkAttention(level: unknown, reason: unknown): string | null {
     if (attentionRank(level) === 0) {
         return null;
     }
-    const text = typeof reason === "string" ? reason.trim() : "";
+    const raw = typeof reason === "string" ? reason : "";
+    // hidden and control characters are looked for BEFORE anything is trimmed (as in Go), so none is trimmed away unseen
+    if (HiddenChars.test(raw)) {
+        return null;
+    }
+    const text = raw.trim();
     if (text === "") {
         return attentionNeedsReason(level) ? null : "";
     }
-    if (HiddenChars.test(text) || [...text].length > MaxAttentionReasonLength) {
+    // the limit counts code points, not what the eye sees (as in Go)
+    if ([...text].length > MaxAttentionReasonLength) {
         return null;
     }
     return text;

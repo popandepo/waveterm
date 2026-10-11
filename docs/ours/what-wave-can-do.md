@@ -653,3 +653,9 @@ command; nothing is drawn yet** (the drawing is the next parts).
 - **RAN:** Go tests (vectors, the meta reader, the command's meta and refusals, clear sets exactly two keys null, the command has three levels and clear) and vitest on the same vectors; red when the reason requirement is dropped
   (Go and TypeScript).
 - **NOT RUN in a window:** `wsh attention` against a running Wave (the write is the same set-meta call as `wsh setmeta`).
+
+Review answers for section 34 (Codex, PR 43):
+- **Hidden characters are looked for before anything is trimmed**, in Go and in TypeScript: "ok" followed by U+FEFF, a trailing line break, a zero-width space or a line separator is refused, never trimmed away (the shared table has each case).
+- **The limit is 120 code points**, in both languages and in the command's error text. A letter with an accent written as two code points counts as two (60 such letters pass, 61 do not; tested in both languages from the one table). Counting what the eye sees would need a grapheme library and buys little for one line of text.
+- **Set and clear each write both keys in ONE set-meta call** (`attentionSend` with one map holding `attention:level` and `attention:reason`), so no reader sees a level with the old reason or a reason with no level; clear sets both to null in the same map (tested).
+- **For the part that draws the hover text:** the reason is text from block meta, which any program can write. The renderer must read it only through `attentionOf` (the validating reader) and must put it in the page as text, never as markup, so a reason like `<img src=x>` is shown as those characters.

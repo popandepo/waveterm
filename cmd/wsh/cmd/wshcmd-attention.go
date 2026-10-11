@@ -46,7 +46,7 @@ var attentionClearCmd = &cobra.Command{
 func init() {
 	for _, level := range []string{attention.LevelInfo, attention.LevelNeed, attention.LevelUrgent} {
 		c := attentionLevelCmd(level)
-		c.Flags().StringVar(&attentionReason, "reason", "", "why the owner is needed (required for need and urgent, at most 120 characters)")
+		c.Flags().StringVar(&attentionReason, "reason", "", "why the owner is needed (required for need and urgent, at most 120 code points)")
 		attentionCmd.AddCommand(c)
 	}
 	attentionCmd.AddCommand(attentionClearCmd)

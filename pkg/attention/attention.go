@@ -19,6 +19,7 @@ const (
 	LevelNeed   = "need"
 	LevelUrgent = "urgent"
 
+	// the limit counts code points, not what the eye sees: grapheme counting would need a library and buys little for a line of text
 	MaxReasonRunes = 120
 
 	MetaKeyLevel  = "attention:level"
@@ -56,7 +57,7 @@ func NeedsReason(level string) bool {
 
 func hasHiddenRune(s string) bool {
 	for _, r := range s {
-		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return true
 		}
 	}
@@ -69,6 +70,11 @@ func Check(level string, reason string) (string, error) {
 	if Rank(level) == 0 {
 		return "", fmt.Errorf("unknown attention level %q (info, need or urgent)", level)
 	}
+	// hidden and control characters are looked for BEFORE anything is trimmed, so that none is trimmed away unseen (a trailing line break or a
+	// zero-width character is refused, it is not dropped)
+	if hasHiddenRune(reason) {
+		return "", fmt.Errorf("the reason has control or hidden characters")
+	}
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		if NeedsReason(level) {
@@ -76,11 +82,8 @@ func Check(level string, reason string) (string, error) {
 		}
 		return "", nil
 	}
-	if hasHiddenRune(reason) {
-		return "", fmt.Errorf("the reason has control or hidden characters")
-	}
 	if utf8.RuneCountInString(reason) > MaxReasonRunes {
-		return "", fmt.Errorf("the reason is longer than %d characters", MaxReasonRunes)
+		return "", fmt.Errorf("the reason is longer than %d code points (a letter with an accent written as two code points counts as two)", MaxReasonRunes)
 	}
 	return reason, nil
 }

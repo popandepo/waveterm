@@ -781,6 +781,14 @@ strip tab of a stack member. A member's tab reads `attention:level` and `attenti
   the mark is exactly the one that was planned for (level and reason). The logic is `scheduleAttentionClear` (`attentionschedule.ts`), tested with fake timers (focus change, window focus lost, cancel, a replaced reason or level, the
   re-plan); there is no DOM test environment in this repository, so the component's effect is a thin call of it, pinned by source text. **Not closed:** the write takes a round trip to the server and block meta has no compare-and-set, so a mark
   that a program writes during that round trip is erased.
+- **Review fixes (run-the-code review of PR 52):** the info icon is out of the flow like the dot (the label clips its overflow with an ellipsis, so an icon inside it vanished on a long name); the pulse also stops for Wave's own
+  setting `window:reducedmotion` (the class `prefers-reduced-motion` on the app), not only for the system media query; the window wiring of the clear (`makeAttentionClearEnv`, `focusSwitchedSince` in `attentionschedule.ts`) is a
+  function that reads the present at each call and is tested with fakes, instead of lines of `app.tsx` that only a source pin saw.
+- **Stated behaviour (known, on purpose, pinned by tests that say "observation"):** an orange level that draws nothing (no reason, or a reason with a hidden character) is still planned and erased on focus; a mark rewritten with the same
+  level and reason while the timer runs is erased by the old plan (the two are indistinguishable); the clear needs the window focus plus the focused block, not the keyboard in it; the CSS-wide colour keywords (`inherit`, `currentcolor`,
+  `transparent`) pass the colour check in a browser and give a text-coloured or invisible outline; a badge icon with `+spin` or `+beat` animates on the strip tab. A reviewer's attack file (24 cases: markup in a reason, hidden characters,
+  prototype names as levels, 40 bad colours at the four colour entrances, the clear under cancel, replace and lost focus, the compiled stylesheets) is part of the tests as `attentionlook.test.tsx`. Merge commit `fc781392` of this line does NOT type-check
+  (an unclosed component, fixed by `46f301df`): remember it when bisecting.
 - **Not in this part:** the tile outline and header mark, the top tab, the workspace button, the taskbar flash; mute per tile; the five-minute limit of the pulse; the rate rule. The mark of a block that is not the active member of
   its stack is on its strip tab (that is the point of this step); a tile that is not a stack has no strip, so its mark is not drawn yet.
 - **RAN:** vitest for the mark of every level and of every value a program could write that must draw nothing, for the clear rule (only orange levels, only with window focus, the two delays), the clear meta (both keys, null), and

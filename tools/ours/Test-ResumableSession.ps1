@@ -260,6 +260,8 @@ class P {
     $r = Run-Child 'set'
     Check 'without a swap token wsh is not called and nothing is added' (-not ($r.Text -match 'WAVETERM_JWT') -and -not ($r.Text -match 'could not be exchanged')) $r.Text
     Remove-Item Env:SWAP_OUTPUT, Env:SWAP_ARGS, Env:RESUMABLE_TEST_NOWSH -ErrorAction SilentlyContinue
+    $starterText = Get-Content -LiteralPath $script -Raw
+    Check 'the token goes to wsh as an argument list element, never joined into an argument string (a second layer behind the shape check)' (($starterText -match 'ArgumentList.Add') -and ($starterText -notmatch '$psi.Argumentss*=')) ''
     $stray = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -DryRun stray-positional-piece 2>&1
     Check 'a stray positional argument is an error, not a model or an effort' (($LASTEXITCODE -ne 0) -and ($stray -join ' ') -match 'positional') ($stray -join ' ')
 

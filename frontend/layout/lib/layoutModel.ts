@@ -143,6 +143,11 @@ export class LayoutModel {
      * Callback for the + on the tab strip of a stack.
      */
     onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
+
+    /**
+     * Asked before the X of a stack member closes its block; resolves with whether to go on (a running program asks).
+     */
+    confirmCloseBlock?: (blockId: string) => Promise<boolean>;
     /**
      * Callback that is invoked when a node is closed.
      */
@@ -723,6 +728,7 @@ export class LayoutModel {
         this.renderPreview = contents.renderPreview;
         this.renderStackTabLabel = contents.renderStackTabLabel;
         this.onStackAdd = contents.onStackAdd;
+        this.confirmCloseBlock = contents.confirmCloseBlock;
         this.onNodeDelete = contents.onNodeDelete;
         if (contents.gapSizePx !== undefined) {
             this.setter(this.gapSizePx, contents.gapSizePx);

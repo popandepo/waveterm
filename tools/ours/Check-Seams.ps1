@@ -101,6 +101,7 @@ $seams = @(
     @('api-list-all-workspaces', 'pkg/wcore/workspace.go', 'func ListAllWorkspaces(ctx context.Context) (waveobj.WorkspaceList, error) {', 'local API list reads every workspace'),
     @('api-main-rpc-client', 'pkg/wshrpc/wshserver/wshserverutil.go', 'func GetMainRpcClient() *wshutil.WshRpc {', 'local API backend sends RPC calls through the main client'),
     @('api-startup-hook', 'cmd/server/main-server.go', 'go wshutil.RunWshRpcOverListener(unixListener, nil)', 'wavesrvapi.Start() is added on the next line of wavesrv startup'),
+    @('close-block-ux', 'frontend/app/store/keymodel.ts', 'function uxCloseBlock(blockId: string) {', 'the header menu and the close key of one block; ours asks first when a program is running'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('state-record-event-hook', 'pkg/wps/wps.go', 'notifyObservers(event)', 'the state record reacts to every published object update'),

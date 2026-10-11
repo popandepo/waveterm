@@ -436,6 +436,7 @@ export interface TileLayoutContents {
      * Called when the + on the tab strip of a stack is clicked; targetBlockId is the block shown in the stack.
      */
     onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
+    confirmCloseBlock?: (blockId: string) => Promise<boolean>;
     /**
      * A callback that accepts the data from the leaf node and returns a preview that can be shown when the user drags a node.
      */

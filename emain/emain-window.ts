@@ -890,6 +890,22 @@ ipcMain.handle("close-tab", async (event, workspaceId: string, tabId: string, co
     return await closeTabHandler(tabId, confirmClose, ww);
 });
 
+// One block with a running program is about to be closed from the UI. The question is the frontend's, the box is native like the tab one.
+ipcMain.handle("confirm-close-block", async (event, message: unknown) => {
+    const ww = getWaveWindowByWebContentsId(event.sender.id);
+    const text = typeof message === "string" ? message.slice(0, 500) : "Close this block?";
+    const options: Electron.MessageBoxOptions = {
+        type: "question",
+        defaultId: 1, // Enter activates "Close Block"
+        cancelId: 0, // Esc activates "Cancel"
+        buttons: ["Cancel", "Close Block"],
+        title: "Confirm",
+        message: text,
+    };
+    const result = ww != null ? await dialog.showMessageBox(ww, options) : await dialog.showMessageBox(options);
+    return result.response === 1;
+});
+
 ipcMain.on("switch-workspace", (event, workspaceId) => {
     fireAndForget(async () => {
         const ww = getWaveWindowByWebContentsId(event.sender.id);

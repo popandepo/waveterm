@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { WaveAIModel } from "@/app/aipanel/waveai-model";
+import { confirmCloseBlock } from "@/app/store/closeblock";
 import { FocusManager } from "@/app/store/focusManager";
 import {
     atoms,
@@ -172,7 +173,11 @@ function uxCloseBlock(blockId: string) {
     const layoutModel = getLayoutModelForStaticTab();
     const node = layoutModel.getNodeByBlockId(blockId);
     if (node) {
-        fireAndForget(() => layoutModel.closeNode(node.id));
+        fireAndForget(async () => {
+            if (await confirmCloseBlock(blockId)) {
+                await layoutModel.closeNode(node.id);
+            }
+        });
 
         if (isAIFileDiff && isAIPanelOpen) {
             setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);
@@ -222,7 +227,11 @@ function genericClose() {
     const blockData = blockAtom ? globalStore.get(blockAtom) : null;
     const isAIFileDiff = blockData?.meta?.view === "aifilediff";
 
-    fireAndForget(layoutModel.closeFocusedNode.bind(layoutModel));
+    fireAndForget(async () => {
+        if (blockId == null || (await confirmCloseBlock(blockId))) {
+            await layoutModel.closeFocusedNode();
+        }
+    });
 
     if (isAIFileDiff && isAIPanelOpen) {
         setTimeout(() => WaveAIModel.getInstance().focusInput(), 50);

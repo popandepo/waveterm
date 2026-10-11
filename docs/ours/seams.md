@@ -107,6 +107,7 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | state record start | `cmd/server/main-server.go` | `wavesrvstate.Start()` | wavesrv starts the state record writer |
 | controller start decision | `pkg/blockcontroller/shellcontroller.go` | `shouldRunCommand(...)` | `wsh session start --restart` depends on `cmd:runonstart` blocks starting again |
 | close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
+| close one block | `frontend/app/store/keymodel.ts` | `function uxCloseBlock(blockId: string) {` | the header menu and the close key of one block ask first when a program is running |
 | tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
 | tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |
 

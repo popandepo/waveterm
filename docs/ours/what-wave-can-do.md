@@ -429,6 +429,18 @@ Fourth pass on section 22: whatever leaves the window's action queue (a destroye
 still queued "not closed" and empties the queue, so a caller (the window, or `wsh tab close`) gets an answer instead of waiting
 (tested). The unchecked back-end `CloseTab` is reached only for `force` (no limit). A close that the owner confirmed without a count (both reads failed, and the dialog said so) goes through the checked call as "count unknown" (-2): the back end reads the tab itself and refuses if it cannot (tested on the window side, and a test pins that the Go constant is the same -2). The check and the delete are not one database transaction, because the delete is upstream code spanning many store calls; a block created in the same few microseconds is the one case not caught.
 
+## 22a. Closing one block that has a running program asks first (found in his window check, 11 Oct 2026)
+
+The X on a stack member closed its block, and so stopped the program in it, with no question (it called `closeNode` directly); the block header
+menu and the close key did the same (upstream behaviour). Now all three ask first, but only when a program is running: a native box
+"This closes the program running in it. It cannot be undone." with Cancel (Esc) and Close Block (Enter). The state comes from the controller
+(`GetControllerStatus`, the same state as `status` in `wsh api list`): `running` asks; no program (a web tile, a file view), an ended or
+not-started program does not; a state that cannot be read asks. The last block of a tab still goes through the tab question. A block closed by
+a command (`wsh deleteblock`, the backend delete action) is never asked, because there is nobody to answer.
+- **RAN:** vitest for which states ask, the answer deciding, a failed read asking, a failed dialog keeping the block, and source pins on the
+  four call sites, on the commands not asking, and on the electron side (type, preload, handler with the message capped, preview stub).
+- **NOT RUN, window check:** the box itself. Put a `ping -t localhost` in a stack member and click its X (the box appears; Cancel keeps it
+  running; Close Block ends it); the same for the header menu "Close Block" and Ctrl+Shift+W; a web tile or an idle shell closes with no box.
 ## 23. Drag a tab out of its stack, reorder tabs (step E)
 
 Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of

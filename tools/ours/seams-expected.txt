@@ -10,6 +10,7 @@ api-startup-hook
 autoupdate-default-off
 badge-store-memory
 blocks-list-rpc
+close-block-ux
 close-tab-handler
 conn-config-atom
 conn-keywords

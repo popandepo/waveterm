@@ -81,7 +81,12 @@ const StripTab = memo(
                     title="Close this tab and its terminal"
                     onClick={(e) => {
                         e.stopPropagation();
-                        fireAndForget(() => layoutModel.closeNode(tab.nodeId));
+                        fireAndForget(async () => {
+                            if ((await layoutModel.confirmCloseBlock?.(tab.blockId)) === false) {
+                                return;
+                            }
+                            await layoutModel.closeNode(tab.nodeId);
+                        });
                     }}
                 >
                     <i className="fa-sharp fa-solid fa-xmark" />

@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { assert, describe, test } from "vitest";
+import { afterEach, assert, describe, test, vi } from "vitest";
 import { lastSegment, memberColorValue, memberSymbolValue, stackTabLook } from "./stacktablook";
 
 // CSS.supports does not exist outside a window; this stands in for it with the colours the tests use
@@ -41,6 +41,30 @@ describe("what a member's strip tab shows", () => {
         assert.isNull(stackTabLook(undefined, undefined, "red; background:url(x)", validate).color);
         assert.isNull(stackTabLook(undefined, undefined, 42, validate).color);
         assert.equal(stackTabLook(undefined, undefined, " red ", validate).color, "red");
+    });
+});
+
+describe("colours with a window (CSS.supports stands in for the browser)", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    test("a value that passes the shape check but is not a colour is refused when CSS.supports says no", () => {
+        vi.stubGlobal("CSS", { supports: (_prop: string, value: string) => value !== "notacolour" });
+        assert.equal(memberColorValue("tomato"), "tomato");
+        assert.isNull(memberColorValue("notacolour"));
+    });
+
+    test("without a window the same value passes the shape check (so the CSS check is what refuses it above)", () => {
+        assert.equal(memberColorValue("notacolour"), "notacolour");
+    });
+
+    test("a newline or another control character inside an otherwise valid colour is refused, with or without a window", () => {
+        for (const bad of ["rgb(255,\n0,0)", "rgb(255,\r0,0)", "rgb(255,\t0,0)", "#f​00", "red\u0000", "rgb(255,  0,0)"]) {
+            assert.isNull(memberColorValue(bad), JSON.stringify(bad));
+        }
+        vi.stubGlobal("CSS", { supports: () => true });
+        assert.isNull(memberColorValue("rgb(255,\n0,0)"));
     });
 });
 

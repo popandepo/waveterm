@@ -12,7 +12,9 @@ export interface StackTabLook {
 const MaxColorLength = 64;
 const HexColorShape = /^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i;
 // A colour function with plain arguments: no nested parentheses, so no var(), url(), calc() or the like.
-const FunctionColorShape = /^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([\d\s.,%/a-z+-]*\)$/i;
+const FunctionColorShape = /^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([\d .,%/a-z+-]*\)$/i;
+// Control, format and line characters (a newline inside an otherwise valid function included) are refused before any pattern is tried.
+const HiddenChars = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const KeywordColorShape = /^[a-z]{3,30}$/i;
 
 // The one place where a colour from block meta (which any program can write) is checked before it is used as a style. The shape check works
@@ -22,7 +24,7 @@ export function memberColorValue(raw: unknown, validate: (c: string) => string =
         return null;
     }
     const value = raw.trim();
-    if (value === "" || value.length > MaxColorLength) {
+    if (value === "" || value.length > MaxColorLength || HiddenChars.test(value)) {
         return null;
     }
     if (!HexColorShape.test(value) && !FunctionColorShape.test(value) && !KeywordColorShape.test(value)) {

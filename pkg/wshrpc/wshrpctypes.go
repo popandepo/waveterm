@@ -50,6 +50,7 @@ type WshRpcInterface interface {
 	MessageCommand(ctx context.Context, data CommandMessageData) error
 	GetMetaCommand(ctx context.Context, data CommandGetMetaData) (waveobj.MetaMapType, error)
 	SetMetaCommand(ctx context.Context, data CommandSetMetaData) error
+	ClearAttentionIfCommand(ctx context.Context, data CommandClearAttentionIfData) (bool, error) // clears the attention mark of a block only if it is still exactly (level, reason)
 	ControllerInputCommand(ctx context.Context, data CommandBlockInputData) error
 	ControllerDestroyCommand(ctx context.Context, blockId string) error
 	ControllerStatusCommand(ctx context.Context, blockId string) (*CommandControllerStatusRtnData, error)
@@ -286,6 +287,14 @@ type CommandGetMetaData struct {
 type CommandSetMetaData struct {
 	ORef waveobj.ORef        `json:"oref"`
 	Meta waveobj.MetaMapType `json:"meta"`
+}
+
+// The mark that a clear was planned for. The server clears the block's attention only if the block still has exactly this level and reason when the
+// request arrives, in one transaction (a mark that a program wrote in between is never erased).
+type CommandClearAttentionIfData struct {
+	BlockId string `json:"blockid"`
+	Level   string `json:"level"`
+	Reason  string `json:"reason"`
 }
 
 type CommandResolveIdsData struct {

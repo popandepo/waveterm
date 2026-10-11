@@ -31,6 +31,7 @@ layout-focus-reducer
 layout-node-type
 layout-rootnode-any
 layout-update-helper
+member-look-menu-hook
 ping-gated-on-telemetry
 pwsh-init-swaptoken
 server-resolve-simple-id
@@ -45,6 +46,7 @@ stack-move-layout-action
 stack-overlay-strip-hook
 stack-reorder-reducer
 stack-rpc-interface
+stack-tab-menu-hook
 stack-ui-backend-actions
 stack-ui-geometry-hook
 stack-ui-label-hook

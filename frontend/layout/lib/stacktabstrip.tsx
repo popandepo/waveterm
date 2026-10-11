@@ -29,7 +29,9 @@ const StripTab = memo(
         layoutModel,
         tab,
         node,
+        stackSize,
     }: {
+        stackSize: number;
         layoutModel: LayoutModel;
         tab: ReturnType<typeof buildStripTabs>[number];
         node: LayoutNode;
@@ -65,6 +67,28 @@ const StripTab = memo(
                 data-blockid={tab.blockId}
                 data-nodeid={tab.nodeId}
                 onClick={() => layoutModel.focusNode(tab.nodeId)}
+                onContextMenu={(e) => {
+                    if (layoutModel.onStackTabMenu == null) {
+                        return;
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    layoutModel.onStackTabMenu(
+                        {
+                            blockId: tab.blockId,
+                            nodeId: tab.nodeId,
+                            canTakeOut: stackSize > 1,
+                            takeOut: () => layoutModel.takeNodeOutOfStack(tab.nodeId),
+                            close: () =>
+                                fireAndForget(() =>
+                                    closeStripTab(layoutModel.closeBlockAfterConfirm, tab.blockId, tab.nodeId, (id) =>
+                                        layoutModel.closeNode(id)
+                                    )
+                                ),
+                        },
+                        e
+                    );
+                }}
             >
                 <span className="stack-tab-label">
                     {layoutModel.renderStackTabLabel?.(tab.blockId) ?? tab.blockId.slice(0, 8)}
@@ -119,6 +143,7 @@ const StackStrip = memo(({ layoutModel, stackId, props }: StackStripProps) => {
                     layoutModel={layoutModel}
                     tab={tab}
                     node={leafs.find((l) => l.id === tab.nodeId)}
+                    stackSize={tabs.length}
                 />
             ))}
             <button

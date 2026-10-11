@@ -4,18 +4,10 @@
 import { getOrefMetaKeyAtom, globalStore, recordTEvent } from "@/app/store/global";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
+import { FlagColors } from "./flagcolors";
 import { makeORef } from "../store/wos";
 import type { TabEnv } from "./tab";
 
-const FlagColors: { label: string; value: string }[] = [
-    { label: "Green", value: "#58C142" },
-    { label: "Teal", value: "#00FFDB" },
-    { label: "Blue", value: "#429DFF" },
-    { label: "Purple", value: "#BF55EC" },
-    { label: "Red", value: "#FF453A" },
-    { label: "Orange", value: "#FF9500" },
-    { label: "Yellow", value: "#FFE900" },
-];
 
 export function buildTabBarContextMenu(env: TabEnv): ContextMenuItem[] {
     const currentTabBar = globalStore.get(env.getSettingsKeyAtom("app:tabbar")) ?? "top";

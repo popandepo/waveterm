@@ -398,6 +398,14 @@ export type WritableLayoutTreeStateAtom = WritableAtom<LayoutTreeState, [value: 
 export type ContentRenderer = (nodeModel: NodeModel) => React.ReactNode;
 
 /** Renders the label of one member in the tab strip of a stack. */
+export interface StackTabMenuInfo {
+    blockId: string;
+    nodeId: string;
+    canTakeOut: boolean;
+    takeOut: () => void;
+    close: () => void;
+}
+
 export type StackTabLabelRenderer = (blockId: string) => React.ReactNode;
 
 export type PreviewRenderer = (nodeModel: NodeModel) => React.ReactElement;
@@ -437,6 +445,10 @@ export interface TileLayoutContents {
      */
     onStackAdd?: (targetBlockId: string, ev: React.MouseEvent<any>, layoutModel: LayoutModel) => void;
     closeBlockAfterConfirm?: (blockId: string, close: () => Promise<void> | void) => Promise<boolean>;
+    /**
+     * Called on a right click on a tab of a stack's strip.
+     */
+    onStackTabMenu?: (info: StackTabMenuInfo, ev: React.MouseEvent<any>) => void;
     /**
      * A callback that accepts the data from the leaf node and returns a preview that can be shown when the user drags a node.
      */

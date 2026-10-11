@@ -6,13 +6,15 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { stackAddEntries } from "@/app/tab/stackaddmenu";
 import { entryStillAllowed } from "@/app/tab/stackcreate";
+import { buildStripTabMenu } from "@/app/block/memberlook";
+import { MemberLookWindowDeps } from "@/app/block/memberlook-ui";
 import { StackTabLabel } from "@/app/tab/stacktablabel";
 import { CenteredDiv } from "@/element/quickelems";
 import { ContentRenderer, NodeModel, PreviewRenderer, TileLayout } from "@/layout/index";
 import type { LayoutModel } from "@/layout/lib/layoutModel";
-import { TileLayoutContents } from "@/layout/lib/types";
+import { StackTabMenuInfo, TileLayoutContents } from "@/layout/lib/types";
 import { closeBlockAfterConfirm } from "@/app/store/closeblock";
-import { atoms, createBlockInStack, getApi } from "@/store/global";
+import { atoms, createBlockInStack, getApi, getBlockMetaKeyAtom } from "@/store/global";
 import * as services from "@/store/services";
 import * as WOS from "@/store/wos";
 import { fireAndForget } from "@/util/util";
@@ -60,6 +62,17 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
             ContextMenuModel.getInstance().showContextMenu(menu, ev);
         };
 
+        const onStackTabMenu = (info: StackTabMenuInfo, ev: React.MouseEvent<any>) => {
+            const meta = (key: string) => globalStore.get(getBlockMetaKeyAtom(info.blockId, key as any)) as string | null;
+            const menu = buildStripTabMenu(
+                info.blockId,
+                { color: meta("icon:color"), icon: meta("frame:icon"), title: meta("frame:title") },
+                info,
+                MemberLookWindowDeps
+            );
+            ContextMenuModel.getInstance().showContextMenu(menu, ev);
+        };
+
         function onNodeDelete(data: TabLayoutData) {
             return services.ObjectService.DeleteBlock(data.blockId);
         }
@@ -69,6 +82,7 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
             renderPreview,
             renderStackTabLabel,
             onStackAdd,
+            onStackTabMenu,
             closeBlockAfterConfirm,
             tabId,
             onNodeDelete,

@@ -307,7 +307,7 @@ func TestAMissingWorkspaceObjectIsLeftOut(t *testing.T) {
 func TestTheStatusOfAProgramIsInTheRecordAndAbsentWhenUnknown(t *testing.T) {
 	snap := fixture(t)
 	code := 3
-	snap.Statuses = map[string]ProcStatus{"b1": {Status: "running"}, "b2": {Status: "exited", ExitCode: &code}}
+	snap.Statuses = map[string]ProcStatus{"b1": {Status: "running"}, "b2": {Status: "exited", ExitCode: &code}, "b3": {}}
 	rec := BuildRecord(snap)
 	group := rec.Workspaces[0].Tabs[0].Tiles[0].Group
 	byId := map[string]BlockRec{}

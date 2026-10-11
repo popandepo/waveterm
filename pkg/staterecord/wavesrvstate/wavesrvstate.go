@@ -89,8 +89,9 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 				}
 				if block != nil {
 					snap.Blocks[blockId] = block
-					status, code := procStatusOf(blockId)
-					snap.Statuses[blockId] = staterecord.ProcStatus{Status: status, ExitCode: code}
+					if status, code := procStatusOf(blockId); status != "" {
+						snap.Statuses[blockId] = staterecord.ProcStatus{Status: status, ExitCode: code}
+					}
 				}
 			}
 		}

@@ -1,11 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { getBlockBadgeAtom } from "@/app/store/badge";
 import { getBlockMetaKeyAtom } from "@/store/global";
 import { makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { memo, useMemo } from "react";
-import { drawnTitle, lastSegment, stackTabLook } from "./stacktablook";
+import { drawnTitle, lastSegment, stackTabAttention, stackTabLook } from "./stacktablook";
 
 // The label of a member's tab: its symbol (icon or emoji) and name. The member's colour is drawn as a line under the tab and, on the shown
 // member's tab, as a tint; both are spans of the label that the strip's stylesheet places against the tab (the tab is position: relative).
@@ -16,8 +17,12 @@ export const StackTabLabel = memo(({ blockId }: { blockId: string }) => {
     const frameIcon = useAtomValue(getBlockMetaKeyAtom(blockId, "frame:icon"));
     const icon = useAtomValue(getBlockMetaKeyAtom(blockId, "icon"));
     const iconColor = useAtomValue(getBlockMetaKeyAtom(blockId, "icon:color"));
+    const attentionLevel = useAtomValue(getBlockMetaKeyAtom(blockId, "attention:level"));
+    const attentionReason = useAtomValue(getBlockMetaKeyAtom(blockId, "attention:reason"));
+    const badge = useAtomValue(getBlockBadgeAtom(blockId));
     const label = drawnTitle(title) || (cwd ? lastSegment(cwd) : null) || view || blockId.slice(0, 8);
     const look = useMemo(() => stackTabLook(frameIcon, icon, iconColor), [frameIcon, icon, iconColor]);
+    const attention = useMemo(() => stackTabAttention(attentionLevel, attentionReason), [attentionLevel, attentionReason]);
     return (
         <>
             {look.symbol?.kind === "icon" && (
@@ -26,7 +31,20 @@ export const StackTabLabel = memo(({ blockId }: { blockId: string }) => {
             {look.symbol?.kind === "text" && (
                 <span className="stack-tab-symbol stack-tab-emoji">{look.symbol.value}</span>
             )}
+            {badge?.icon != null && (
+                <i
+                    className={makeIconClass(badge.icon, true, { defaultIcon: "circle-small" }) + " stack-tab-badge"}
+                    style={{ color: badge.color || undefined }}
+                />
+            )}
             {label}
+            {attention.kind === "info" && (
+                <i className="fa-sharp fa-solid fa-circle-info stack-tab-attention-info" title={attention.reason || "information"} />
+            )}
+            {(attention.kind === "need" || attention.kind === "urgent") && (
+                <span className={"stack-tab-attention-dot " + attention.kind} title={attention.reason} />
+            )}
+            {attention.kind === "urgent" && <span className="stack-tab-attention-ring" />}
             {look.color != null && (
                 <>
                     <span className="stack-tab-fill" style={{ backgroundColor: look.color }} />

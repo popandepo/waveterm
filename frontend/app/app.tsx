@@ -9,6 +9,8 @@ import {
     getBadgeAtom,
     getBlockBadgeAtom,
 } from "@/app/store/badge";
+import { ClearAttentionMeta } from "@/app/store/attentionclear";
+import { scheduleAttentionClear } from "@/app/store/attentionschedule";
 import { ClientModel } from "@/app/store/client-model";
 import { FocusManager } from "@/app/store/focusManager";
 import { GlobalModel } from "@/app/store/global-model";
@@ -19,7 +21,10 @@ import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
 import { Workspace } from "@/app/workspace/workspace";
 import { getLayoutModelForStaticTab } from "@/layout/index";
 import { ContextMenuModel } from "@/store/contextmenu";
-import { atoms, createBlock, getSettingsPrefixAtom, refocusNode } from "@/store/global";
+import { atoms, createBlock, getBlockMetaKeyAtom, getSettingsPrefixAtom, refocusNode } from "@/store/global";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import * as WOS from "@/store/wos";
 import { appHandleKeyDown, keyboardMouseDownHandler } from "@/store/keymodel";
 import { getElemAsStr } from "@/util/focusutil";
 import * as keyutil from "@/util/keyutil";
@@ -27,9 +32,9 @@ import { PLATFORM } from "@/util/platformutil";
 import * as util from "@/util/util";
 import clsx from "clsx";
 import debug from "debug";
-import { Provider, useAtomValue } from "jotai";
+import { Atom, Provider, useAtomValue } from "jotai";
 import "overlayscrollbars/overlayscrollbars.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { AppBackground } from "./app-bg";
@@ -356,6 +361,55 @@ const BadgeAutoClearing = () => {
     return null;
 };
 
+// A mark that asks for the owner (attention:level need or urgent) goes away when the owner really has the tile: see attentionclear.ts.
+const AttentionAutoClearing = () => {
+    const documentHasFocus = useAtomValue(atoms.documentHasFocus);
+    const layoutModel = getLayoutModelForStaticTab();
+    const focusedNode = useAtomValue(layoutModel.focusedNode);
+    const focusedBlockId = focusedNode?.data?.blockId;
+    const levelAtom = useMemo(
+        () => (focusedBlockId ? getBlockMetaKeyAtom(focusedBlockId, "attention:level") : (util.NullAtom as Atom<string>)),
+        [focusedBlockId]
+    );
+    const reasonAtom = useMemo(
+        () => (focusedBlockId ? getBlockMetaKeyAtom(focusedBlockId, "attention:reason") : (util.NullAtom as Atom<string>)),
+        [focusedBlockId]
+    );
+    const level = useAtomValue(levelAtom);
+    const reason = useAtomValue(reasonAtom);
+    const prevFocusedBlockIdRef = useRef<string>(null);
+    const prevDocHasFocusRef = useRef<boolean>(false);
+
+    // the plan is made again whenever the focused block, the window focus, the level or the reason changes (a program that replaces the reason of a mark
+    // while the timer runs gets the full wait for its new mark)
+    useEffect(() => {
+        const focusSwitched =
+            prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus;
+        prevFocusedBlockIdRef.current = focusedBlockId;
+        prevDocHasFocusRef.current = documentHasFocus;
+        return scheduleAttentionClear(
+            { blockId: focusedBlockId, level, reason, documentHasFocus, focusSwitched },
+            {
+                documentHasFocus: () => document.hasFocus(),
+                focusedBlockId: () => globalStore.get(layoutModel.focusedNode)?.data?.blockId,
+                read: (blockId) => ({
+                    level: globalStore.get(getBlockMetaKeyAtom(blockId, "attention:level")),
+                    reason: globalStore.get(getBlockMetaKeyAtom(blockId, "attention:reason")),
+                }),
+                clear: (blockId) =>
+                    util.fireAndForget(() =>
+                        RpcApi.SetMetaCommand(TabRpcClient, {
+                            oref: WOS.makeORef("block", blockId),
+                            meta: ClearAttentionMeta,
+                        })
+                    ),
+            }
+        );
+    }, [focusedBlockId, level, reason, documentHasFocus]);
+
+    return null;
+};
+
 const AppInner = () => {
     const prefersReducedMotion = useAtomValue(atoms.prefersReducedMotionAtom);
     const client = useAtomValue(ClientModel.getInstance().clientAtom);
@@ -385,6 +439,7 @@ const AppInner = () => {
             <AppFocusHandler />
             <AppSettingsUpdater />
             <BadgeAutoClearing />
+            <AttentionAutoClearing />
             <AccentController />
             <DndProvider backend={HTML5Backend}>
                 <Workspace />

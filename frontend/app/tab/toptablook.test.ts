@@ -46,9 +46,25 @@ describe("the wiring that no test can render", () => {
 
     test("only the tab is coloured: the stylesheet adds two small elements and changes no rule of the bar, the gaps or the headers", () => {
         const css = read("tab.scss");
-        assert.include(css, ".tab-colour-fill {");
-        assert.include(css, ".tab-colour-line {");
-        assert.include(css, "pointer-events: none;");
+        const rule = (selector: string) => {
+            const start = css.indexOf(selector + " {");
+            assert.isAbove(start, -1, selector + " exists");
+            return css.slice(start, css.indexOf("}", start));
+        };
+        // the geometry: the fill covers the tab, the line sits on its lower edge; without these the colour vanishes or shifts the layout
+        const fill = rule(".tab-colour-fill");
+        assert.include(fill, "position: absolute;");
+        assert.include(fill, "inset: 0;");
+        assert.include(fill, "pointer-events: none;");
+        const line = rule(".tab-colour-line");
+        assert.include(line, "position: absolute;");
+        assert.include(line, "left: 6px;");
+        assert.include(line, "right: 6px;");
+        assert.include(line, "bottom: 0;");
+        assert.include(line, "height: 2px;");
+        assert.include(line, "pointer-events: none;");
+        // the tab itself is the positioning parent of its inner part
+        assert.include(css.slice(css.indexOf(".tab-inner {"), css.indexOf(".tab-inner {") + 120), "position: relative;");
         assert.notInclude(css, "tabbar-colour");
     });
 });

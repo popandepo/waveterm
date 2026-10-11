@@ -502,3 +502,21 @@ non-stack, stack of one, unknown id, focus lands on the shown tab).
   too, which does no harm; a web tile keeps its own keys inside its page, so the chord reaches the app only when the app, not the
   page, has the keyboard focus; the onboarding screens switch all global keys off. **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
   `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.
+
+## 27. Put sessions back after a restart (`tools/ours/Restore-Sessions.ps1`)
+
+Reads the state record and, for every recorded session that is not running, starts it again in its own background tab with
+`wsh session start --restart`, running `Start-ResumableSession.ps1` (first start creates the session under its id, later starts resume
+it). A session that was a member of a stack is added to the group of another member with `wsh group add`, when one is known (a
+running member, or the first one restored here). **It only prints the plan unless `-Execute` is given.**
+- **Never starts a session that is already running:** a session counts as running when a file in the sessions folder
+  (`-SessionsDir`, default `~\.claude-personal\sessions`) names its id and the process in it is alive with the same start time (a reused
+  pid does not count). The check is made again right before each start. A folder or a file that cannot be read stops the script with
+  exit 1 and no wsh call: it cannot prove a session is not running.
+- **Never uses a bypass mode:** only `auto`, `default`, `acceptEdits` and `plan` are passed on; any other recorded mode (bypass,
+  skip-permissions) is dropped with a NOTE and the session starts in its default mode. The script has no switch for it.
+- **RAN:** `tools/ours/Test-RestoreSessions.ps1` (stand-in wsh, made-up record and sessions folder, 28 checks incl. dry run calls nothing,
+  running skipped, dead pid and reused pid not counted, bypass and unknown modes dropped, a session that appears between the look and
+  the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
+- **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
+  stack membership is restored, not the tile's place in the tab).

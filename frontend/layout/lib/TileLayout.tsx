@@ -20,6 +20,8 @@ import { DropTargetMonitor, XYCoord, useDrag, useDragLayer, useDrop } from "reac
 import { debounce, throttle } from "throttle-debounce";
 import { useDevicePixelRatio } from "use-device-pixel-ratio";
 import { LayoutModel } from "./layoutModel";
+import { tabDropAction } from "./layoutTree";
+import { StripTabRect, stripsToShow, stripTabAt } from "./stackgeometry";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
 import "./stackstrip.scss";
 import { tileItemType } from "./dndtypes";
@@ -27,12 +29,14 @@ import { StackStrips } from "./stacktabstrip";
 import "./tilelayout.scss";
 import {
     LayoutNode,
+    LayoutNodeAdditionalProps,
     LayoutTreeActionType,
     LayoutTreeComputeMoveNodeAction,
+    LayoutTreeSetPendingAction,
     ResizeHandleProps,
     TileLayoutContents,
 } from "./types";
-import { determineDropDirection } from "./utils";
+import { determineDropDirection, setTransform } from "./utils";
 
 
 
@@ -347,12 +351,70 @@ const OverlayNodeWrapper = memo(({ layoutModel }: OverlayNodeWrapperProps) => {
         [leafs, additionalProps]
     );
 
+    const overlayStrips = stripsToShow(additionalProps).map(([stackId, props]) => (
+        <OverlayStrip key={"strip-" + stackId} layoutModel={layoutModel} stackId={stackId} props={props} />
+    ));
+
     return (
         <div key="overlay" className="overlay-container" style={{ top: 10000, ...overlayTransform }}>
             {overlayNodes}
+            {overlayStrips}
         </div>
     );
 });
+
+interface OverlayStripProps {
+    layoutModel: LayoutModel;
+    stackId: string;
+    props: LayoutNodeAdditionalProps;
+}
+
+/**
+ * The drop target of one stack's tab strip. During a drag the overlay layer covers the display layer, so the tabs themselves never see
+ * the pointer; and the tiles' overlay nodes cover only the body of a stack, so without this the strip would be dead (or, worse, would keep
+ * showing the last pending action of the body, such as inserting a new tile above). Over the strip the only possible actions are
+ * those of a tab drop: reorder inside the stack, or join the stack from outside.
+ */
+const OverlayStrip = memo(({ layoutModel, stackId, props }: OverlayStripProps) => {
+    const stripRef = useRef<HTMLDivElement>(null);
+    const [, drop] = useDrop(
+        () => ({
+            accept: tileItemType,
+            canDrop: () => true,
+            drop: (_, monitor) => {
+                if (!monitor.didDrop()) {
+                    layoutModel.onDrop();
+                }
+            },
+            hover: throttle(50, (_, monitor: DropTargetMonitor<unknown, unknown>) => {
+                if (!monitor.isOver({ shallow: true })) {
+                    return;
+                }
+                const dragItem = monitor.getItem<LayoutNode>();
+                const pointer = monitor.getClientOffset();
+                const strip = document.querySelector(`.stack-strip[data-stackid="${stackId}"]`);
+                const tabs: StripTabRect[] = Array.from(strip?.querySelectorAll<HTMLElement>(".stack-tab") ?? []).map((el) => {
+                    const r = el.getBoundingClientRect();
+                    return { nodeId: el.dataset.nodeid, left: r.left, right: r.right };
+                });
+                const target = pointer ? stripTabAt(tabs, pointer.x) : undefined;
+                const action = target && dragItem ? tabDropAction(layoutModel.treeState.rootNode, dragItem.id, target) : undefined;
+                if (!action) {
+                    layoutModel.treeReducer({ type: LayoutTreeActionType.ClearPendingAction });
+                    return;
+                }
+                layoutModel.treeReducer({ type: LayoutTreeActionType.SetPendingAction, action } as LayoutTreeSetPendingAction);
+                layoutModel.setStripDropTarget(target);
+            }),
+        }),
+        [layoutModel, stackId]
+    );
+    useEffect(() => {
+        drop(stripRef);
+    }, []);
+    return <div ref={stripRef} className="overlay-strip" style={setTransform(props.stack.strip)} />;
+});
+OverlayStrip.displayName = "OverlayStrip";
 
 interface OverlayNodeProps {
     /**

@@ -108,6 +108,7 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | controller start decision | `pkg/blockcontroller/shellcontroller.go` | `shouldRunCommand(...)` | `wsh session start --restart` depends on `cmd:runonstart` blocks starting again |
 | close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
 | tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
+| strip drop target | `frontend/layout/lib/TileLayout.tsx` | `{overlayNodes} {overlayStrips}` | the drop target of each stack strip lives in the overlay layer, next to the tile drop targets |
 | tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |
 
 ## Accent colour

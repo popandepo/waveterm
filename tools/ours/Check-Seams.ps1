@@ -101,6 +101,7 @@ $seams = @(
     @('api-list-all-workspaces', 'pkg/wcore/workspace.go', 'func ListAllWorkspaces(ctx context.Context) (waveobj.WorkspaceList, error) {', 'local API list reads every workspace'),
     @('api-main-rpc-client', 'pkg/wshrpc/wshserver/wshserverutil.go', 'func GetMainRpcClient() *wshutil.WshRpc {', 'local API backend sends RPC calls through the main client'),
     @('api-startup-hook', 'cmd/server/main-server.go', 'go wshutil.RunWshRpcOverListener(unixListener, nil)', 'wavesrvapi.Start() is added on the next line of wavesrv startup'),
+    @('stack-overlay-strip-hook', 'frontend/layout/lib/TileLayout.tsx', '{overlayNodes} {overlayStrips}', 'the drop target of each stack strip lives in the overlay layer, next to the tile drop targets'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('state-record-event-hook', 'pkg/wps/wps.go', 'notifyObservers(event)', 'the state record reacts to every published object update'),

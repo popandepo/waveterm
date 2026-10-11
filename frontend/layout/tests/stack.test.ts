@@ -1,6 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { assert, describe, expect, test } from "vitest";
 import {
     addChildAt,
@@ -35,6 +37,7 @@ import {
     turnStackOff,
     unstackNode,
 } from "../lib/layoutTree";
+import { stripTabAt } from "../lib/stackgeometry";
 import { DropDirection, FlexDirection, LayoutNode, LayoutTreeActionType, LayoutTreeState } from "../lib/types";
 import { newLayoutTreeState } from "./model";
 
@@ -1058,5 +1061,78 @@ describe("keyboard switching of the tabs inside a tile", () => {
         assert.isUndefined(adjacentStackMember(state.rootNode, a.id, 0));
         assert.equal(adjacentStackMember(state.rootNode, a.id, 7), adjacentStackMember(state.rootNode, a.id, 1));
         assert.equal(adjacentStackMember(state.rootNode, a.id, -7), adjacentStackMember(state.rootNode, a.id, -1));
+    });
+});
+
+describe("which tab of a strip the pointer is over (drop onto a strip)", () => {
+    const tabs = [
+        { nodeId: "a", left: 0, right: 100 },
+        { nodeId: "b", left: 100, right: 220 },
+        { nodeId: "c", left: 220, right: 300 },
+    ];
+
+    test("inside a tab is that tab, and a boundary belongs to the tab that starts there", () => {
+        assert.equal(stripTabAt(tabs, 10), "a");
+        assert.equal(stripTabAt(tabs, 99.9), "a");
+        assert.equal(stripTabAt(tabs, 100), "b");
+        assert.equal(stripTabAt(tabs, 250), "c");
+    });
+
+    test("left of the first tab is the first; right of the last, the empty end of the strip and the + button, is the last", () => {
+        assert.equal(stripTabAt(tabs, -20), "a");
+        assert.equal(stripTabAt(tabs, 300), "c");
+        assert.equal(stripTabAt(tabs, 900), "c");
+    });
+
+    test("a gap between two tabs gives the earlier one", () => {
+        const gapped = [
+            { nodeId: "a", left: 0, right: 100 },
+            { nodeId: "b", left: 110, right: 200 },
+        ];
+        assert.equal(stripTabAt(gapped, 105), "a");
+    });
+
+    test("a strip without tabs gives nothing, and the answer is never undefined for a strip that has tabs", () => {
+        assert.isUndefined(stripTabAt([], 5));
+        assert.isUndefined(stripTabAt(undefined as any, 5));
+        for (let x = -50; x < 400; x += 7) {
+            assert.isString(stripTabAt(tabs, x));
+        }
+    });
+
+    test("with the tree rules: dropping on the end of the strip reorders to the end, from outside joins after the last tab", () => {
+        const [p, q, r, other] = [leaf("p"), leaf("q"), leaf("r"), leaf("o")];
+        const state = newLayoutTreeState(newLayoutNode(FlexDirection.Row, undefined, [p, q, r, other]));
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: p.id, nodeId: q.id });
+        stackNodes(state, { type: LayoutTreeActionType.Stack, targetNodeId: q.id, nodeId: r.id });
+        const members = [p, q, r].map((n) => ({ nodeId: n.id, left: 0, right: 0 }));
+        members.forEach((m, i) => {
+            m.left = i * 100;
+            m.right = (i + 1) * 100;
+        });
+        const endTarget = stripTabAt(members, 5000);
+        assert.equal(endTarget, r.id);
+        const reorder = tabDropAction(state.rootNode, p.id, endTarget!);
+        assert.equal(reorder?.type, LayoutTreeActionType.StackReorder);
+        const join = tabDropAction(state.rootNode, other.id, endTarget!);
+        assert.equal(join?.type, LayoutTreeActionType.Stack);
+        assert.isUndefined(
+            tabDropAction(state.rootNode, r.id, endTarget!),
+            "dropping the last tab on the end does nothing"
+        );
+    });
+
+    test("the wiring: the strip has its own drop target in the overlay, the tab itself has none, and a move computed elsewhere clears the indicator", () => {
+        const read = (rel: string) => readFileSync(path.join(__dirname, "..", "lib", rel), "utf8");
+        const tile = read("TileLayout.tsx");
+        assert.include(tile, '<OverlayStrip key={"strip-" + stackId}');
+        assert.include(tile, "stripTabAt(tabs, pointer.x)");
+        assert.notInclude(read("stacktabstrip.tsx"), "useDrop(");
+        const model = read("layoutModel.ts");
+        const computeMove = model.slice(model.indexOf("case LayoutTreeActionType.ComputeMove:"));
+        assert.include(
+            computeMove.slice(0, computeMove.indexOf("case LayoutTreeActionType.Move:")),
+            "this.stripDropTarget, null"
+        );
     });
 });

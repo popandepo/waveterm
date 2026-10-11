@@ -449,6 +449,22 @@ terminal and note its process id; after the drag the marker must still be on the
 (`devdata/proof/drag-check.ps1` in the private test folder does the marker and the pid part with `wsh send` and `wsh screen`);
 (3) drop a tab on the middle of another tile, on another tab of the same strip, and on a tab of another strip.
 
+## 23a. Dropping a dragged tab on a stack's strip (found in his window check, 11 Oct 2026)
+
+Reordering by dropping a tab on another tab did nothing, and the highlight over a stack's tab bar showed "a new tile above". Cause: during a
+drag the overlay layer covers the layout and is the only thing that gets drag events; the tiles' overlay nodes cover only the body of a
+stack, so the strip had no drop target at all (the tab's own drop target, which I wrote, never saw the pointer) and the pointer over the strip
+kept the last pending action of the body. Now each strip has a drop target in the overlay (`OverlayStrip` in `TileLayout.tsx`): over the
+strip the only possible actions are those of a tab drop, chosen by the tab under the pointer (`stripTabAt`): inside the stack it reorders
+(dropped on the empty end or the + it goes to the end), from outside it joins the stack after that tab. The tab under the pointer gets the
+`drop-over` outline; a body hover clears it.
+- **RAN:** vitest for `stripTabAt` (inside, boundary, left of the first, the empty end, a gap, no tabs), for the tree rules at the end of a
+  strip, and source pins on the wiring (the overlay strip exists, the tab has no drop target of its own, a body move clears the outline).
+- **NOT RUN, window check:** the drag itself. Drag a tab over another tab of its strip (outline on the tab under the pointer, no
+  placeholder above the tile), drop (the tabs swap places, the terminal is not restarted); over the empty end of the strip (goes last); a
+  tab from another tile onto a strip (joins it); then move off the strip into the tile body (the outline goes away and the usual
+  tile placeholder returns).
+
 ## 24. The live state record (what runs where, readable from outside)
 
 Wave writes `<data dir>/state/wave-state.json` after every change to a workspace, tab, block, layout or window (a 300 ms

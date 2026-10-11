@@ -37,6 +37,7 @@ stack-keys-hook
 stack-layout-queue
 stack-menu-hook
 stack-move-layout-action
+stack-overlay-strip-hook
 stack-reorder-reducer
 stack-rpc-interface
 stack-ui-backend-actions

@@ -114,3 +114,34 @@ export function buildStripTabs(stack: StackLayoutProps, leafs: LayoutNode[], foc
     }
     return tabs;
 }
+
+export interface StripTabRect {
+    nodeId: string;
+    left: number;
+    right: number;
+}
+
+// Which tab of a strip a drag pointer is over, by its horizontal position (the strip is one row, so only x matters). Between two
+// tabs the earlier one wins; left of the first tab it is the first; right of the last one (the empty end of the strip, or
+// the + button) it is the last, which means "at the end". Nothing for a strip without tabs. Never "above the tile": while the
+// pointer is over a strip the answer is always one of its tabs.
+export function stripTabAt(tabs: StripTabRect[], x: number): string | undefined {
+    if (!tabs?.length) {
+        return undefined;
+    }
+    for (const tab of tabs) {
+        if (x >= tab.left && x < tab.right) {
+            return tab.nodeId;
+        }
+    }
+    if (x < tabs[0].left) {
+        return tabs[0].nodeId;
+    }
+    let before = tabs[0];
+    for (const tab of tabs) {
+        if (tab.right <= x) {
+            before = tab;
+        }
+    }
+    return before.nodeId;
+}

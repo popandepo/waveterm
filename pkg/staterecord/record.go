@@ -58,15 +58,18 @@ type TileRec struct {
 }
 
 type BlockRec struct {
-	Position   int               `json:"position"`
-	BlockId    string            `json:"blockid"`
-	Active     bool              `json:"active"`
-	View       string            `json:"view,omitempty"`
-	Title      string            `json:"title,omitempty"`
-	Cwd        string            `json:"cwd,omitempty"`
-	Program    string            `json:"program,omitempty"`
-	Controller string            `json:"controller,omitempty"`
-	Session    map[string]string `json:"session,omitempty"`
+	Position   int    `json:"position"`
+	BlockId    string `json:"blockid"`
+	Active     bool   `json:"active"`
+	View       string `json:"view,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Program    string `json:"program,omitempty"`
+	Controller string `json:"controller,omitempty"`
+	// Status is running, exited or notstarted for a block with a program; empty when it has none or when it is not known.
+	Status   string            `json:"status,omitempty"`
+	ExitCode *int              `json:"exitcode,omitempty"`
+	Session  map[string]string `json:"session,omitempty"`
 }
 
 // SessionRec is the index of the blocks that carry a session id: where each one sits and what it was started with.
@@ -98,6 +101,13 @@ type Snapshot struct {
 	Tabs        map[string]*waveobj.Tab
 	Blocks      map[string]*waveobj.Block
 	Layouts     map[string]*waveobj.LayoutState
+	// Statuses is the state of each block's program by block id (see package blockstatus); a block that is not in it has none.
+	Statuses map[string]ProcStatus
+}
+
+type ProcStatus struct {
+	Status   string
+	ExitCode *int
 }
 
 // WithoutStamp is the record with the fields that change on every write cleared, for comparing two states.
@@ -263,7 +273,7 @@ func walkLayout(node any, out *[]tileSrc) {
 	}
 }
 
-func blockRec(blocks map[string]*waveobj.Block, blockId string, position int, active bool) (BlockRec, bool) {
+func blockRec(blocks map[string]*waveobj.Block, statuses map[string]ProcStatus, blockId string, position int, active bool) (BlockRec, bool) {
 	b := blocks[blockId]
 	if b == nil {
 		return BlockRec{}, false
@@ -278,6 +288,8 @@ func blockRec(blocks map[string]*waveobj.Block, blockId string, position int, ac
 		Program:    programName(metaString(b.Meta, "cmd")),
 		Controller: metaString(b.Meta, "controller"),
 		Session:    sessionMeta(b.Meta),
+		Status:     statuses[blockId].Status,
+		ExitCode:   statuses[blockId].ExitCode,
 	}, true
 }
 
@@ -334,7 +346,7 @@ func BuildRecord(snap Snapshot) Record {
 			for _, t := range tiles {
 				tileRec := TileRec{Position: tilePos, Kind: t.kind, StackId: t.stackId, Group: []BlockRec{}}
 				for _, blockId := range t.blockIds {
-					br, ok := blockRec(snap.Blocks, blockId, len(tileRec.Group), blockId == t.activeId)
+					br, ok := blockRec(snap.Blocks, snap.Statuses, blockId, len(tileRec.Group), blockId == t.activeId)
 					if !ok {
 						continue
 					}

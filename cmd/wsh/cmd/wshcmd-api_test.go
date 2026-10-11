@@ -123,3 +123,21 @@ func TestApiFocusNeedsABlockOrATab(t *testing.T) {
 		t.Fatalf("focus address: %+v", fake.focusAddr)
 	}
 }
+
+func TestBlockStatusTextShowsStatusAndExitCode(t *testing.T) {
+	code := 2
+	cases := []struct {
+		b    waveapi.Block
+		want string
+	}{
+		{waveapi.Block{}, ""},
+		{waveapi.Block{Status: "running"}, " running"},
+		{waveapi.Block{Status: "notstarted"}, " notstarted"},
+		{waveapi.Block{Status: "exited", ExitCode: &code}, " exited(2)"},
+	}
+	for _, c := range cases {
+		if got := blockStatusText(c.b); got != c.want {
+			t.Errorf("%+v: want %q, got %q", c.b, c.want, got)
+		}
+	}
+}

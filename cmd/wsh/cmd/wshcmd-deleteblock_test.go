@@ -34,3 +34,13 @@ func TestDeleteBlockRunUsesTheRequestBuilderAndNothingElseDecides(t *testing.T) 
 		t.Fatalf("deleteBlockRun must not build its own request that skips the check")
 	}
 }
+
+func TestDeleteBlockHasAForceFlagThatDefaultsToOff(t *testing.T) {
+	f := deleteBlockCmd.Flags().Lookup("force")
+	if f == nil {
+		t.Fatalf("deleteblock must have a --force flag")
+	}
+	if f.DefValue != "false" {
+		t.Fatalf("--force must default to off, got %q", f.DefValue)
+	}
+}

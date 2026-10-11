@@ -196,3 +196,17 @@ Write-Output ('after a failure: ' + ($log -join ' | '))
 		t.Errorf("the save style must be restored also when adding fails:\n%s", out)
 	}
 }
+
+func TestTheHistoryIsOnlyTouchedWhenTheLineEditorCanClearIt(t *testing.T) {
+	script := "Import-Module PSReadLine\n" + historyBlock(t) + `
+Write-Output ('editor=' + (_waveterm_can_clear_history ([Microsoft.PowerShell.PSConsoleReadLine])))
+Write-Output ('plain=' + (_waveterm_can_clear_history ([string])))
+`
+	out := runPwsh(t, script)
+	if !strings.Contains(out, "editor=True") || !strings.Contains(out, "plain=False") {
+		t.Fatalf("a type with ClearHistory is true and one without is false, got:\n%s", out)
+	}
+	if !strings.Contains(historyBlock(t), "if (_waveterm_can_clear_history ([Microsoft.PowerShell.PSConsoleReadLine])) {") {
+		t.Fatalf("the block must act only when the check says the editor can clear its history")
+	}
+}

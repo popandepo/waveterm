@@ -355,11 +355,15 @@ the command and the delete; what is left is the database write itself. The rule 
 known: the view is one of the registered views known to have no program (web, preview, files, ...), or its program has `done`. A running or starting
 (`init`) program, a missing or unknown state, a state that cannot be read, an unknown or mistyped or missing view, and a block that cannot be read all
 refuse, with a message that names `--force`. `--force` deletes as before. Other callers of the delete call (`wsh slot close`, the block controller) do not set the
-field and keep their behaviour.
+field and keep their behaviour. **The check is opt-in per request:** a caller that does not set `refuserunning` (the `wsh slot close` command, and an older `wsh` binary that
+predates the field) deletes unchecked, as before; only the new `wsh deleteblock` asks for it.
 - **RAN:** Go tests: the rule (the silent cases and every refused case, each refusal names `--force`); the server's check against a real store
   (a running terminal, an ended one, no controller, an unreadable state, a web tile, an unknown view, a block that is not there); that the command
   builds its request with `refuserunning` unless `--force` and does not build its own request that skips it; that the server checks before it deletes
   and only when asked; `task generate` for the type.
+- **Also run:** a route test against a real store (a running block is refused and kept, an unchecked request deletes, an ended block deletes, state "none" is refused);
+  the `--force` flag exists and defaults to off (renamed flag: red). **Not covered:** the live-controller path of the state read (`ShellProcStatus` from a registered
+  controller); a mutation there stays green because a registered controller needs a real shell process.
 - **NOT RUN:** against a live Wave. Anything of mine that deletes terminals by command (the repro script) passes `--force`.
 ## 21. A session block that comes back after Wave restarts (`wsh session start --restart --meta`)
 
@@ -491,7 +495,10 @@ stack, so the strip had no drop target at all (the tab's own drop target, which 
 kept the last pending action of the body. Now each strip has a drop target in the overlay (`OverlayStrip` in `TileLayout.tsx`): over the
 strip the only possible actions are those of a tab drop, chosen by the tab under the pointer (`stripTabAt`): inside the stack it reorders
 (dropped on the empty end or the + it goes to the end), from outside it joins the stack after that tab. The tab under the pointer gets the
-`drop-over` outline; a body hover clears it.
+`drop-over` outline on the side where the tab will land (`drop-before` / `drop-after`); a body hover clears it, and a strip hover where nothing can be dropped clears the pending action of the body.
+- **Pinned only by source text (no DOM test environment here):** that the overlay renders the strips, that the strip asks `applyStripHover` and commits on drop, that the tab carries the
+  outline classes and the stylesheet has them. The decision itself (`stripHover`, `applyStripHover`) is tested as functions; a stale action left behind is red.
+  Known limit: over the dragged tab's own slot the drop is always allowed by the overlay (cursor only; the drop does nothing).
 - **RAN:** vitest for `stripTabAt` (inside, boundary, left of the first, the empty end, a gap, no tabs), for the tree rules at the end of a
   strip, and source pins on the wiring (the overlay strip exists, the tab has no drop target of its own, a body move clears the outline).
 - **NOT RUN, window check:** the drag itself. Drag a tab over another tab of its strip (outline on the tab under the pointer, no
@@ -574,7 +581,7 @@ outside the folder). Bash and zsh are left as they are (zsh already keeps Wave's
   last, and those lines are joined again; empty lines are skipped. Both are run in a real PowerShell by the Go tests (the save style goes off before the
   first entry and back after the last, also when adding fails; with the switch-off removed that test goes red).
   **Limit, on purpose:** the block only acts when the line editor has a `ClearHistory` method (PSReadLine 2.4.5 on pwsh 7.6, the one on his PC, is the version
-  this was checked against); an older one that had already loaded the shared file would show it anyway while saving to the block's file, so there the
+  this was checked against; Windows PowerShell 5.1 with PSReadLine 2.0.0 also has the method); an older one that had already loaded the shared file would show it anyway while saving to the block's file, so there the
   history is left alone (the shared one). The start-up block is run in a real PowerShell by the Go tests: it sets the path from the environment,
   removes the variable, and a failing or missing line editor neither breaks the start nor changes the path (with the path line removed the test goes red).
 - **NOT RUN, window check:** open a new PowerShell tile (Up shows nothing from other tiles); type two commands; quit Wave and start it again

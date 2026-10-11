@@ -95,3 +95,81 @@ func TestDeleteBlockCommandChecksOnlyWhenAskedAndBeforeDeleting(t *testing.T) {
 		t.Fatalf("a request that does not ask must not be checked: other callers (the slot command, the block controller) keep their behaviour")
 	}
 }
+
+// The real command against a real store, as a caller of the RPC sees it: a running program is refused and the block is still there; an ended one,
+// or a request that does not ask for the check, deletes.
+func insertBlockInTab(t *testing.T, ctx context.Context, view string) (blockId string) {
+	t.Helper()
+	tab := &waveobj.Tab{OID: uuid.NewString(), Name: "T1"}
+	block := &waveobj.Block{OID: uuid.NewString(), ParentORef: waveobj.MakeORef(waveobj.OType_Tab, tab.OID).String(), Meta: waveobj.MetaMapType{"view": view}}
+	// a second block keeps the tab alive when the first one is deleted (deleting the last block of a tab deletes the tab)
+	keeper := &waveobj.Block{OID: uuid.NewString(), ParentORef: block.ParentORef, Meta: waveobj.MetaMapType{"view": "web"}}
+	tab.BlockIds = []string{block.OID, keeper.OID}
+	// the delete queues a layout action for the tab, which needs the tab's layout object
+	layout := &waveobj.LayoutState{OID: uuid.NewString()}
+	tab.LayoutState = layout.OID
+	for _, obj := range []waveobj.WaveObj{layout, tab, block, keeper} {
+		if err := wstore.DBInsert(ctx, obj); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	return block.OID
+}
+
+func blockExists(t *testing.T, ctx context.Context, blockId string) bool {
+	t.Helper()
+	b, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	return b != nil
+}
+
+func TestDeleteBlockCommandRefusesARunningBlockAndKeepsIt(t *testing.T) {
+	ctx := initDeleteTestStore(t)
+	old := deleteStatusOf
+	t.Cleanup(func() { deleteStatusOf = old })
+	state := "running"
+	deleteStatusOf = func(string) (string, bool) { return state, true }
+	ws := &WshServer{}
+
+	running := insertBlockInTab(t, ctx, "term")
+	err := ws.DeleteBlockCommand(ctx, wshrpc.CommandDeleteBlockData{BlockId: running, RefuseRunning: true})
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("a running block must be refused with a way forward, got %v", err)
+	}
+	if !blockExists(t, ctx, running) {
+		t.Fatalf("a refused block must still be there")
+	}
+	if err := ws.DeleteBlockCommand(ctx, wshrpc.CommandDeleteBlockData{BlockId: running}); err != nil {
+		t.Fatalf("a request that does not ask for the check deletes as before: %v", err)
+	}
+	if blockExists(t, ctx, running) {
+		t.Fatalf("the block must be gone after an unchecked delete")
+	}
+
+	state = "done"
+	ended := insertBlockInTab(t, ctx, "term")
+	if err := ws.DeleteBlockCommand(ctx, wshrpc.CommandDeleteBlockData{BlockId: ended, RefuseRunning: true}); err != nil {
+		t.Fatalf("an ended program may be deleted: %v", err)
+	}
+	if blockExists(t, ctx, ended) {
+		t.Fatalf("the ended block must be gone")
+	}
+
+	state = "none"
+	unknown := insertBlockInTab(t, ctx, "term")
+	if err := ws.DeleteBlockCommand(ctx, wshrpc.CommandDeleteBlockData{BlockId: unknown, RefuseRunning: true}); err == nil {
+		t.Fatalf("a terminal without a controller state must be refused")
+	}
+	if !blockExists(t, ctx, unknown) {
+		t.Fatalf("a refused block must still be there")
+	}
+}
+
+func TestTheStateIsReadFromTheControllerRegistryNotFixed(t *testing.T) {
+	status, have := deleteStatusOf("00000000-0000-0000-0000-00000000dead")
+	if status == "done" || !have {
+		t.Fatalf("a block without a controller has no state (not \"done\"), got %q have=%v", status, have)
+	}
+}

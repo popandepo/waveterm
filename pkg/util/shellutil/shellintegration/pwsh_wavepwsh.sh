@@ -47,10 +47,15 @@ function Global:_waveterm_load_history([string]$Path, [scriptblock]$Add, [script
     }
 }
 
+# Whether this line editor can clear its history (an older one that cannot is left alone, see above).
+function Global:_waveterm_can_clear_history([type]$Type) {
+    return ($null -ne $Type.GetMethod('ClearHistory'))
+}
+
 if ($env:WAVETERM_PWSH_HISTFILE) {
     try {
         Import-Module PSReadLine -ErrorAction Stop
-        if ([Microsoft.PowerShell.PSConsoleReadLine].GetMethod('ClearHistory')) {
+        if (_waveterm_can_clear_history ([Microsoft.PowerShell.PSConsoleReadLine])) {
             Set-PSReadLineOption -HistorySavePath $env:WAVETERM_PWSH_HISTFILE
             # A running line editor has the shared history in memory: replace it. One that has not started reading yet throws here, and then
             # reads the block's file itself on its first prompt (the path is already set).

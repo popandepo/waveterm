@@ -35,7 +35,8 @@ const NoProgramViews = new Set([
 export function closeBlockQuestion(
     view: string | null | undefined,
     shellProcStatus: string | null | undefined,
-    readFailed: boolean
+    readFailed: boolean,
+    shellIdle: boolean = false
 ): string | null {
     if (readFailed || view == null || view === "") {
         return UnknownBlockQuestion;
@@ -47,6 +48,10 @@ export function closeBlockQuestion(
         return UnknownBlockQuestion;
     }
     if (shellProcStatus === "running") {
+        // a local shell that waits at its prompt, with nothing running in it, has no program to lose
+        if (shellIdle && view === "term") {
+            return null;
+        }
         return RunningBlockQuestion;
     }
     if (shellProcStatus === "done" || shellProcStatus === "init") {
@@ -58,6 +63,8 @@ export function closeBlockQuestion(
 export interface ConfirmCloseDeps {
     readView: (blockId: string) => string | null | undefined;
     readStatus: (blockId: string) => Promise<{ shellprocstatus?: string } | null | undefined>;
+    // whether the block's local shell waits at its prompt; not set or failing means not idle (the question is asked)
+    readIdle?: (blockId: string) => Promise<boolean>;
     ask: (message: string) => Promise<boolean>;
 }
 
@@ -65,6 +72,7 @@ const DefaultDeps: ConfirmCloseDeps = {
     readView: (blockId) =>
         globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)))?.meta?.view as string,
     readStatus: (blockId) => BlockService.GetControllerStatus(blockId),
+    readIdle: (blockId) => BlockService.GetShellIdle(blockId),
     ask: (message) => getApi().confirmCloseBlock(message),
 };
 
@@ -79,17 +87,25 @@ async function askAboutBlock(blockId: string, deps: ConfirmCloseDeps): Promise<b
         let view: string | null | undefined = null;
         let status: string | null | undefined = null;
         let readFailed = false;
+        let idle = false;
         try {
             view = deps.readView(blockId);
             // only a view with programs has a controller to ask
             if (view != null && ProgramViews.has(view)) {
                 status = (await deps.readStatus(blockId))?.shellprocstatus;
+                if (status === "running" && view === "term" && deps.readIdle != null) {
+                    try {
+                        idle = (await deps.readIdle(blockId)) === true;
+                    } catch (e) {
+                        console.log("confirm close block: could not look at the shell, asking", blockId, e);
+                    }
+                }
             }
         } catch (e) {
             console.log("confirm close block: could not read the state of the program", blockId, e);
             readFailed = true;
         }
-        const question = closeBlockQuestion(view, status, readFailed);
+        const question = closeBlockQuestion(view, status, readFailed, idle);
         if (question == null) {
             return true;
         }

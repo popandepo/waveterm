@@ -86,3 +86,14 @@ func (bs *BlockService) CleanupOrphanedBlocks(ctx context.Context, tabId string)
 	}
 	return waveobj.ContextGetUpdatesRtn(ctx), nil
 }
+
+func (*BlockService) GetShellIdle_Meta() tsgenmeta.MethodMeta {
+	return tsgenmeta.MethodMeta{
+		Desc:     "whether the block's local shell is waiting at its prompt (no child process but console helpers); false when it cannot be told",
+		ArgNames: []string{"ctx", "blockId"},
+	}
+}
+
+func (bs *BlockService) GetShellIdle(ctx context.Context, blockId string) (bool, error) {
+	return blockcontroller.GetShellIdle(blockId), nil
+}

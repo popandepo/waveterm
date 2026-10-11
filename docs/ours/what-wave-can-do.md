@@ -466,7 +466,7 @@ a command (`wsh deleteblock`, the backend delete action) is never asked, because
 - **RAN:** vitest for which states ask, the answer deciding, a failed read asking, a failed dialog keeping the block, and source pins on the
   four call sites, on the commands not asking, and on the electron side (type, preload, handler with the message capped, preview stub).
 - **NOT RUN, window check:** the box itself. Put a `ping -t localhost` in a stack member and click its X (the box appears; Cancel keeps it
-  running; Close Block ends it); the same for the header menu "Close Block" and for Alt+W (the close key is `Cmd:w`, and Cmd is Alt on Windows; Alt+Shift+W closes the whole TAB through the tab question; Ctrl+Shift+W is not bound to anything); Ctrl+Shift+X (replace the block by a launcher) and the X or Alt+W with the AI panel open and a non-empty chat ask the same way. A web tile closes with no box. **An idle shell asks too:** the state `running` is the shell process itself, and the PowerShell integration of this build sends no "a command is running" state, so there is no way to tell an idle prompt from a running command (the fork would need the shell-integration command state for PowerShell, or a check for child processes of the shell).
+  running; Close Block ends it); the same for the header menu "Close Block" and for Alt+W (the close key is `Cmd:w`, and Cmd is Alt on Windows; Alt+Shift+W closes the whole TAB through the tab question; Ctrl+Shift+W is not bound to anything); Ctrl+Shift+X (replace the block by a launcher) and the X or Alt+W with the AI panel open and a non-empty chat ask the same way. A web tile closes with no box. **An idle shell closes without the box** (this fork, since the idle-shell change): wavesrv looks at the children of a LOCAL shell's process (`BlockService.GetShellIdle`, `blockcontroller.GetShellIdle`); a shell whose only children are console helpers (`conhost.exe`, `OpenConsole.exe`) is waiting at its prompt and closes silently. A shell with any other child (a command is running), a look that fails (access denied, no process id), a remote or WSL shell, and every other view ask as before. Only the close question uses it: `wsh deleteblock` still refuses a running shell without `--force`.
 ## 23. Drag a tab out of its stack, reorder tabs (step E)
 
 Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of
@@ -637,3 +637,15 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 30. A new ephemeral block replaces the one on screen: the old one is asked about
+
+When a second ephemeral block opens while one is on screen, the old one used to be closed directly (its program stopped, nothing asked). It now goes through
+the same close question as the X (`replaceEphemeral`, `ephemeralreplace.ts`): answered yes, the old block closes and the new one shows; answered no, or no question
+set up, the old one stays and the NEW block is discarded (there is only one ephemeral place, and the block exists already in the back end, so it is deleted rather than orphaned).
+One question at a time: a third ephemeral block that arrives while the box is open is discarded at once.
+- **RAN:** vitest (order ask, close, show; no answer leaves the old block and discards the new; no question set up discards the new; source pin that `newEphemeralNode`
+  does not close directly); red when the answer is ignored. Go: `ShellIsIdle` cases, a real local child process (no child idle, a child present not idle, not running / no process /
+  non-local not idle, a failed look not idle); red when the failed look is ignored. vitest for the question: idle shell silent, child asks, failed look asks, other views and states unchanged.
+- **NOT RUN, window check:** a real PowerShell tile at its prompt closes with Alt+W and no box; with `ping -t 127.0.0.1` running it asks; the ephemeral replace with a running program in the old one.
+  **Not known:** whether a PowerShell started by Wave on Windows has other helper children when idle (the conhost.exe is filtered; anything else would make an idle shell ask, which is the safe side).

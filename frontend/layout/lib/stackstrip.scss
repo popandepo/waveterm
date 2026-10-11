@@ -85,6 +85,48 @@
             margin-right: 4px;
         }
 
+        // the member's attention mark (attention:level): info is an icon, need an orange dot, urgent an orange dot with a pulsing orange outline of the
+        // whole tab. The attention colour is its own and never replaces the member's colour line.
+        --attention-color: #ff9500;
+
+        .stack-tab-badge {
+            margin-right: 4px;
+            font-size: 11px;
+        }
+
+        .stack-tab-attention-info {
+            margin-left: 4px;
+            font-size: 11px;
+            opacity: 0.85;
+        }
+
+        .stack-tab-attention-dot {
+            position: absolute;
+            top: 50%;
+            right: 24px;
+            width: 8px;
+            height: 8px;
+            margin-top: -4px;
+            border-radius: 50%;
+            background: var(--attention-color);
+            pointer-events: auto;
+        }
+
+        .stack-tab-attention-ring {
+            position: absolute;
+            inset: 0;
+            border: 2px solid var(--attention-color);
+            border-radius: inherit;
+            pointer-events: none;
+            animation: stack-tab-attention-pulse 1.6s ease-in-out infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .stack-tab-attention-ring {
+                animation: none;
+            }
+        }
+
         .stack-tab-emoji {
             flex: 0 0 auto;
             max-width: 3em;
@@ -127,5 +169,15 @@
     }
     &.drop-over.drop-after {
         box-shadow: inset -2px 0 0 var(--accent-color);
+    }
+}
+
+@keyframes stack-tab-attention-pulse {
+    0%,
+    100% {
+        opacity: 0.25;
+    }
+    50% {
+        opacity: 1;
     }
 }

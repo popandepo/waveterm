@@ -9,6 +9,7 @@ import {
     getBadgeAtom,
     getBlockBadgeAtom,
 } from "@/app/store/badge";
+import { attentionClearDelayMs, ClearAttentionMeta } from "@/app/store/attentionclear";
 import { ClientModel } from "@/app/store/client-model";
 import { FocusManager } from "@/app/store/focusManager";
 import { GlobalModel } from "@/app/store/global-model";
@@ -19,7 +20,10 @@ import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
 import { Workspace } from "@/app/workspace/workspace";
 import { getLayoutModelForStaticTab } from "@/layout/index";
 import { ContextMenuModel } from "@/store/contextmenu";
-import { atoms, createBlock, getSettingsPrefixAtom, refocusNode } from "@/store/global";
+import { atoms, createBlock, getBlockMetaKeyAtom, getSettingsPrefixAtom, refocusNode } from "@/store/global";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import * as WOS from "@/store/wos";
 import { appHandleKeyDown, keyboardMouseDownHandler } from "@/store/keymodel";
 import { getElemAsStr } from "@/util/focusutil";
 import * as keyutil from "@/util/keyutil";
@@ -27,9 +31,9 @@ import { PLATFORM } from "@/util/platformutil";
 import * as util from "@/util/util";
 import clsx from "clsx";
 import debug from "debug";
-import { Provider, useAtomValue } from "jotai";
+import { Atom, Provider, useAtomValue } from "jotai";
 import "overlayscrollbars/overlayscrollbars.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { AppBackground } from "./app-bg";
@@ -356,6 +360,49 @@ const BadgeAutoClearing = () => {
     return null;
 };
 
+// A mark that asks for the owner (attention:level need or urgent) goes away when the owner really has the tile: see attentionclear.ts.
+const AttentionAutoClearing = () => {
+    const documentHasFocus = useAtomValue(atoms.documentHasFocus);
+    const layoutModel = getLayoutModelForStaticTab();
+    const focusedNode = useAtomValue(layoutModel.focusedNode);
+    const focusedBlockId = focusedNode?.data?.blockId;
+    const levelAtom = useMemo(
+        () => (focusedBlockId ? getBlockMetaKeyAtom(focusedBlockId, "attention:level") : (util.NullAtom as Atom<string>)),
+        [focusedBlockId]
+    );
+    const level = useAtomValue(levelAtom);
+    const prevFocusedBlockIdRef = useRef<string>(null);
+    const prevDocHasFocusRef = useRef<boolean>(false);
+
+    useEffect(() => {
+        const focusSwitched =
+            prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus;
+        prevFocusedBlockIdRef.current = focusedBlockId;
+        prevDocHasFocusRef.current = documentHasFocus;
+        const delay = focusedBlockId ? attentionClearDelayMs(level, documentHasFocus, focusSwitched) : null;
+        if (delay == null) {
+            return;
+        }
+        const timeoutId = setTimeout(() => {
+            if (!document.hasFocus()) {
+                return;
+            }
+            if (globalStore.get(layoutModel.focusedNode)?.data?.blockId !== focusedBlockId) {
+                return;
+            }
+            util.fireAndForget(() =>
+                RpcApi.SetMetaCommand(TabRpcClient, {
+                    oref: WOS.makeORef("block", focusedBlockId),
+                    meta: ClearAttentionMeta,
+                })
+            );
+        }, delay);
+        return () => clearTimeout(timeoutId);
+    }, [focusedBlockId, level, documentHasFocus]);
+
+    return null;
+};
+
 const AppInner = () => {
     const prefersReducedMotion = useAtomValue(atoms.prefersReducedMotionAtom);
     const client = useAtomValue(ClientModel.getInstance().clientAtom);
@@ -385,6 +432,7 @@ const AppInner = () => {
             <AppFocusHandler />
             <AppSettingsUpdater />
             <BadgeAutoClearing />
+            <AttentionAutoClearing />
             <AccentController />
             <DndProvider backend={HTML5Backend}>
                 <Workspace />

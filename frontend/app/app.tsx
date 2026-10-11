@@ -9,7 +9,8 @@ import {
     getBadgeAtom,
     getBlockBadgeAtom,
 } from "@/app/store/badge";
-import { attentionClearDelayMs, ClearAttentionMeta } from "@/app/store/attentionclear";
+import { ClearAttentionMeta } from "@/app/store/attentionclear";
+import { scheduleAttentionClear } from "@/app/store/attentionschedule";
 import { ClientModel } from "@/app/store/client-model";
 import { FocusManager } from "@/app/store/focusManager";
 import { GlobalModel } from "@/app/store/global-model";
@@ -370,35 +371,41 @@ const AttentionAutoClearing = () => {
         () => (focusedBlockId ? getBlockMetaKeyAtom(focusedBlockId, "attention:level") : (util.NullAtom as Atom<string>)),
         [focusedBlockId]
     );
+    const reasonAtom = useMemo(
+        () => (focusedBlockId ? getBlockMetaKeyAtom(focusedBlockId, "attention:reason") : (util.NullAtom as Atom<string>)),
+        [focusedBlockId]
+    );
     const level = useAtomValue(levelAtom);
+    const reason = useAtomValue(reasonAtom);
     const prevFocusedBlockIdRef = useRef<string>(null);
     const prevDocHasFocusRef = useRef<boolean>(false);
 
+    // the plan is made again whenever the focused block, the window focus, the level or the reason changes (a program that replaces the reason of a mark
+    // while the timer runs gets the full wait for its new mark)
     useEffect(() => {
         const focusSwitched =
             prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus;
         prevFocusedBlockIdRef.current = focusedBlockId;
         prevDocHasFocusRef.current = documentHasFocus;
-        const delay = focusedBlockId ? attentionClearDelayMs(level, documentHasFocus, focusSwitched) : null;
-        if (delay == null) {
-            return;
-        }
-        const timeoutId = setTimeout(() => {
-            if (!document.hasFocus()) {
-                return;
+        return scheduleAttentionClear(
+            { blockId: focusedBlockId, level, reason, documentHasFocus, focusSwitched },
+            {
+                documentHasFocus: () => document.hasFocus(),
+                focusedBlockId: () => globalStore.get(layoutModel.focusedNode)?.data?.blockId,
+                read: (blockId) => ({
+                    level: globalStore.get(getBlockMetaKeyAtom(blockId, "attention:level")),
+                    reason: globalStore.get(getBlockMetaKeyAtom(blockId, "attention:reason")),
+                }),
+                clear: (blockId) =>
+                    util.fireAndForget(() =>
+                        RpcApi.SetMetaCommand(TabRpcClient, {
+                            oref: WOS.makeORef("block", blockId),
+                            meta: ClearAttentionMeta,
+                        })
+                    ),
             }
-            if (globalStore.get(layoutModel.focusedNode)?.data?.blockId !== focusedBlockId) {
-                return;
-            }
-            util.fireAndForget(() =>
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", focusedBlockId),
-                    meta: ClearAttentionMeta,
-                })
-            );
-        }, delay);
-        return () => clearTimeout(timeoutId);
-    }, [focusedBlockId, level, documentHasFocus]);
+        );
+    }, [focusedBlockId, level, reason, documentHasFocus]);
 
     return null;
 };

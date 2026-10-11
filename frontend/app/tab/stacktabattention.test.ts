@@ -87,12 +87,16 @@ describe("the wiring that no test can render", () => {
     test("the app clears the focused block's orange mark through the clear rule, with both keys null", () => {
         const app = read("app", "app.tsx");
         assert.include(app, "<AttentionAutoClearing />");
-        assert.include(app, "attentionClearDelayMs(level, documentHasFocus, focusSwitched)");
+        assert.include(app, "scheduleAttentionClear(");
+        assert.include(app, "{ blockId: focusedBlockId, level, reason, documentHasFocus, focusSwitched }");
+        // the plan is made again when ANY of these changes, the reason included
+        assert.include(app, "}, [focusedBlockId, level, reason, documentHasFocus]);");
         assert.include(app, "meta: ClearAttentionMeta");
-        assert.include(app, 'WOS.makeORef("block", focusedBlockId)');
+        assert.include(app, 'WOS.makeORef("block", blockId)');
+        assert.include(app, 'getBlockMetaKeyAtom(blockId, "attention:reason")');
         // it checks the window still has focus and the tile is still the focused one when the timer fires
         const body = app.slice(app.indexOf("const AttentionAutoClearing"), app.indexOf("const AppInner"));
-        assert.include(body, "document.hasFocus()");
+        assert.include(body, "documentHasFocus: () => document.hasFocus()");
         assert.include(body, "layoutModel.focusedNode");
     });
 });

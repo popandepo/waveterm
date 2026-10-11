@@ -9,6 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
+import { webNavigate } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
 export class ElectronWshClientType extends WshClient {
@@ -30,6 +31,27 @@ export class ElectronWshClientType extends WshClient {
         }
         const rtn = await webGetSelector(wc, data.selector, data.opts);
         return rtn;
+    }
+
+    async handle_webnav(rh: RpcResponseHelper, data: CommandWebNavData): Promise<CommandWebNavRtnData> {
+        if (!data.tabid || !data.blockid || !data.workspaceid) {
+            throw new Error("tabid, blockid and workspaceid are required");
+        }
+        if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
+            throw new Error("blockid must be a full block id");
+        }
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        if (!ww.allLoadedTabViews?.has(data.tabid)) {
+            throw new Error(`the tab ${data.tabid} is not loaded in its window (show it once, then ask again)`);
+        }
+        const wc = await getWebContentsByBlockId(ww, data.tabid, data.blockid);
+        if (wc == null) {
+            throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
+        }
+        return webNavigate(wc, data.action);
     }
 
     async handle_notify(rh: RpcResponseHelper, notificationOptions: WaveNotificationOptions) {

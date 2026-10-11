@@ -83,6 +83,7 @@ upstream-tab-commands
 upstream-tab-files
 upstream-tab-group
 upstream-tab-icon
+web-nav-handler
 window-queue-close-tab
 window-set-active-tab
 workspace-atom

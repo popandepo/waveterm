@@ -637,3 +637,18 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 36. Web tiles by command: reload, back, forward, url
+
+`wsh web reload|back|forward|url [-b block]` act on a web tile without taking focus. `url` prints the current address and then the title (`--json` adds whether the tile can go back or forward). The block is any
+reference that names a web block (`-b`, default the calling block); the command reads the block's own tab and workspace, so the tile may be in a tab other than the caller's, as long as that tab is loaded in its window
+(shown once; a tab view stays loaded in the cache, 10 tabs by default). Not a web block, or a block that cannot be read: refused before anything is sent. Back or forward with nowhere to go is an error. The answer
+carries the address the tile had when the command was handled; a navigation finishes afterwards, so a script that needs the new address asks again with `url`.
+How it works: a new window command `webnav` (`CommandWebNavData`, answered by the Electron side like `webselector`): the window asks the page of the request's tab for the tile's web contents (the old code asked only the
+shown tab), then calls reload or the navigation history of those web contents. The block id is checked to be a full id before it is put into the page query.
+- **RAN:** Go tests with the block info and the window call replaced: the request carries the block's own tab and workspace, only a web tile is accepted, each of the four commands sends its action, a refusal from the
+  window comes back to the caller, the output format; vitest for the web contents side with stub contents (reload, back and forward only when possible, url reads only, an unknown action and no contents are errors); source pins
+  on the handler (tab loaded, tab-specific lookup, id check); red when the "nothing to go back to" check is removed.
+- **NOT RUN in a window:** the commands against a real web tile, in a shown tab and in a tab that is loaded but not shown; whether `file:///C:/...` and `http://127.0.0.1:<port>/` pages load in a web tile. Reading
+  only: the tile accepts `file:`, `http:` and `https:` addresses unchanged (`ensureUrlScheme`), a bare localhost or IP address gets `http://`, and the guest page is not blocked by the tab view's navigation handlers (they
+  are on the tab view, not on the guest). A real run was not done because the owner's preview window is open and no window test is run while he is at the PC.

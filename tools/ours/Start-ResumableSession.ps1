@@ -149,7 +149,7 @@ function Resolve-WshFolder([string]$dir) {
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $null }
     $final = Get-FinalPath $dir
     $homeFinal = Get-FinalPath $env:USERPROFILE
-    $rootFinal = if ($WshRoot -match '^[A-Za-z]:[\\/]') { Get-FinalPath $WshRoot } else { $null }
+    $rootFinal = if ($WshRoot -match '^[A-Za-z]:[\\/]' -and -not (Test-PlainlyForbidden $WshRoot)) { Get-FinalPath $WshRoot } else { $null }
     if (-not $final -or -not $homeFinal -or -not $rootFinal) { return $null }
     foreach ($bad in '.claude', '.claude-work') { if (Test-Under $final "$homeFinal\$bad") { return $null } }
     if (-not (Test-Under $final $rootFinal)) { return $null }
@@ -336,7 +336,7 @@ function Write-SwapLog([string]$code, [string[]]$names) {
         $dir = Split-Path -Parent $LogPath
         # the log's FINAL folder (the deepest existing ancestor resolved, as for every other folder) must be at or below -LogRoot and never at or below .claude or
         # .claude-work: judged BEFORE any folder is made or the file is opened. A log file that is itself a link is not written.
-        if ($LogRoot -notmatch '^[A-Za-z]:[\\/]') { return }
+        if ($LogRoot -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogRoot)) { return }
         $finalDir = Get-FinalPath $dir
         $rootFinal = Get-FinalPath $LogRoot
         $homeFinal = Get-FinalPath $env:USERPROFILE
@@ -344,8 +344,19 @@ function Write-SwapLog([string]$code, [string[]]$names) {
         foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { return } }
         if ((Test-Path -LiteralPath $LogPath) -and ((Get-Item -LiteralPath $LogPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
         if (-not (Test-Path -LiteralPath $dir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
+        # The existing log is only READ (its tail). The new content goes into a new file beside it (random name, exclusive create) and then replaces the
+        # directory entry, so an existing log that is a HARD link to some other file is never written to: the other name keeps its content.
+        # Remaining window, in plain words: between the checks above and this write a program running as the same user could swap the folder for a link in
+        # that instant; nothing in the starter can close that (it needs such a program to be running already).
         $old = @(); if (Test-Path -LiteralPath $LogPath -PathType Leaf) { $old = @(Get-Content -LiteralPath $LogPath -Tail 199) }
-        [IO.File]::WriteAllLines($LogPath, [string[]](@($old) + $line))
+        $tmp = Join-Path $finalDir ('.starter-log-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.tmp')
+        try {
+            $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes((((@($old) + $line) -join [Environment]::NewLine) + [Environment]::NewLine)); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+            [IO.File]::Move($tmp, (Join-Path $finalDir (Split-Path -Leaf $LogPath)), $true)
+        } catch {
+            try { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } } catch { }
+        }
     } catch { }
 }
 

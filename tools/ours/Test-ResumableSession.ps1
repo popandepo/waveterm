@@ -364,6 +364,33 @@ class P {
     Set-ItemProperty -LiteralPath $roLog -Name IsReadOnly -Value $false
     Check 'a read-only log file does not stop the start and is left as it was' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and $roKept -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code) kept=$roKept $($r.Text)"
     $env:RESUMABLE_TEST_LOG = $swapLog
+    # an existing log that is a HARD link to another file is never written into: the other name keeps its content, the log name gets a new file
+    $decoy = Join-Path $profileDir 'decoy-target.txt'
+    Make-File $decoy 'decoy content'
+    $hardLog = Join-Path $logDir 'hardlinked.log'
+    $null = New-Item -ItemType HardLink -Path $hardLog -Target $decoy; $made.Add($hardLog)
+    $env:RESUMABLE_TEST_LOG = $hardLog
+    $r = Run-Child 'swap' $cfg '' 'hardname' $swapDir
+    Check 'a log that is a hard link to another file leaves that file unchanged' ((((Get-Content -LiteralPath $decoy -Raw).Trim()) -eq 'decoy content') -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0) "decoy=[$((Get-Content -LiteralPath $decoy -Raw).Trim())] exit=$($r.Code)"
+    Check 'the log name itself got the new line (a new file took its place)' ((Get-Content -LiteralPath $hardLog -Raw) -match ' hardname swap=ok') (Get-Content -LiteralPath $hardLog -Raw)
+    Check 'no temporary file is left beside the log' (@(Get-ChildItem -LiteralPath $logDir -Filter '.starter-log-*.tmp' -Force).Count -eq 0) ''
+    # -LogRoot at a fake .claude: nothing is written or created there (the plain gate comes before the final path of the root is asked)
+    $env:RESUMABLE_TEST_LOG = (Join-Path $logDir 'rooted-elsewhere.log')
+    $env:RESUMABLE_TEST_LOGROOT = $oldDir
+    $oldCount = @(Get-ChildItem -LiteralPath $oldDir -Force).Count
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a -LogRoot at .claude gives no log, nothing is created there, the session starts' ((-not (Test-Path -LiteralPath $env:RESUMABLE_TEST_LOG)) -and (@(Get-ChildItem -LiteralPath $oldDir -Force).Count -eq $oldCount) -and ($r.Code -eq 0) -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code)"
+    $env:RESUMABLE_TEST_LOGROOT = $root
+    $env:RESUMABLE_TEST_LOG = $swapLog
+    # the order is pinned in the text: the plain gate is asked about -LogRoot and -WshRoot before their final path is (a file system call)
+    $ast2 = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$null, [ref]$null)
+    foreach ($pair in @(@('Write-SwapLog', 'LogRoot'), @('Resolve-WshFolder', 'WshRoot'))) {
+        $fn = $ast2.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $pair[0] }, $true)
+        $text = $fn.Body.Extent.Text
+        $gate = $text.IndexOf('Test-PlainlyForbidden $' + $pair[1])
+        $final = $text.IndexOf('Get-FinalPath $' + $pair[1])
+        Check ("in " + $pair[0] + " the plain gate for -" + $pair[1] + " comes before Get-FinalPath of it") (($gate -ge 0) -and ($final -gt $gate)) "gate=$gate final=$final"
+    }
 $env:RESUMABLE_TEST_LOGROOT = $root
     # ---- round 2 of the review of the swap: where wsh is run from, one deadline, no inherited access, sizes ----
     # a folder under .claude, one outside the allowed root, a junction under the root that leads to .claude: wsh.exe in them is never run

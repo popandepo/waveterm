@@ -61,7 +61,7 @@ func startHelper(t *testing.T, mode string) *exec.Cmd {
 	}
 	t.Cleanup(func() {
 		// the whole tree: a helper that is left running holds the test binary and makes `go test` exit 1 at clean-up
-		killTree(int32(c.Process.Pid))
+		endOwnTree(int32(c.Process.Pid))
 		c.Process.Kill()
 		c.Wait()
 	})
@@ -74,8 +74,15 @@ func controllerFor(status string, c *exec.Cmd) *ShellController {
 		sc.ShellProc = &shellexec.ShellProc{Cmd: shellexec.MakeCmdWrap(c, nil, true)}
 	}
 	// the shell has printed its prompt marker and nothing was sent to it since, unless a test says otherwise
-	sc.promptTracker.Output(blockstatus.PromptMarker)
+	sc.promptTracker.SetToken(testToken)
+	sc.promptTracker.Output(promptMarker('P'))
 	return sc
+}
+
+const testToken = "tok"
+
+func promptMarker(kind byte) []byte {
+	return []byte("\x1b]16162;" + string(kind) + ";" + testToken + "\a")
 }
 
 func waitUntil(t *testing.T, what string, cond func() bool) {
@@ -194,23 +201,68 @@ func consoleHelperCopy(t *testing.T) string {
 	}
 	old := trustedConsoleDirs
 	trustedConsoleDirs = func() []string { return []string{dir} }
-	t.Cleanup(func() { trustedConsoleDirs = old })
+	ownImages = append(ownImages, copyPath)
+	t.Cleanup(func() {
+		trustedConsoleDirs = old
+		ownImages = ownImages[:len(ownImages)-1]
+	})
 	return copyPath
 }
 
-// ends every process below pid (so that the helper copy can be removed with its folder)
-func killBelow(pid int) {
-	killTree(int32(pid))
+// What a test may end. Windows keeps the parent id of a process after the parent has ended and reuses freed ids, so "the processes whose parent id is
+// X" can include older, unrelated programs of the owner. A test therefore ends only a process that it can show is its own: created STRICTLY AFTER its
+// parent, and running one of the images that the tests start themselves (the test binary, and the copies of it that a test makes).
+var ownImages []string
+
+func init() {
+	ownImages = append(ownImages, os.Args[0])
 }
 
-func killTree(pid int32) {
+type procFacts struct {
+	pid          int32
+	created      int64 // milliseconds since the epoch
+	createdKnown bool
+	exe          string
+}
+
+func sameImage(a, b string) bool {
+	return a != "" && b != "" && strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+func mayEnd(parent, child procFacts, images []string) bool {
+	if !parent.createdKnown || !child.createdKnown || child.created <= parent.created {
+		return false
+	}
+	for _, image := range images {
+		if sameImage(child.exe, image) {
+			return true
+		}
+	}
+	return false
+}
+
+func factsOf(p *process.Process) procFacts {
+	f := procFacts{pid: p.Pid}
+	if created, err := p.CreateTime(); err == nil {
+		f.created, f.createdKnown = created, true
+	}
+	f.exe, _ = p.Exe()
+	return f
+}
+
+// endOwnTree ends the descendants of pid that mayEnd allows, deepest first. It never ends pid itself (the caller holds that process).
+func endOwnTree(pid int32) {
 	p, err := process.NewProcess(pid)
 	if err != nil {
 		return
 	}
+	parent := factsOf(p)
 	children, _ := p.Children()
 	for _, c := range children {
-		killTree(c.Pid)
+		if !mayEnd(parent, factsOf(c), ownImages) {
+			continue
+		}
+		endOwnTree(c.Pid)
 		_ = c.Kill()
 	}
 }
@@ -222,7 +274,7 @@ func shellViaCopy(t *testing.T, copyPath, copyMode string) *ShellController {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		killBelow(c.Process.Pid)
+		endOwnTree(int32(c.Process.Pid))
 		c.Process.Kill()
 		c.Wait()
 	})
@@ -288,7 +340,8 @@ func TestACommandThatRunsInsideTheShellItselfIsNotIdle(t *testing.T) {
 	if sc.isIdle() {
 		t.Fatalf("a command accepted after the last prompt marker keeps the shell busy although nothing runs below it")
 	}
-	sc.promptTracker.Output(blockstatus.PromptMarker)
+	sc.promptTracker.Output(promptMarker('B'))
+	sc.promptTracker.Output(promptMarker('P'))
 	if !sc.isIdle() {
 		t.Fatalf("the next prompt makes it idle again")
 	}
@@ -305,5 +358,150 @@ func TestOnlyTheWindowsSystemFolderIsTrustedForTheConsoleHost(t *testing.T) {
 		if strings.EqualFold(d, filepath.Dir(exe)) {
 			t.Fatalf("the folder of wavesrv must not be trusted: %v", dirs)
 		}
+	}
+}
+
+func TestAnEnterDuringTheProcessLookMakesTheAnswerNotIdle(t *testing.T) {
+	sc := controllerFor(Status_Running, startHelper(t, "sleep"))
+	oldList := listBelow
+	defer func() { listBelow = oldList }()
+	listBelow = func(pid int) ([]blockstatus.ChildProc, error) {
+		sc.promptTracker.Input([]byte("Start-Sleep 20\r")) // the owner (or a script) presses Enter while the look is running
+		return nil, nil
+	}
+	if sc.isIdle() {
+		t.Fatalf("an Enter during the look must make the answer not idle: the prompt is asked again after the look")
+	}
+}
+
+func TestAMarkerDuringTheLookAlsoMakesTheAnswerNotIdle(t *testing.T) {
+	sc := controllerFor(Status_Running, startHelper(t, "sleep"))
+	oldList := listBelow
+	defer func() { listBelow = oldList }()
+	listBelow = func(pid int) ([]blockstatus.ChildProc, error) {
+		sc.promptTracker.Output(promptMarker('P'))
+		return nil, nil
+	}
+	if sc.isIdle() {
+		t.Fatalf("any prompt event during the look changes the generation: the answer is not trusted")
+	}
+}
+
+func TestAChildThatCannotBeNamedOrCheckedFailsTheLookByTheSource(t *testing.T) {
+	src, err := os.ReadFile("ours_idle.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	i := strings.Index(text, "name, nameErr := c.Name()")
+	if i < 0 {
+		t.Fatalf("the naming code moved")
+	}
+	block := text[i : i+700]
+	if !strings.Contains(block, "running, runErr := c.IsRunning()") || !strings.Contains(block, "return runErr") {
+		t.Fatalf("a live child that cannot be named, and whose state cannot be read either, must fail the look: %s", block)
+	}
+}
+
+func TestAShellWithoutATokenIsNeverIdle(t *testing.T) {
+	sc := controllerFor(Status_Running, startHelper(t, "sleep"))
+	sc.promptTracker.SetToken("") // bash, zsh, cmd.exe, a remote shell: no token was given
+	sc.promptTracker.Output(promptMarker('P'))
+	if sc.isIdle() {
+		t.Fatalf("a shell without a token is never at prompt")
+	}
+}
+
+func TestATestMayEndOnlyWhatItCanShowIsItsOwn(t *testing.T) {
+	self := `C:\\t\\blockcontroller.test.exe`
+	other := `C:\\Program Files\\Notepad++\\notepad++.exe`
+	images := []string{self}
+	parent := procFacts{pid: 10, created: 1000, createdKnown: true, exe: self}
+	cases := []struct {
+		name  string
+		child procFacts
+		want  bool
+	}{
+		{"our image, created after the parent", procFacts{pid: 11, created: 1001, createdKnown: true, exe: self}, true},
+		{"our image in other case", procFacts{pid: 11, created: 1001, createdKnown: true, exe: strings.ToUpper(self)}, true},
+		{"created at the same moment as the parent", procFacts{pid: 11, created: 1000, createdKnown: true, exe: self}, false},
+		{"created BEFORE the parent: a stale parent id of a reused number", procFacts{pid: 11, created: 500, createdKnown: true, exe: self}, false},
+		{"an unrelated program created after the parent", procFacts{pid: 11, created: 2000, createdKnown: true, exe: other}, false},
+		{"an unrelated older program", procFacts{pid: 11, created: 10, createdKnown: true, exe: other}, false},
+		{"creation time unknown", procFacts{pid: 11, exe: self}, false},
+		{"image unknown", procFacts{pid: 11, created: 2000, createdKnown: true}, false},
+	}
+	for _, c := range cases {
+		if got := mayEnd(parent, c.child, images); got != c.want {
+			t.Errorf("%s: mayEnd = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if mayEnd(procFacts{pid: 10, exe: self}, procFacts{pid: 11, created: 2000, createdKnown: true, exe: self}, images) {
+		t.Errorf("a parent whose creation time is unknown ends nothing")
+	}
+	if mayEnd(parent, procFacts{pid: 11, created: 2000, createdKnown: true, exe: self}, nil) {
+		t.Errorf("with no own images nothing may be ended")
+	}
+}
+
+func TestOnlyAChildCreatedAfterItsParentIsBelowTheShell(t *testing.T) {
+	cases := []struct {
+		name                string
+		parent, child       int64
+		parentErr, childErr error
+		want                bool
+	}{
+		{"created after", 1000, 1500, nil, nil, true},
+		{"created in the same millisecond", 1000, 1000, nil, nil, true},
+		{"created before: a reused parent id", 1000, 400, nil, nil, false},
+		{"child time unknown: counts", 1000, 0, nil, errors.New("access denied"), true},
+		{"parent time unknown: counts", 0, 500, errors.New("access denied"), nil, true},
+	}
+	for _, c := range cases {
+		if got := plausibleChild(c.parent, c.parentErr, c.child, c.childErr); got != c.want {
+			t.Errorf("%s: plausibleChild = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestTheLookAllowsExactlySixteenLevels(t *testing.T) {
+	if lookDepthExceeded(16) {
+		t.Fatalf("a chain of exactly 16 levels must be looked at, the deepest still asked for its children")
+	}
+	if !lookDepthExceeded(17) {
+		t.Fatalf("a 17th level is over the limit")
+	}
+}
+
+func TestTheControllerFeedsTheTrackerFromBothLoops(t *testing.T) {
+	// the feeds themselves
+	sc := &ShellController{Lock: &sync.Mutex{}, RunLock: &atomic.Bool{}, ProcStatus: Status_Running}
+	sc.promptTracker.SetToken(testToken)
+	sc.observeOutput(promptMarker('P'))
+	if at, _ := sc.promptTracker.AtPrompt(); !at {
+		t.Fatalf("output must reach the tracker")
+	}
+	sc.observeInput([]byte("ls\r"))
+	if at, _ := sc.promptTracker.AtPrompt(); at {
+		t.Fatalf("input must reach the tracker")
+	}
+	// the loops call them: the output before it is appended to the block file, the input before it is written to the shell
+	src, err := os.ReadFile("shellcontroller.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	out := strings.Index(text, "bc.observeOutput(buf[:nr])")
+	appendCall := strings.Index(text, "HandleAppendBlockFile(bc.BlockId, wavebase.BlockFile_Term, buf[:nr])")
+	if out < 0 || appendCall < 0 || out > appendCall {
+		t.Errorf("the read loop must feed the tracker with every chunk the shell prints")
+	}
+	in := strings.Index(text, "bc.observeInput(ic.InputData)")
+	write := strings.Index(text, "shellProc.Cmd.Write(ic.InputData)")
+	if in < 0 || write < 0 || in > write {
+		t.Errorf("the write loop must feed the tracker BEFORE the input is written to the shell")
+	}
+	if strings.Count(text, "bc.promptTracker.SetToken(promptToken)") != 1 || strings.Count(text, "bc.promptTracker.Reset()") != 1 {
+		t.Errorf("the start path must set the token and reset the tracker")
 	}
 }

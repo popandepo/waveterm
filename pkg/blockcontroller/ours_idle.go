@@ -4,6 +4,8 @@
 package blockcontroller
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"time"
@@ -32,7 +34,7 @@ var lookTimeout = idleLookTimeout
 // collectBelow adds the children of a process, and their children and so on, to found. A look that goes deeper or wider than the limits is an
 // error (so: not idle). A child that has ended between the two calls is not there any more and is skipped.
 func collectBelow(pid int32, depth int, found *[]blockstatus.ChildProc) error {
-	if depth >= maxLookDepth {
+	if lookDepthExceeded(depth) {
 		return errTooMany
 	}
 	p, err := process.NewProcess(pid)
@@ -43,10 +45,23 @@ func collectBelow(pid int32, depth int, found *[]blockstatus.ChildProc) error {
 	if err != nil {
 		return err
 	}
+	parentCreated, parentErr := p.CreateTime()
 	for _, c := range children {
+		// Windows keeps the parent id of a process after the parent has ended and reuses freed ids, so a process can name a parent that is a
+		// different, newer process. A real child is always created after its parent: one that is not is not below this process.
+		childCreated, childErr := c.CreateTime()
+		if !plausibleChild(parentCreated, parentErr, childCreated, childErr) {
+			continue
+		}
 		name, nameErr := c.Name()
 		if nameErr != nil {
-			if running, _ := c.IsRunning(); !running {
+			// a child that ended between the two calls is not there any more; one that is alive and cannot be named, or whose state cannot
+			// be read either, makes the look fail (the question is asked)
+			running, runErr := c.IsRunning()
+			if runErr != nil {
+				return runErr
+			}
+			if !running {
 				continue
 			}
 			name = "?"
@@ -61,6 +76,30 @@ func collectBelow(pid int32, depth int, found *[]blockstatus.ChildProc) error {
 		}
 	}
 	return nil
+}
+
+// lookDepthExceeded: exactly maxLookDepth levels below the shell are allowed; the process at the deepest level is still asked for its children.
+func lookDepthExceeded(depth int) bool {
+	return depth > maxLookDepth
+}
+
+// observeOutput and observeInput are the two feeds of the prompt tracker: what the shell prints, and what is written to it. The controller's read and
+// write loops call them (a test pins both calls).
+func (sc *ShellController) observeOutput(b []byte) {
+	sc.promptTracker.Output(b)
+}
+
+func (sc *ShellController) observeInput(b []byte) {
+	sc.promptTracker.Input(b)
+}
+
+// plausibleChild: a child must have been created at or after its parent. When either creation time cannot be read the child counts (the safe
+// side: it can only make the shell look busy).
+func plausibleChild(parentCreated int64, parentErr error, childCreated int64, childErr error) bool {
+	if parentErr != nil || childErr != nil {
+		return true
+	}
+	return childCreated >= parentCreated
 }
 
 type lookError string
@@ -116,15 +155,33 @@ func (sc *ShellController) isIdle() bool {
 	status := sc.ProcStatus
 	proc := sc.ShellProc
 	sc.Lock.Unlock()
-	if status != Status_Running || proc == nil || !conncontroller.IsLocalConnName(proc.ConnName) || !sc.promptTracker.AtPrompt() {
+	if status != Status_Running || proc == nil || !conncontroller.IsLocalConnName(proc.ConnName) {
 		return false
 	}
 	pid, ok := proc.LocalPid()
 	if !ok {
 		return false
 	}
+	atPrompt, generation := sc.promptTracker.AtPrompt()
+	if !atPrompt {
+		return false
+	}
 	below, err := lookBelowWithTimeout(pid)
+	// the look can take up to two seconds, so the prompt is asked again afterwards: an Enter or a marker during the look changes the generation
+	atPromptAfter, generationAfter := sc.promptTracker.AtPrompt()
+	if !atPromptAfter || generationAfter != generation {
+		return false
+	}
 	return blockstatus.ShellIsIdle(below, err != nil, trustedConsoleDirs())
+}
+
+// newPromptToken makes the token that a PowerShell shell gets in its environment and puts into its prompt markers.
+func newPromptToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "" // no token, no tracking: the shell asks
+	}
+	return hex.EncodeToString(b)
 }
 
 // GetShellIdle says whether the block's shell is waiting at its prompt. false for every block that is not a local shell controller.

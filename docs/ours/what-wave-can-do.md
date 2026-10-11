@@ -640,24 +640,43 @@ running member, or the first one restored here). **It only prints the plan unles
 
 ## 35. An idle shell closes without the box (PowerShell 7, local)
 
-The close question stays silent for a shell only when wavesrv knows that the shell waits at its prompt. The first version looked only at the processes below the shell and was refused in review: a
-command that runs inside PowerShell itself (Start-Sleep, a loop of cmdlets, Copy-Item, a download, Read-Host) has no process below the shell, so it read as idle. Now two things must both hold:
-1. **At prompt, from the byte streams** (`blockstatus.PromptTracker`, fed from the controller's read and write loops): the PowerShell 7 start-up script prints a private marker, ESC ] 16162 ; P BEL, each time its
-   prompt function runs (not inside tmux or screen; the window ignores this command, the existing A/C/D/M commands are untouched); the shell counts as at prompt from the moment that marker is seen, and
-   ANY input that contains a carriage return or a line feed (a typed Enter, a paste with a newline, a line sent by `wsh send`) ends it, whatever the shell does with it. A shell that never prints the marker
-   (Windows PowerShell 5.1, cmd.exe, bash, an integration switched off, a profile or theme that replaces the prompt function, tmux) is never at prompt, so it asks. A hook in PSReadLine was NOT used: a profile can
-   replace it, and a shell left "at prompt" while a command runs would close without a question, the worst failure.
-2. **Nothing below the shell** (`blockcontroller.GetShellIdle`, gopsutil): every process below the shell (children, their children, to depth 16 and 500 processes) must be the console host `conhost.exe` from the
-   Windows `System32` folder (path and name; Wave's own folder is not trusted: it is user-writable). A failed look, a look over the limits or over 2 seconds, a WSL or SSH shell, a shell that is not running: not idle.
-- **Cases (tested in `prompttracker_test.go`):** a typed or pasted or scripted newline ends at-prompt; a paste with a newline while a command already runs stays busy; Ctrl+C is the byte 3 (at the prompt it keeps
-  the state, and the prompt that the shell prints again brings the marker again; while a command runs it does not by itself make a prompt); Escape clears the line and keeps the state; a program that takes over the
-  screen (vim, less, Claude Code) is a process below the shell while it runs and its Enter keys keep the state busy; after it exits the shell's prompt prints the marker and the shell is at prompt again.
-- **Still missed, stated:** (1) a program that detached itself, so that its parent has already exited, is no longer below the shell in the process table; (2) input that was already queued when the marker was read
-  (a script that sends two commands back to back faster than the output is read) can leave at-prompt set while the second runs; (3) a command that starts without an Enter (an event action inside the shell); (4) a command
-  can start between the look and the delete (two calls, milliseconds apart; the server does not decide at the delete). The process look costs about 16 ms per process: with about 120 processes below the shell the 2 second
-  limit turns it into a question.
-- **RAN:** the tracker's table (marker split at every position, Enter ends it, paste while busy, Ctrl+C and Escape, full-screen program, reset) and red when the input rule is removed; real child processes (idle, a child,
-  a grandchild, a console-host-named copy in a trusted folder with a program below it, a WSL-named connection, a slow look, an over-limit look); a command inside the shell is not idle; real PowerShell 7: the prompt function
-  prints the marker once, prints none inside tmux, and the test is red when the line is removed; `go test ./pkg/blockcontroller` exits 0 (the helper processes are ended as a tree).
-- **NOT RUN, window check:** a real tile: PowerShell 7 at its prompt closes with Alt+W without the box; after `Start-Sleep 20` it asks; after `ping -t 127.0.0.1` it asks; after Ctrl+C at the prompt it closes silently
-  again; after `vim` or `less` is left it closes silently again; Windows PowerShell 5.1 and cmd.exe always ask. Whether the marker survives ConPTY unchanged is read from the existing OSC 16162 M command, which does.
+The close question stays silent for a shell only when wavesrv knows that the shell waits at its prompt AND nothing runs below it. The first version looked only at the processes below the shell and was
+refused in review: a command that runs inside PowerShell itself (Start-Sleep, a loop of cmdlets, Copy-Item, a download, Read-Host) has no process below the shell. The second idea, "the prompt marker is the
+last bytes the shell printed", cannot hold on Windows: a real PowerShell 7.6 under a real ConPTY (the pty library Wave uses, run headless) shows that ConPTY re-renders the stream, so bytes always follow the
+marker (screen clear, cursor moves, window title, cursor show), and it can deliver the marker BEFORE the text of the same prompt. Only counts can be trusted, not the order of bytes.
+**What is built** (`blockstatus.PromptTracker`, fed from the controller's read and write loops):
+- wavesrv makes a random token for each local PowerShell shell start and gives it in the environment (`WAVETERM_PROMPT_TOKEN`); the start-up script reads it and removes it from the environment, so neither the
+  shell's children nor a nested shell inherit it. Printed, echoed or typed marker bytes without the token are ordinary output. A program that reads the shell's variable to forge it is not defended against.
+- The script prints two private OSC 16162 markers: `P;<token>` at the END of the prompt function (after the prompt text is computed, so a slow prompt does not widen the gap below), and `B;<token>` from the Enter key
+  binding just before the line is accepted (the shell CONSUMED an Enter). Only the default Enter binding (AcceptLine) is taken over; a profile that set its own is left alone and then no marker is printed. At each
+  prompt the script checks that the binding is still ours; if not it prints `N;<token>` once and the shell never counts as idle again. The window ignores all these commands.
+- The tracker counts Enter bytes (CR and LF) written to the shell as pending, and B markers as consumed. A P marker means at prompt only when nothing is pending, so a type-ahead Enter that is still queued
+  when the prompt of the earlier command is printed does not count. Real run: "Start-Sleep 2", then "Get-Date" typed ahead 300 ms later: the first prompt marker arrived long after the second Enter was written, and its B 12 ms
+  after the marker; the old tracker would have said "at prompt" for the whole time the second command runs.
+- **Enters the shell never consumes** (Read-Host, a confirm prompt, vim, less, Claude Code, Shift+Enter, which Wave sends as a line feed): pending stays above 0, so pending is forgiven when a P marker has stood for
+  1.5 s (`ResyncWait`) with no B after it and no input since. Measured with a real ConPTY: the gap between a prompt marker and the B of a queued Enter was 8 to 30 ms, 129 ms for one outlier, also with a 700 ms slow
+  prompt function. A CPU-load run did not start the shell in time, so there is no load figure; 1.5 s is more than ten times the worst seen. Until the wait has passed the shell is not idle: a close within 1.5 s of a prompt asks.
+- Input that is not plain typing (function keys, other control characters, Alt chords, unknown escape sequences) ends at-prompt until the next P marker; printable characters, Tab, Backspace, Delete, Ctrl+C, Escape on its
+  own and the plain cursor, Home, End, Insert, Delete, PageUp and PageDown keys keep it.
+- The idle answer asks the tracker, makes the process look, and asks the tracker again: any Enter or marker during the look (it can take up to 2 seconds) changes the generation and the answer is not idle.
+- The process look: every process below the shell (children, their children, exactly 16 levels and 500 processes) must be `conhost.exe` from the Windows `System32` folder by name and path (Wave's own folder is not trusted:
+  it is user-writable). Windows keeps the parent id of a process after the parent has ended and reuses freed ids, so a process can name a parent that is a different, newer process (measured by the reviewer:
+  93 of 522 processes named a free parent id): a child counts only when it was created at or after its parent (`plausibleChild`; a creation time that cannot be read counts, the safe side). A failed look, a look over the limits or over 2 seconds, a child that is alive and cannot be named or checked, a WSL or SSH shell, a shell that is not running: not idle.
+- **Order of start-up:** Wave starts `pwsh -NoExit -File wavepwsh.ps1` without `-NoProfile`, so the user's profile runs BEFORE this script. A profile that set its own Enter binding is therefore seen and left alone
+  (never idle); a binding set after the script (interactively) is detected at the next prompt (N).
+- **Windows PowerShell 5.1, cmd.exe, bash, zsh, fish, tmux or screen, a remote shell, a profile with its own Enter binding:** no token or no marker, so never at prompt: the question is asked, as before.
+- **Still missed, stated:** a program that detached itself, so that its parent has already exited, is no longer below the shell in the process table; a command that starts without an Enter (an event action in the
+  shell); a program that forges the token; Enters that were never consumed and then a prompt marker that comes within 1.5 s of a real queued Enter (the resync wait, not measured under load); a command can start
+  between the look and the delete (two calls; the server does not decide at the delete). The look costs about 16 ms per process: with about 120 processes below the shell the 2 second limit turns it into a question.
+- **RAN:** the tracker's table (token, split markers, type-ahead from the real run, two lines in one write, replaced binding, N, forgiveness and its cancel, Ctrl+C, Escape, plain and other keys, a full-screen program,
+  reset) with a mutation table (no pending check, no resync, no B decrement, no token check, no broken state, function keys kept: each red); real child process trees; and a REAL PowerShell 7 under a real ConPTY feeding the
+  tracker as the controller does: at prompt at start; not at prompt while Start-Sleep runs inside the shell; at prompt within 1 s after a quick command (red when B is not printed); type-ahead never at prompt until both are done;
+  a replaced Enter binding reports N and is never at prompt; a profile's own Enter binding is left alone with no markers; the token is not in the environment of the shell or of a program started from it;
+  `go test ./pkg/blockcontroller` exits 0.
+- **NOT RUN, window check:** a real tile: PowerShell 7 at its prompt closes with Alt+W without the box; after `Start-Sleep 20`, `ping -t 127.0.0.1` or `Read-Host` it asks; a command typed ahead while another runs; after
+  Ctrl+C at the prompt it closes silently again; after leaving `vim` or `less` (wait 1.5 s) it closes silently again; Windows PowerShell 5.1 and cmd.exe always ask. Whether Wave's own PowerShell integration
+  (`wsh completion`, the oh-my-posh style themes, PSReadLine prediction views) changes the Enter binding or the prompt in a way that this misses is not known.
+
+**Tests that end processes (rule, after a scare on 11 Oct 2026):** a test must never end a process by walking parent ids: because of the reuse above that can end a program of the owner. The helper tests end only a process
+that they can show is theirs: created strictly after its parent AND running the test binary or a copy that a test made (`mayEnd`, tested with a fake process table: an unrelated older or newer program, an unknown creation time
+and an unknown image are never ended). The direct helper child is ended through the handle that started it.

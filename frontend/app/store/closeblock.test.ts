@@ -465,3 +465,45 @@ describe("the close of a block that cannot be identified holds one question at a
         expect(closed).toEqual(["a"]);
     });
 });
+
+describe("a shell that waits at its prompt", () => {
+    const withIdle = (readIdle: (id: string) => Promise<boolean>, view = "term", status = "running") => {
+        const t = deps(view, { shellprocstatus: status });
+        return { ...t, deps: { ...t.deps, readIdle } };
+    };
+
+    test("an idle shell closes without the box, a shell with a child process asks", async () => {
+        const idle = withIdle(async () => true);
+        expect(await confirmCloseBlock("i1", idle.deps)).toBe(true);
+        expect(idle.asked).toEqual([]);
+        const busy = withIdle(async () => false);
+        expect(await confirmCloseBlock("i2", busy.deps)).toBe(true);
+        expect(busy.asked).toEqual([RunningBlockQuestion]);
+    });
+
+    test("a look that fails, or is not set up, asks", async () => {
+        const failing = withIdle(async () => {
+            throw new Error("look failed");
+        });
+        await confirmCloseBlock("i3", failing.deps);
+        expect(failing.asked).toEqual([RunningBlockQuestion]);
+        const none = deps("term", { shellprocstatus: "running" });
+        await confirmCloseBlock("i4", none.deps);
+        expect(none.asked).toEqual([RunningBlockQuestion]);
+    });
+
+    test("idle only counts for a running terminal: other views and states are decided as before, and the look is not made for them", async () => {
+        const calls: string[] = [];
+        const look = async (id: string) => (calls.push(id), true);
+        const tsunami = withIdle(look, "tsunami");
+        await confirmCloseBlock("i5", tsunami.deps);
+        expect(tsunami.asked).toEqual([RunningBlockQuestion]);
+        const done = withIdle(look, "term", "done");
+        await confirmCloseBlock("i6", done.deps);
+        expect(done.asked).toEqual([]);
+        expect(calls).toEqual([]);
+        expect(closeBlockQuestion("term", "running", false, true)).toBeNull();
+        expect(closeBlockQuestion("tsunami", "running", false, true)).toBe(RunningBlockQuestion);
+        expect(closeBlockQuestion("term", "running", true, true)).toBe(UnknownBlockQuestion);
+    });
+});

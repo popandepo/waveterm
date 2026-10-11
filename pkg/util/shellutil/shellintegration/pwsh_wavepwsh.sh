@@ -112,6 +112,9 @@ function Global:_waveterm_si_prompt {
     }
     
     _waveterm_si_osc7
+    # private marker for wavesrv: the prompt is about to be shown (it decides, together with the input that is sent to the shell,
+    # whether this shell waits at a prompt; see blockstatus.PromptTracker)
+    Write-Host -NoNewline "`e]16162;P`a"
 }
 
 # Add the OSC 7 call to the prompt function

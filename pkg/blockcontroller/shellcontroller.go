@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
+	"github.com/wavetermdev/waveterm/pkg/blockstatus"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote"
@@ -65,6 +66,9 @@ type ShellController struct {
 	// for shell/cmd
 	ShellProc    *shellexec.ShellProc
 	ShellInputCh chan *BlockInputUnion
+
+	// what the shell printed and what was sent to it decide whether it waits at a prompt (see blockstatus.PromptTracker); used by the idle check
+	promptTracker blockstatus.PromptTracker
 }
 
 // Constructor that returns the Controller interface
@@ -525,6 +529,7 @@ func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc 
 func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellProc, rc *RunShellOpts, blockMeta waveobj.MetaMapType) error {
 	shellInputCh := make(chan *BlockInputUnion, 32)
 	bc.ShellInputCh = shellInputCh
+	bc.promptTracker.Reset()
 
 	go func() {
 		// handles regular output from the pty (goes to the blockfile and xterm)
@@ -553,6 +558,7 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		for {
 			nr, err := shellProc.Cmd.Read(buf)
 			if nr > 0 {
+				bc.promptTracker.Output(buf[:nr])
 				err := HandleAppendBlockFile(bc.BlockId, wavebase.BlockFile_Term, buf[:nr])
 				if err != nil {
 					log.Printf("error appending to blockfile: %v\n", err)
@@ -575,6 +581,7 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		}()
 		for ic := range shellInputCh {
 			if len(ic.InputData) > 0 {
+				bc.promptTracker.Input(ic.InputData)
 				shellProc.Cmd.Write(ic.InputData)
 			}
 			if ic.TermSize != nil {

@@ -466,7 +466,7 @@ a command (`wsh deleteblock`, the backend delete action) is never asked, because
 - **RAN:** vitest for which states ask, the answer deciding, a failed read asking, a failed dialog keeping the block, and source pins on the
   four call sites, on the commands not asking, and on the electron side (type, preload, handler with the message capped, preview stub).
 - **NOT RUN, window check:** the box itself. Put a `ping -t localhost` in a stack member and click its X (the box appears; Cancel keeps it
-  running; Close Block ends it); the same for the header menu "Close Block" and for Alt+W (the close key is `Cmd:w`, and Cmd is Alt on Windows; Alt+Shift+W closes the whole TAB through the tab question; Ctrl+Shift+W is not bound to anything); Ctrl+Shift+X (replace the block by a launcher) and the X or Alt+W with the AI panel open and a non-empty chat ask the same way. A web tile closes with no box. **An idle shell asks too:** the state `running` is the shell process itself, and the PowerShell integration of this build sends no "a command is running" state, so there is no way to tell an idle prompt from a running command (the fork would need the shell-integration command state for PowerShell, or a check for child processes of the shell).
+  running; Close Block ends it); the same for the header menu "Close Block" and for Alt+W (the close key is `Cmd:w`, and Cmd is Alt on Windows; Alt+Shift+W closes the whole TAB through the tab question; Ctrl+Shift+W is not bound to anything); Ctrl+Shift+X (replace the block by a launcher) and the X or Alt+W with the AI panel open and a non-empty chat ask the same way. A web tile closes with no box. **An idle local PowerShell 7 shell closes without the box** (section 35); every other shell, and a shell whose state is not known, asks.
 ## 23. Drag a tab out of its stack, reorder tabs (step E)
 
 Each tab on a stack's strip is a drag source of the same kind as a tile header. Dropped on the **edge** of a tile it becomes a tile of
@@ -637,3 +637,27 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 35. An idle shell closes without the box (PowerShell 7, local)
+
+The close question stays silent for a shell only when wavesrv knows that the shell waits at its prompt. The first version looked only at the processes below the shell and was refused in review: a
+command that runs inside PowerShell itself (Start-Sleep, a loop of cmdlets, Copy-Item, a download, Read-Host) has no process below the shell, so it read as idle. Now two things must both hold:
+1. **At prompt, from the byte streams** (`blockstatus.PromptTracker`, fed from the controller's read and write loops): the PowerShell 7 start-up script prints a private marker, ESC ] 16162 ; P BEL, each time its
+   prompt function runs (not inside tmux or screen; the window ignores this command, the existing A/C/D/M commands are untouched); the shell counts as at prompt from the moment that marker is seen, and
+   ANY input that contains a carriage return or a line feed (a typed Enter, a paste with a newline, a line sent by `wsh send`) ends it, whatever the shell does with it. A shell that never prints the marker
+   (Windows PowerShell 5.1, cmd.exe, bash, an integration switched off, a profile or theme that replaces the prompt function, tmux) is never at prompt, so it asks. A hook in PSReadLine was NOT used: a profile can
+   replace it, and a shell left "at prompt" while a command runs would close without a question, the worst failure.
+2. **Nothing below the shell** (`blockcontroller.GetShellIdle`, gopsutil): every process below the shell (children, their children, to depth 16 and 500 processes) must be the console host `conhost.exe` from the
+   Windows `System32` folder (path and name; Wave's own folder is not trusted: it is user-writable). A failed look, a look over the limits or over 2 seconds, a WSL or SSH shell, a shell that is not running: not idle.
+- **Cases (tested in `prompttracker_test.go`):** a typed or pasted or scripted newline ends at-prompt; a paste with a newline while a command already runs stays busy; Ctrl+C is the byte 3 (at the prompt it keeps
+  the state, and the prompt that the shell prints again brings the marker again; while a command runs it does not by itself make a prompt); Escape clears the line and keeps the state; a program that takes over the
+  screen (vim, less, Claude Code) is a process below the shell while it runs and its Enter keys keep the state busy; after it exits the shell's prompt prints the marker and the shell is at prompt again.
+- **Still missed, stated:** (1) a program that detached itself, so that its parent has already exited, is no longer below the shell in the process table; (2) input that was already queued when the marker was read
+  (a script that sends two commands back to back faster than the output is read) can leave at-prompt set while the second runs; (3) a command that starts without an Enter (an event action inside the shell); (4) a command
+  can start between the look and the delete (two calls, milliseconds apart; the server does not decide at the delete). The process look costs about 16 ms per process: with about 120 processes below the shell the 2 second
+  limit turns it into a question.
+- **RAN:** the tracker's table (marker split at every position, Enter ends it, paste while busy, Ctrl+C and Escape, full-screen program, reset) and red when the input rule is removed; real child processes (idle, a child,
+  a grandchild, a console-host-named copy in a trusted folder with a program below it, a WSL-named connection, a slow look, an over-limit look); a command inside the shell is not idle; real PowerShell 7: the prompt function
+  prints the marker once, prints none inside tmux, and the test is red when the line is removed; `go test ./pkg/blockcontroller` exits 0 (the helper processes are ended as a tree).
+- **NOT RUN, window check:** a real tile: PowerShell 7 at its prompt closes with Alt+W without the box; after `Start-Sleep 20` it asks; after `ping -t 127.0.0.1` it asks; after Ctrl+C at the prompt it closes silently
+  again; after `vim` or `less` is left it closes silently again; Windows PowerShell 5.1 and cmd.exe always ask. Whether the marker survives ConPTY unchanged is read from the existing OSC 16162 M command, which does.

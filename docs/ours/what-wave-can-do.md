@@ -776,6 +776,11 @@ strip tab of a stack member. A member's tab reads `attention:level` and `attenti
 - **Clearing:** a need or urgent mark on the FOCUSED block clears itself when the owner really has the tile: the window has focus and the block is the focused one, 0.5 s after the focus moved there and 3 s when it was already
   there (the rule of badges, `AttentionAutoClearing` in `app.tsx`, rule in `attentionclear.ts`); it writes null to both keys, so the session sees it gone. Info does not clear by focus. A session clears its own mark with
   `wsh attention clear`. Nothing clears a tile that is only shown in a tab without focus.
+- **Review fixes (Codex):** the plan for clearing is made again when the focused block, the window focus, the level OR the reason changes (a program that replaces the reason of a focused block's mark gets the full wait for
+  its new mark, it is not erased early); and when the timer fires the plan is checked against the present once more, synchronously right before the write: the window still has focus, the block is still the focused one, and
+  the mark is exactly the one that was planned for (level and reason). The logic is `scheduleAttentionClear` (`attentionschedule.ts`), tested with fake timers (focus change, window focus lost, cancel, a replaced reason or level, the
+  re-plan); there is no DOM test environment in this repository, so the component's effect is a thin call of it, pinned by source text. **Not closed:** the write takes a round trip to the server and block meta has no compare-and-set, so a mark
+  that a program writes during that round trip is erased.
 - **Not in this part:** the tile outline and header mark, the top tab, the workspace button, the taskbar flash; mute per tile; the five-minute limit of the pulse; the rate rule. The mark of a block that is not the active member of
   its stack is on its strip tab (that is the point of this step); a tile that is not a stack has no strip, so its mark is not drawn yet.
 - **RAN:** vitest for the mark of every level and of every value a program could write that must draw nothing, for the clear rule (only orange levels, only with window focus, the two delays), the clear meta (both keys, null), and

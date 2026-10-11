@@ -50,3 +50,38 @@ func TestBlockIdForSourceRouteRefusesWhatIsNotALeafSourceRoute(t *testing.T) {
 		t.Fatalf("a removed link must give nothing, got %q", got)
 	}
 }
+
+func TestALinkIsRecordedAsOneBlockOnly(t *testing.T) {
+	router := routerWithLeaf(1, LinkKind_Leaf, "proc:aaa")
+	if err := router.SetLinkAuthBlockId(1, "block-1"); err != nil {
+		t.Fatalf("first record: %v", err)
+	}
+	if err := router.SetLinkAuthBlockId(1, "block-1"); err != nil {
+		t.Fatalf("the same block again changes nothing: %v", err)
+	}
+	if err := router.SetLinkAuthBlockId(1, "block-2"); err == nil {
+		t.Fatal("another block on the same link must be refused")
+	}
+	if got := router.BlockIdForSourceRoute("proc:aaa"); got != "block-1" {
+		t.Fatalf("the recorded block must stay block-1, got %q", got)
+	}
+	route, block := router.linkAuthIdentity(1)
+	if route != "proc:aaa" || block != "block-1" {
+		t.Fatalf("identity: %q %q", route, block)
+	}
+}
+
+func TestABlockIsNotRecordedOnALinkWithoutASourceRoute(t *testing.T) {
+	router := NewWshRouter()
+	router.linkMap[1] = &linkMeta{linkId: 1, trusted: true, linkKind: LinkKind_Leaf}
+	if err := router.SetLinkAuthBlockId(1, "block-1"); err == nil {
+		t.Fatal("a leaf link whose route was never bound must refuse a block")
+	}
+	if err := router.SetLinkAuthBlockId(9, "block-1"); err == nil {
+		t.Fatal("a link that does not exist must refuse a block")
+	}
+	route, block := router.linkAuthIdentity(1)
+	if route != "" || block != "" {
+		t.Fatalf("nothing recorded: %q %q", route, block)
+	}
+}

@@ -79,15 +79,38 @@ func TestWebNavAuthorizeBindsTheRequestToTheCallersWorkspace(t *testing.T) {
 	}
 }
 
-func TestTheRouterRecordsTheBlockAtAuthentication(t *testing.T) {
+func TestTheRouterRecordsTheBlockOnlyAfterTheRouteIsBound(t *testing.T) {
 	src, err := os.ReadFile("../../wshutil/wshrouter_controlimpl.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(src)
-	bind := strings.Index(text, "impl.Router.bindRoute(linkId, rtnData.RouteId, true)")
-	set := strings.Index(text, "impl.Router.SetLinkAuthBlockId(linkId, rtnData.RpcContext.BlockId)")
-	if bind < 0 || set < bind {
-		t.Fatalf("the block of the token must be recorded right after the route is bound (bind at %d, set at %d)", bind, set)
+	guard := strings.Index(text, "linkAuthIdentity(linkId)")
+	bind := strings.Index(text, "impl.Router.bindRoute(linkId, rtnData.RouteId, true); err != nil")
+	set := strings.Index(text, "impl.Router.SetLinkAuthBlockId(linkId, rtnData.RpcContext.BlockId); err != nil")
+	if guard < 0 || bind < 0 || set < 0 {
+		t.Fatalf("guard, checked bind and checked record must all be there (guard %d, bind %d, set %d)", guard, bind, set)
+	}
+	if !(guard < bind && bind < set) {
+		t.Fatalf("order must be: identity guard, bind (error checked), record (guard %d, bind %d, set %d)", guard, bind, set)
+	}
+	if strings.Contains(text, "impl.Router.bindRoute(linkId, rtnData.RouteId, true)"+string(rune(10))) {
+		t.Fatal("the result of bindRoute must be checked")
+	}
+}
+
+// One text for a tile that does not exist and for a tile in another workspace: a caller cannot tell which ids exist elsewhere.
+func TestADeniedTileAnswersTheSameWhetherItExistsOrNot(t *testing.T) {
+	withWebNavFakes(t,
+		map[string]string{"proc:inA": "blockA"},
+		map[string]string{"blockA": "wsA", "tileB": "wsB"})
+	ws := &WshServer{}
+	other := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inA", BlockId: "tileB"})
+	missing := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inA", BlockId: "no-such-tile"})
+	if other == nil || missing == nil {
+		t.Fatalf("both must be refused: %v %v", other, missing)
+	}
+	if other.Error() != missing.Error() || other.Error() != WebNavDenied {
+		t.Fatalf("the two answers must be the same text: %q and %q", other.Error(), missing.Error())
 	}
 }

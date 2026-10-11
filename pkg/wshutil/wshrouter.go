@@ -798,15 +798,32 @@ func (router *WshRouter) bindRouteLocally(linkId baseds.LinkId, routeId string, 
 	return nil
 }
 
-// SetLinkAuthBlockId records the block id that the token of a leaf link carried. Only the router's own authentication calls this.
-func (router *WshRouter) SetLinkAuthBlockId(linkId baseds.LinkId, blockId string) {
+// SetLinkAuthBlockId records the block id that the token of a leaf link carried. Only the router's own authentication calls this, and only after the
+// source route was bound. The identity of a link is set ONCE: a second value (or a value on a link without a source route) is refused, so a link that
+// authenticated as one block can never be recorded as another.
+func (router *WshRouter) SetLinkAuthBlockId(linkId baseds.LinkId, blockId string) error {
 	router.lock.Lock()
 	defer router.lock.Unlock()
 	lm := router.linkMap[linkId]
-	if lm == nil || lm.linkKind != LinkKind_Leaf {
-		return
+	if lm == nil || lm.linkKind != LinkKind_Leaf || lm.sourceRouteId == "" {
+		return fmt.Errorf("link %d has no source route to record a block for", linkId)
+	}
+	if lm.authBlockId != "" && lm.authBlockId != blockId {
+		return fmt.Errorf("link %d is already recorded as another block", linkId)
 	}
 	lm.authBlockId = blockId
+	return nil
+}
+
+// linkAuthIdentity is the source route and the block id that a link has authenticated as ("" and "" for a link that has not).
+func (router *WshRouter) linkAuthIdentity(linkId baseds.LinkId) (string, string) {
+	router.lock.Lock()
+	defer router.lock.Unlock()
+	lm := router.linkMap[linkId]
+	if lm == nil {
+		return "", ""
+	}
+	return lm.sourceRouteId, lm.authBlockId
 }
 
 // BlockIdForSourceRoute is the block id of the token behind a source route (the route that the router stamps as the source of every message from a

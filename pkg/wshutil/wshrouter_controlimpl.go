@@ -207,10 +207,21 @@ func (impl *WshRouterControlImpl) AuthenticateTokenCommand(ctx context.Context, 
 	if rtnData.RouteId == "" {
 		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("no routeid in token response")
 	}
-	log.Printf("wshrouter authenticate-token success linkid=%d routeid=%q", linkId, rtnData.RouteId)
+	// a link authenticates once: a second token on the same link must be for the same route and the same block (it changes nothing), never another identity
+	if curRoute, curBlock := impl.Router.linkAuthIdentity(linkId); curRoute != "" && (curRoute != rtnData.RouteId || curBlock != rtnData.RpcContext.BlockId) {
+		log.Printf("wshrouter authenticate-token refused linkid=%d: the link is already authenticated as route %q", linkId, curRoute)
+		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("this link is already authenticated as another route or block")
+	}
 	impl.Router.trustLink(linkId, LinkKind_Leaf)
-	impl.Router.bindRoute(linkId, rtnData.RouteId, true)
-	impl.Router.SetLinkAuthBlockId(linkId, rtnData.RpcContext.BlockId)
+	if err := impl.Router.bindRoute(linkId, rtnData.RouteId, true); err != nil {
+		log.Printf("wshrouter authenticate-token error linkid=%d: cannot bind route %q: %v", linkId, rtnData.RouteId, err)
+		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("cannot bind the route of this token: %w", err)
+	}
+	if err := impl.Router.SetLinkAuthBlockId(linkId, rtnData.RpcContext.BlockId); err != nil {
+		log.Printf("wshrouter authenticate-token error linkid=%d: %v", linkId, err)
+		return wshrpc.CommandAuthenticateRtnData{}, err
+	}
+	log.Printf("wshrouter authenticate-token success linkid=%d routeid=%q", linkId, rtnData.RouteId)
 
 	return rtnData, nil
 }

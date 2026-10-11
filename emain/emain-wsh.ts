@@ -56,6 +56,8 @@ export class ElectronWshClientType extends WshClient {
         if (wc == null) {
             throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
         }
+        // the same question again right before acting (a belt: no code moves a block to another tab or workspace today, but the lookups above take time)
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid });
         return webNavigate(wc, data.action);
     }
 

@@ -158,6 +158,14 @@ describe("the caller of a web command (source pin: the handler needs a window)",
             assert.isAbove(body.indexOf(later), ask, later + " must come after the question");
         }
     });
+    test("the question is asked again right before the action (a belt against a tile that changed workspace meanwhile)", () => {
+        const first = body.indexOf("WebNavAuthorizeCommand");
+        const second = body.indexOf("WebNavAuthorizeCommand", first + 1);
+        const act = body.indexOf("return webNavigate(wc, data.action)");
+        assert.isAbove(second, first);
+        assert.isAbove(act, second);
+        assert.isAbove(second, body.indexOf("getWebContentsByBlockId("));
+    });
     test("the caller is never taken from the request", () => {
         assert.notInclude(body, "data.callerroute");
         assert.notInclude(body, "data.callerblock");

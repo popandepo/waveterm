@@ -47,6 +47,7 @@ function Normalize([string]$file, [string]$text) {
 # Rows for declarations upstream owns are matched in full (through the return type and the opening brace). Rows for
 # declarations we edit ourselves (TabBadges) match the name only, so our own change does not turn them red.
 $seams = @(
+    @('modals-renderer', 'frontend/app/modals/modalsrenderer.tsx', 'const ModalsRenderer = () => {', 'the one place that opens the first-run and upgrade screens, now only through onboardingToOpen'),
     @('tab-flagcolor-const', 'pkg/waveobj/metaconsts.go', 'MetaKey_TabFlagColor = "tab:flagcolor"', 'tab colour meta key'),
     @('tab-flagcolor-field', 'pkg/waveobj/wtypemeta.go', 'TabFlagColor string `json:"tab:flagcolor,omitempty"`', 'typed meta field'),
     @('tab-flagcolor-read', 'frontend/app/tab/tab.tsx', 'tabData?.meta?.["tab:flagcolor"]', 'tab bar reads the colour from tab meta'),

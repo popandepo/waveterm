@@ -814,3 +814,13 @@ content and below the modals and typeaheads (z-index 50). The colours go through
   events, z-index 50).
 - **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
   changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.
+
+## 41. `--size`: the weight of a new tile (a 60 to 40 split without the mouse)
+
+`wsh web open`, `wsh term`, `wsh run` and `wsh createblock` take `--size <1 to 100>`: the weight of the new tile in the layout. Every tile has a weight (10 for one that nobody resized) and the layout shares the space in proportion to the
+weights, so `--size 7` next to a tile of weight 10 gives the new tile 7 of 17 parts (about 41 percent), `--size 10` is an equal half. It counts only when the block is added as a NEW tile (a plain insert or a split); with `--replace` or `--stack` the
+block takes the place of another and the flag is ignored. A value outside 1 to 100 is refused by wsh before anything is created. The request field is `nodesize` on `CommandCreateBlockData` (the layout already honoured it for new nodes; nothing used it
+from outside).
+RAN: `go test ./cmd/wsh/cmd/` with cgo: the range (0, 101 and 100000 refused, 1, 7, 10, 100 accepted), the flag on all four commands, the size reaching the request, the server passing the weight to the four splits and the plain insert and not to a replace
+(a source pin on `wshserver.go`, because the handler needs a database); mutations red: a split without the weight, the range check off, the size not applied, the flag not added, a replace that carries the weight. `task generate` was run (only
+`gotypes.d.ts` changed). NOT RUN: a window check that the new tile really gets about 41 percent, and that the layout keeps the weights after a restart (it saves the tree, so it should).

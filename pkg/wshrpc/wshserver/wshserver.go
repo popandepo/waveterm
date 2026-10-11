@@ -1382,6 +1382,11 @@ func (ws WshServer) SendTelemetryCommand(ctx context.Context) error {
 }
 
 func (ws *WshServer) WaveAIEnableTelemetryCommand(ctx context.Context) error {
+	return fmt.Errorf("%s", WaveAIEnableTelemetryRefused)
+}
+
+// Upstream's body, kept unreachable behind the refusal above so that a merge from upstream shows up as a conflict here.
+func (ws *WshServer) waveAIEnableTelemetryUpstream(ctx context.Context) error {
 	// Enable telemetry in config
 	meta := waveobj.MetaMapType{
 		wconfig.ConfigKey_TelemetryEnabled: true,

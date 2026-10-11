@@ -825,7 +825,8 @@ export class TermViewModel implements ViewModel {
 
     // Right click as Windows Terminal does it (setting term:rightclickpaste): copy the selection, or paste when nothing is selected.
     // Returns true when the click was handled, false when the context menu should open. The paste goes to THIS terminal: it takes the
-    // keyboard focus before the native paste is sent (see runRightClick). A program that takes the mouse itself keeps the click.
+    // block focus and the keyboard focus, and the native paste is sent only when its input element really holds the focus (see
+    // runRightClick). A program that takes the mouse itself keeps the click, and the selection is cleared only after the copy worked.
     handleRightClick(menuModifier: boolean): boolean {
         const terminal = this.termRef.current?.terminal;
         if (terminal == null) {
@@ -840,17 +841,22 @@ export class TermViewModel implements ViewModel {
                 this.nodeModel.focusNode();
                 terminal.focus();
             },
+            isThisTerminalFocused: () => {
+                const active = document.activeElement;
+                return active != null && !!terminal.element?.contains(active);
+            },
             nativePaste: () => getApi().nativePaste(),
-            copySelection: () => {
+            copySelection: async () => {
                 const selection = terminal.getSelection();
                 if (!selection) {
-                    return;
+                    return false;
                 }
                 const text =
                     globalStore.get(getSettingsKeyAtom("term:trimtrailingwhitespace")) !== false
                         ? trimTerminalSelection(selection)
                         : selection;
-                navigator.clipboard.writeText(text);
+                await navigator.clipboard.writeText(text);
+                return true;
             },
             clearSelection: () => terminal.clearSelection(),
         });

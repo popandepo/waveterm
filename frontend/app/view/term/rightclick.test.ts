@@ -4,13 +4,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { rightClickAction, runRightClick } from "./rightclick";
+import { rightClickAction, runRightClick, waitForTerminalFocus } from "./rightclick";
 
 describe("what a right click in a terminal does", () => {
     test("with the setting off or unset it opens the menu, whatever is selected", () => {
         for (const setting of [false, undefined, null]) {
             expect(rightClickAction(setting, false, false)).toBe("menu");
             expect(rightClickAction(setting, true, false)).toBe("menu");
+            expect(rightClickAction(setting, true, false, true)).toBe("menu");
         }
     });
 
@@ -19,24 +20,41 @@ describe("what a right click in a terminal does", () => {
         expect(rightClickAction(true, false, false)).toBe("paste");
     });
 
-    test("Shift or Ctrl held keeps the menu reachable", () => {
+    test("Shift or Ctrl held keeps the menu reachable, also in a program that takes the mouse", () => {
         expect(rightClickAction(true, true, true)).toBe("menu");
         expect(rightClickAction(true, false, true)).toBe("menu");
+        expect(rightClickAction(true, false, true, true)).toBe("menu");
     });
 
-    test("a program that takes the mouse itself (vim, Claude Code) gets the click: no copy, no paste", () => {
-        expect(rightClickAction(true, false, false, true)).toBe("menu");
-        expect(rightClickAction(true, true, false, true)).toBe("menu");
+    test("a program that takes the mouse itself (vim, Claude Code) gets the click: its own outcome, no menu, no copy, no paste", () => {
+        expect(rightClickAction(true, false, false, true)).toBe("program");
+        expect(rightClickAction(true, true, false, true)).toBe("program");
     });
 });
 
-// Two terminals in one window: the native paste goes to the element that has the keyboard focus, so a stand-in for that rule runs
-// the whole click against two terminals.
-function twoTerminals(setting = true) {
+// A simulated clock and two terminals in one window. The native paste goes to the element that has the keyboard focus, and the focus
+// takes `focusDelayMs` to settle after a terminal asks for it (as the app's focus handling does: a layout update, then the element).
+function twoTerminals(
+    opts: { setting?: boolean; focusDelayMs?: number; focusNeverSettles?: boolean; clipboardFails?: boolean } = {}
+) {
+    const setting = opts.setting ?? true;
+    const focusDelayMs = opts.focusDelayMs ?? 0;
     const pasted: Record<string, string[]> = { A: [], B: [] };
     const copied: string[] = [];
+    const cleared: string[] = [];
+    let now = 0;
     let keyboardFocus = "A";
-    const clipboard = "echo from the clipboard";
+    const pending: { at: number; to: string }[] = [];
+    const settle = () => {
+        for (const p of pending.filter((x) => x.at <= now)) {
+            keyboardFocus = p.to;
+        }
+        pending.splice(0, pending.length, ...pending.filter((x) => x.at > now));
+    };
+    const wait = async (ms: number) => {
+        now += ms;
+        settle();
+    };
     const click = (target: "A" | "B", over: Partial<Parameters<typeof runRightClick>[0]> = {}) =>
         runRightClick({
             rightClickPaste: setting,
@@ -44,54 +62,127 @@ function twoTerminals(setting = true) {
             programTakesMouse: false,
             menuModifier: false,
             focusThisTerminal: () => {
-                keyboardFocus = target;
+                if (!opts.focusNeverSettles) {
+                    pending.push({ at: now + focusDelayMs, to: target });
+                    settle();
+                }
             },
+            isThisTerminalFocused: () => keyboardFocus === target,
             nativePaste: () => {
-                pasted[keyboardFocus].push(clipboard);
+                pasted[keyboardFocus].push("echo from the clipboard");
             },
-            copySelection: () => void copied.push(target),
-            clearSelection: () => {},
+            copySelection: async () => {
+                if (opts.clipboardFails) {
+                    throw new Error("clipboard denied");
+                }
+                copied.push(target);
+                return true;
+            },
+            clearSelection: () => void cleared.push(target),
+            wait,
             ...over,
         });
-    return { pasted, copied, click, focus: () => keyboardFocus };
+    const flush = async () => {
+        for (let i = 0; i < 40; i++) {
+            await Promise.resolve();
+        }
+    };
+    return { pasted, copied, cleared, click, flush, focus: () => keyboardFocus };
 }
 
 describe("the right click run against two terminals with different focus", () => {
-    test("a right click on B while A holds the keyboard focus pastes into B, not A", () => {
+    test("a right click on B while A holds the keyboard focus pastes into B, not A", async () => {
         const t = twoTerminals();
         expect(t.focus()).toBe("A");
         expect(t.click("B")).toBe(true);
+        await t.flush();
         expect(t.pasted.B).toEqual(["echo from the clipboard"]);
         expect(t.pasted.A).toEqual([]);
-        expect(t.focus()).toBe("B");
     });
 
-    test("a right click on the terminal that has the focus pastes there", () => {
+    test("when the focus takes time to settle the paste waits for it and still lands in B", async () => {
+        const t = twoTerminals({ focusDelayMs: 100 });
+        t.click("B");
+        await t.flush();
+        expect(t.pasted.B.length).toBe(1);
+        expect(t.pasted.A.length).toBe(0);
+    });
+
+    test("when the focus never settles nothing is pasted anywhere", async () => {
+        const t = twoTerminals({ focusNeverSettles: true });
+        expect(t.click("B")).toBe(true);
+        await t.flush();
+        expect(t.pasted.A.length + t.pasted.B.length).toBe(0);
+        expect(t.focus()).toBe("A");
+    });
+
+    test("a right click on the terminal that has the focus pastes there", async () => {
         const t = twoTerminals();
         t.click("A");
+        await t.flush();
         expect(t.pasted.A.length).toBe(1);
         expect(t.pasted.B.length).toBe(0);
     });
 
-    test("with the setting off, in a mouse-taking program, or with Shift, nothing is pasted or copied and the menu opens", () => {
-        const off = twoTerminals(false);
+    test("with the setting off, or with Shift, nothing is pasted or copied and the menu opens", async () => {
+        const off = twoTerminals({ setting: false });
         expect(off.click("B")).toBe(false);
-        const mouse = twoTerminals();
-        expect(mouse.click("B", { programTakesMouse: true })).toBe(false);
         const shift = twoTerminals();
         expect(shift.click("B", { menuModifier: true, hasSelection: true })).toBe(false);
-        for (const t of [off, mouse, shift]) {
+        await off.flush();
+        await shift.flush();
+        for (const t of [off, shift]) {
             expect(t.pasted.A.length + t.pasted.B.length).toBe(0);
             expect(t.copied).toEqual([]);
         }
         expect(off.focus()).toBe("A");
     });
 
-    test("with a selection it copies from the terminal that was clicked and pastes nothing", () => {
+    test("a program that takes the mouse: handled, so no Wave menu, and nothing is copied, pasted or focused", async () => {
+        const t = twoTerminals();
+        expect(t.click("B", { programTakesMouse: true })).toBe(true);
+        await t.flush();
+        expect(t.pasted.A.length + t.pasted.B.length).toBe(0);
+        expect(t.copied).toEqual([]);
+        expect(t.focus()).toBe("A");
+    });
+
+    test("with a selection it copies from the terminal that was clicked, then clears the selection, and pastes nothing", async () => {
         const t = twoTerminals();
         expect(t.click("B", { hasSelection: true })).toBe(true);
+        await t.flush();
         expect(t.copied).toEqual(["B"]);
+        expect(t.cleared).toEqual(["B"]);
         expect(t.pasted.A.length + t.pasted.B.length).toBe(0);
+    });
+
+    test("a clipboard that refuses the text leaves the selection where it is", async () => {
+        const t = twoTerminals({ clipboardFails: true });
+        expect(t.click("B", { hasSelection: true })).toBe(true);
+        await t.flush();
+        expect(t.copied).toEqual([]);
+        expect(t.cleared).toEqual([]);
+    });
+});
+
+describe("waiting for the focus", () => {
+    test("returns true as soon as the terminal holds the focus, false after the timeout", async () => {
+        let polls = 0;
+        const slow = await waitForTerminalFocus(
+            () => ++polls > 3,
+            async () => {},
+            300,
+            20
+        );
+        expect(slow).toBe(true);
+        expect(
+            await waitForTerminalFocus(
+                () => false,
+                async () => {},
+                100,
+                20
+            )
+        ).toBe(false);
     });
 });
 
@@ -111,10 +202,11 @@ describe("the wiring", () => {
         expect(fn).toContain("term:rightclickpaste");
         expect(fn).toContain("this.nodeModel.focusNode()");
         expect(fn).toContain("terminal.focus()");
+        expect(fn).toContain("isThisTerminalFocused");
         expect(fn).toContain("mouseTrackingMode");
         expect(fn).toContain("getApi().nativePaste()");
         expect(fn).toContain("trimTerminalSelection");
-        expect(fn.indexOf("terminal.focus()")).toBeLessThan(fn.indexOf("getApi().nativePaste()"));
+        expect(fn).toContain("navigator.clipboard.writeText(text)");
     });
 
     test("the setting exists in the types, the default config and the docs", () => {

@@ -511,7 +511,9 @@ works as in Windows Terminal: it copies the selection (trimmed as the menu's Cop
 magnify, send to Wave AI) stay reachable. The setting is off upstream and on in this fork's defaults; set it to false for the old behaviour.
 Two safeguards found in review. The paste goes to THIS terminal: it takes the block focus and the keyboard focus first, because the native paste lands
 in whichever element holds the focus (a right click on a terminal that did not hold it would otherwise paste into the one that did). A program that
-takes the mouse itself (vim, Claude Code: the terminal's mouse tracking is on) keeps the click, so the menu opens as before. Multi-line text: the native
+takes the mouse itself (vim, Claude Code: the terminal's mouse tracking is on) keeps the click: Wave opens no menu and copies and pastes nothing (Shift
++ right click still gives the menu). The paste is sent only when the terminal's input element really holds the keyboard focus: Wave waits for it (up to 300 ms) and
+pastes nothing at all if it does not settle, rather than risk the other terminal. The selection is cleared only after the clipboard took the copy. Multi-line text: the native
 paste ends in the terminal's own paste handler (xterm `paste`), which wraps the text in bracketed-paste markers when the program asked for them (PowerShell's
 line editor does), so a multi-line paste is not run by itself; a shell that does not ask for them (plain `cmd.exe`) receives it as typed, as with Ctrl+V;
 `term:allowbracketedpaste` (on by default) is the setting that switches that off.

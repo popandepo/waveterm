@@ -583,6 +583,12 @@ func (ws *WshServer) DeleteBlockCommand(ctx context.Context, data wshrpc.Command
 	if tabId == "" {
 		return fmt.Errorf("no tab found for block")
 	}
+	if data.RefuseRunning {
+		// the check and the delete are in this one call, with nothing between them but the database write
+		if refusal := deleteRefusalForBlock(ctx, data.BlockId); refusal != "" {
+			return fmt.Errorf("not deleted: %s", refusal)
+		}
+	}
 	err = wcore.DeleteBlock(ctx, data.BlockId, true)
 	if err != nil {
 		return fmt.Errorf("error deleting block: %w", err)

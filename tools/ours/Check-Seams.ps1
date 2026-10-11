@@ -108,6 +108,7 @@ $seams = @(
     @('swaptoken-env-conn', 'pkg/blockcontroller/blockcontroller.go', 'token.Env["WAVETERM_CONN"] = remoteName', 'the environment a new shell gets; ours adds the per-block PowerShell history file next to it'),
     @('delete-block-event', 'pkg/wcore/block.go', 'sendBlockCloseEvent(blockId)', 'a deleted block; ours removes its PowerShell history file right after'),
     @('pwsh-init-swaptoken', 'pkg/util/shellutil/shellintegration/pwsh_wavepwsh.sh', 'Remove-Item Env:WAVETERM_SWAPTOKEN', 'the PowerShell start-up script; ours sets the history path right after'),
+    @('wsh-deleteblock-cmd', 'cmd/wsh/cmd/wshcmd-deleteblock.go', 'var deleteBlockCmd = &cobra.Command{', 'wsh deleteblock; ours refuses a block with a running program unless --force'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('state-record-event-hook', 'pkg/wps/wps.go', 'notifyObservers(event)', 'the state record reacts to every published object update'),

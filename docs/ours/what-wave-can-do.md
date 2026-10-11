@@ -680,3 +680,17 @@ Review fixes for section 29: a name (Rename, or any caller of `memberLookMeta`) 
 The menus check that the block still exists before the menu is shown and again before each write. The Close of the strip tab menu is built by `makeStripTabMenuInfo`
 and goes through the same route as the X (`closeStripTab`); tested with a question that refuses (nothing closed) and with none set up (nothing closed).
 Colours: control characters and newlines are refused before any pattern, and the function pattern allows spaces only (section 28).
+
+## 31. Tile outlines in colour (colour work, step 3)
+
+The outline of a tile (the border drawn by `BlockMask`) is computed by `tileOutlineColor` (`frontend/app/block/tileoutline.ts`). The order, exactly:
+- **Focused tile:** 1. the block's override `frame:activebordercolor`; 2. the block's own colour `icon:color` (the agent's colour); 3. the tab's colour: first its flag colour `tab:flagcolor`, then
+  the border colour of its background (`bg:activebordercolor`, from the tab or its background config); 4. the stylesheet's accent, which is the workspace colour (`ws:accent`).
+- **Tile that is not focused:** 1. `frame:bordercolor`; 2. the tab's colour: `tab:flagcolor`, then the background's `bg:bordercolor`; 3. an ephemeral tile with none is white; otherwise no colour.
+"Tab colour" includes the tab background's own border colour, after the flag colour. Every candidate, the explicit overrides and the tab background's colours included, goes through
+`memberColorValue` (section 28); one that is not accepted counts as not set, so the next one applies. Only the outline is coloured: no header and no tile is filled (pinned: the outline
+function is used only in `BlockMask`, assigned only to `style.borderColor`; the header and utility files do not use it). The window outline and the top row are later steps.
+- **RAN:** vitest for both orders, for every candidate refused when it is not accepted (url(), var(), a newline, a number, empty), the ephemeral white, and the source pins; red when the
+  focused order is swapped, when the unfocused outline takes the block's colour, and when the override is not validated.
+- **NOT RUN, window check:** a focused tile in a tab with a flag colour and a block with `icon:color` (outline = the block's colour), a tile without colours (workspace accent as before),
+  unfocused tiles in a flagged tab (outline = tab colour), that no header is filled.

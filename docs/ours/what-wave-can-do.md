@@ -637,3 +637,18 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 30. A new ephemeral block replaces the one on screen: the old one is asked about
+
+When a second ephemeral block opens while one is on screen, the old one used to be closed directly (its program stopped, nothing asked). It now goes through the same close
+question as the X (`replaceEphemeral`, `ephemeralreplace.ts`): answered yes, the old block closes and the new one shows; answered no, or no question set up, or the question or the close
+fails, the old one stays and the NEW block is discarded (there is only one ephemeral place). The new block exists already in the back end, so it is deleted for real through
+`ObjectService.DeleteBlock` (`discardEphemeralBlock`: retried once; a second failure and a missing delete callback are logged as errors and reported, never silent; the tab content always
+passes `onNodeDelete`, pinned). A discard that cannot be deleted is reported (`replaceEphemeral` returns `discarded: false`), its id is kept (`DiscardLedger`) and tried again when the next
+ephemeral block arrives; the tab's orphan clean-up when a layout loads is the last net.
+One question at a time: while a replacement is under way every arriving ephemeral block is discarded; the guard is checked before the empty-slot path, because the slot can be empty for a
+moment while the old block closes.
+- **RAN:** vitest: order ask, close, show; no answer leaves the old block and discards the new; no question set up discards the new; a failing question or close keeps the old and discards
+  the new; a failed discard is reported and kept in the ledger and retried; the guard comes before the empty-slot path; source pins that `newEphemeralNode` does not close directly and that both
+  discard sites use the remembering discard. Red when the answer is ignored and when the guard order is swapped.
+- **NOT RUN, window check:** an ephemeral replace with a running program in the old block (the box appears; Cancel keeps the old block and the new one disappears; Close Block shows the new one).

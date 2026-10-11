@@ -797,7 +797,7 @@ strip tab of a stack member. A member's tab reads `attention:level` and `attenti
   `wsh attention info` shows the icon and stays; the pulse stops with "reduce motion" on; a long tab name keeps the dot visible.
 ## 38. The top row shows the tab colour (colour work, step 4)
 
-By the settled scheme (the "SETTLED 11 Oct" row of the colour mock-up): the ACTIVE top tab is filled with its tab colour (`tab:flagcolor`, 20 percent) and has its line under it (the full colour, 2 px); the other tabs
+By the settled scheme (the "SETTLED 11 Oct" row of the colour mock-up): the ACTIVE top tab is filled with its tab colour (`tab:flagcolor`, 20 percent: a tunable, `ActiveFillPercent` in `toptablook.ts`, and the line of the other tabs `InactiveLinePercent` (55); the tests are built from the constants, so changing them changes no test) and has its line under it (the full colour, 2 px); the other tabs
 that have a colour show only a dimmer line (55 percent); a tab without a colour looks as before. The top bar itself is not filled, the gaps between the tiles and the headers are not touched, and no edge mark is added. The
 rule is `topTabLook` (`frontend/app/tab/toptablook.ts`): the colour goes through `memberColorValue` (section 28), so a value that is not accepted draws nothing; the two small elements (`tab-colour-fill`,
 `tab-colour-line`) sit inside the tab behind its name. The existing flag glyph on the tab is unchanged.

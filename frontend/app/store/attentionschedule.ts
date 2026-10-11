@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { attentionOf } from "./attention";
 import { attentionClearDelayMs } from "./attentionclear";
 
 export interface AttentionClearEnv {
@@ -28,12 +29,13 @@ export interface AttentionClearRequest {
 // the mark is still exactly the one that was planned for (level and reason): a newer mark that a program wrote meanwhile is never erased.
 // What this cannot close: the write itself takes a round trip to the server, and a mark written during that round trip is erased (there is no
 // compare-and-set on block meta).
-function asText(v: unknown): string {
-    return typeof v === "string" ? v : "";
-}
-
 export function scheduleAttentionClear(req: AttentionClearRequest, env: AttentionClearEnv): (() => void) | undefined {
     if (!req.blockId) {
+        return undefined;
+    }
+    // Nothing is planned for a mark that does not draw (a missing, empty or invalid reason, a level that is not one of the three): there is nothing to
+    // clear, and the server compares exact strings, so only a mark whose level and reason are both strings that passed the validation is planned.
+    if (typeof req.level !== "string" || typeof req.reason !== "string" || attentionOf(req.level, req.reason).level === "") {
         return undefined;
     }
     const delay = attentionClearDelayMs(req.level, req.documentHasFocus, req.focusSwitched);
@@ -51,7 +53,7 @@ export function scheduleAttentionClear(req: AttentionClearRequest, env: Attentio
         if (now.level !== req.level || now.reason !== req.reason) {
             return;
         }
-        env.clear(req.blockId, asText(req.level), asText(req.reason));
+        env.clear(req.blockId, req.level as string, req.reason as string);
     }, delay);
     return () => clearTimeout(timeoutId);
 }

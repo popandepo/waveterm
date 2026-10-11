@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -143,12 +144,16 @@ func TestAClearRacingWithANewMarkNeverEratesTheNewMark(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, _ = ClearBlockAttentionIf(ctx, b.OID, "need", "old")
+			if _, err := ClearBlockAttentionIf(ctx, b.OID, "need", "old"); err != nil {
+				t.Errorf("round %d: clear: %v", round, err)
+			}
 		}()
 		go func() {
 			defer wg.Done()
 			<-start
-			_ = UpdateObjectMeta(waveobj.ContextWithUpdates(ctx), waveobj.MakeORef(waveobj.OType_Block, b.OID), waveobj.MetaMapType{"attention:level": "need", "attention:reason": "new"}, false)
+			if err := UpdateObjectMeta(waveobj.ContextWithUpdates(ctx), waveobj.MakeORef(waveobj.OType_Block, b.OID), waveobj.MetaMapType{"attention:level": "need", "attention:reason": "new"}, false); err != nil {
+				t.Errorf("round %d: write: %v", round, err)
+			}
 		}()
 		close(start)
 		wg.Wait()
@@ -156,5 +161,56 @@ func TestAClearRacingWithANewMarkNeverEratesTheNewMark(t *testing.T) {
 		if got["attention:level"] != "need" || got["attention:reason"] != "new" {
 			t.Fatalf("round %d: the new mark was lost: %v", round, got)
 		}
+	}
+}
+
+func TestAnEmptyExpectedValueNeverMatches(t *testing.T) {
+	ctx := initAttentionTestStore(t)
+	b := insertBlock(t, ctx, waveobj.MetaMapType{"attention:level": "need", "attention:reason": ""})
+	for _, c := range [][2]string{{"", ""}, {"need", ""}, {"", "x"}} {
+		if cleared, err := ClearBlockAttentionIf(ctx, b.OID, c[0], c[1]); err != nil || cleared {
+			t.Fatalf("(%q, %q) must not clear: cleared=%v err=%v", c[0], c[1], cleared, err)
+		}
+	}
+	if got := getBlock(t, ctx, b.OID).Meta; got["attention:level"] != "need" {
+		t.Fatalf("the mark must be intact: %v", got)
+	}
+}
+
+// A controlled interleaving: inside the transaction of the clear, after the compare and before the write, another writer tries to write a new mark. If
+// the compare and the write are one step the rival is held back until the clear is done and the new mark is the last word; if they were two steps the
+// rival would get through in between (and the clear would then overwrite it).
+func TestTheCompareAndTheWriteAreOneStep(t *testing.T) {
+	ctx := initAttentionTestStore(t)
+	b := insertBlock(t, ctx, waveobj.MetaMapType{"attention:level": "need", "attention:reason": "old"})
+	rivalDone := make(chan struct{})
+	var rivalFinishedInsideTheStep bool
+	attentionClearBeforeWrite = func() {
+		go func() {
+			defer close(rivalDone)
+			_ = UpdateObjectMeta(waveobj.ContextWithUpdates(ctx), waveobj.MakeORef(waveobj.OType_Block, b.OID), waveobj.MetaMapType{"attention:level": "need", "attention:reason": "new"}, false)
+		}()
+		select {
+		case <-rivalDone:
+			rivalFinishedInsideTheStep = true
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	t.Cleanup(func() { attentionClearBeforeWrite = nil })
+	cleared, err := ClearBlockAttentionIf(ctx, b.OID, "need", "old")
+	if err != nil || !cleared {
+		t.Fatalf("cleared=%v err=%v", cleared, err)
+	}
+	if rivalFinishedInsideTheStep {
+		t.Fatal("a rival write got through between the compare and the write: they are not one step")
+	}
+	select {
+	case <-rivalDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the rival write never finished")
+	}
+	got := getBlock(t, ctx, b.OID).Meta
+	if got["attention:level"] != "need" || got["attention:reason"] != "new" {
+		t.Fatalf("the rival's mark must be the last word: %v", got)
 	}
 }

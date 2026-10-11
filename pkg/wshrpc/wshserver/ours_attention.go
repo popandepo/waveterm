@@ -20,6 +20,9 @@ func (ws *WshServer) ClearAttentionIfCommand(ctx context.Context, data wshrpc.Co
 	if data.BlockId == "" {
 		return false, fmt.Errorf("blockid is required")
 	}
+	if data.Level == "" || data.Reason == "" {
+		return false, nil
+	}
 	cleared, err := wstore.ClearBlockAttentionIf(ctx, data.BlockId, data.Level, data.Reason)
 	if err != nil {
 		return false, fmt.Errorf("error clearing the attention of the block: %w", err)

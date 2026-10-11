@@ -39,6 +39,7 @@
     "term:trimtrailingwhitespace": true,
     "term:durable": false,
     "term:perblockhistory": true,
+    "term:rightclickpaste": true,
     "waveai:showcloudmodes": true,
     "waveai:defaultmode": "waveai@balanced",
     "preview:defaultsort": "name"

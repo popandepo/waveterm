@@ -171,6 +171,9 @@
         "term:perblockhistory": {
           "type": "boolean"
         },
+        "term:rightclickpaste": {
+          "type": "boolean"
+        },
         "term:showsplitbuttons": {
           "type": "boolean"
         },

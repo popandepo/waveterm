@@ -1478,6 +1478,7 @@ declare global {
         "term:osc52"?: string;
         "term:durable"?: boolean;
         "term:perblockhistory"?: boolean;
+        "term:rightclickpaste"?: boolean;
         "term:showsplitbuttons"?: boolean;
         "term:trimtrailingwhitespace"?: boolean;
         "editor:minimapenabled"?: boolean;

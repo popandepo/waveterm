@@ -40,6 +40,7 @@ import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
+import { runRightClick } from "./rightclick";
 import { computeTheme, DefaultTermTheme, isLikelyOnSameHost, trimTerminalSelection } from "./termutil";
 import { TermWrap, WebGLSupported } from "./termwrap";
 
@@ -822,6 +823,44 @@ export class TermViewModel implements ViewModel {
         });
     }
 
+    // Right click as Windows Terminal does it (setting term:rightclickpaste): copy the selection, or paste when nothing is selected.
+    // Returns true when the click was handled, false when the context menu should open. The paste goes to THIS terminal: it takes the
+    // block focus and the keyboard focus, and the native paste is sent only when its input element really holds the focus (see
+    // runRightClick). A program that takes the mouse itself keeps the click, and the selection is cleared only after the copy worked.
+    handleRightClick(menuModifier: boolean): boolean {
+        const terminal = this.termRef.current?.terminal;
+        if (terminal == null) {
+            return false;
+        }
+        return runRightClick({
+            rightClickPaste: globalStore.get(getSettingsKeyAtom("term:rightclickpaste")),
+            hasSelection: !!terminal.hasSelection(),
+            programTakesMouse: ((terminal as any).modes?.mouseTrackingMode ?? "none") !== "none",
+            menuModifier,
+            focusThisTerminal: () => {
+                this.nodeModel.focusNode();
+                terminal.focus();
+            },
+            isThisTerminalFocused: () => {
+                const active = document.activeElement;
+                return active != null && !!terminal.element?.contains(active);
+            },
+            nativePaste: () => getApi().nativePaste(),
+            copySelection: async () => {
+                const selection = terminal.getSelection();
+                if (!selection) {
+                    return false;
+                }
+                const text =
+                    globalStore.get(getSettingsKeyAtom("term:trimtrailingwhitespace")) !== false
+                        ? trimTerminalSelection(selection)
+                        : selection;
+                await navigator.clipboard.writeText(text);
+                return true;
+            },
+            clearSelection: () => terminal.clearSelection(),
+        });
+    }
     getContextMenuItems(): ContextMenuItem[] {
         const menu: ContextMenuItem[] = [];
         const hasSelection = this.termRef.current?.terminal?.hasSelection();

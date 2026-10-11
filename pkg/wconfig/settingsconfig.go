@@ -111,6 +111,7 @@ type SettingsType struct {
 	TermOsc52               string   `json:"term:osc52,omitempty" jsonschema:"enum=focus,enum=always"`
 	TermDurable                    *bool    `json:"term:durable,omitempty"`
 	TermPerBlockHistory            *bool    `json:"term:perblockhistory,omitempty"`
+	TermRightClickPaste            *bool    `json:"term:rightclickpaste,omitempty"`
 	TermShowSplitButtons           bool     `json:"term:showsplitbuttons,omitempty"`
 	TermTrimTrailingWhitespace     *bool    `json:"term:trimtrailingwhitespace,omitempty"`
 

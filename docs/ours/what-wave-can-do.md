@@ -563,6 +563,26 @@ outside the folder). Bash and zsh are left as they are (zsh already keeps Wave's
   removes the variable, and a failing or missing line editor neither breaks the start nor changes the path (with the path line removed the test goes red).
 - **NOT RUN, window check:** open a new PowerShell tile (Up shows nothing from other tiles); type two commands; quit Wave and start it again
   (Up in the same tile shows those two, not other tiles' commands); delete the tile and look that `<data dir>\history\<id>.txt` is gone.
+## 25b. Right click copies or pastes in a terminal (setting `term:rightclickpaste`, on in this fork)
+
+Wave opened its context menu on every right click, and he had to pick Paste from it (found in his window check, 11 Oct 2026). With the setting on, a right click in a terminal
+works as in Windows Terminal: it copies the selection (trimmed as the menu's Copy does, then the selection is cleared) or, with nothing selected, pastes
+(the same native paste as the menu item). Shift or Ctrl held while right clicking still opens the menu, so the other items (open a link,
+magnify, send to Wave AI) stay reachable. The setting is off upstream and on in this fork's defaults; set it to false for the old behaviour.
+Two safeguards found in review. The paste goes to THIS terminal: it takes the block focus and the keyboard focus first, because the native paste lands
+in whichever element holds the focus (a right click on a terminal that did not hold it would otherwise paste into the one that did). A program that
+takes the mouse itself (vim, Claude Code: the terminal's mouse tracking is on) keeps the click: Wave opens no menu and copies and pastes nothing (Shift
++ right click still gives the menu). The paste is sent only when the terminal's input element really holds the keyboard focus: Wave waits for it (up to 300 ms) and
+pastes nothing at all if it does not settle, rather than risk the other terminal. The selection is cleared only after the clipboard took the copy. Multi-line text: the native
+paste ends in the terminal's own paste handler (xterm `paste`), which wraps the text in bracketed-paste markers when the program asked for them (PowerShell's
+line editor does), so a multi-line paste is not run by itself; a shell that does not ask for them (plain `cmd.exe`) receives it as typed, as with Ctrl+V;
+`term:allowbracketedpaste` (on by default) is the setting that switches that off.
+- **RAN:** vitest for the decision (setting off or unset gives the menu whatever is selected; on: copy with a selection, paste without; Shift or Ctrl, or a
+  program that takes the mouse, gives the menu), the whole click run against two terminals with different keyboard focus (a right click on B while A holds the
+  focus pastes into B; with the focus step removed that test goes red), and source pins on the wiring and the setting; `task generate` diff is only the setting.
+- **NOT RUN, window check:** right click with nothing selected (pastes, also into a terminal that did not have the focus), select text and right click (copies,
+  selection goes away), Shift + right click (menu), right click inside vim or Claude Code (the program gets it).
+
 ## 26. Is the program in a block still running? (`status` in `wsh api list` and in the state record)
 
 Each block that has a program now shows one of three words: `running`, `exited` (with its exit code, also `0` for a clean exit) or

@@ -60,6 +60,7 @@ const (
 	ConfigKey_TermOsc52                      = "term:osc52"
 	ConfigKey_TermDurable                    = "term:durable"
 	ConfigKey_TermPerBlockHistory            = "term:perblockhistory"
+	ConfigKey_TermRightClickPaste            = "term:rightclickpaste"
 	ConfigKey_TermShowSplitButtons           = "term:showsplitbuttons"
 	ConfigKey_TermTrimTrailingWhitespace     = "term:trimtrailingwhitespace"
 

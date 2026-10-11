@@ -82,10 +82,7 @@ function Resolve-AllowedConfigDir([string]$dir, [bool]$throwaway) {
     $final = Get-FinalPath $dir
     $homeFinal = Get-FinalPath $env:USERPROFILE
     if (-not $final -or -not $homeFinal) { return $null }
-    $homeAsGiven = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\', '/')
-    foreach ($h in @($homeFinal, $homeAsGiven)) {
-        foreach ($bad in '.claude', '.claude-work') { if (Test-Under $final "$h\$bad") { return $null } }
-    }
+    foreach ($bad in '.claude', '.claude-work') { if (Test-Under $final "$homeFinal\$bad") { return $null } }
     if (Test-Under $final "$homeFinal\.claude-personal") { return $final }
     if ($throwaway) { return $final }
     return $null

@@ -53,7 +53,7 @@ $lines += 'PATHLAST: ' + (@($env:PATH -split ';' | Where-Object { $_ })[-1])
 $lines += 'PATHCOUNT: ' + (@($env:PATH -split ';' | Where-Object { $_ -ieq $env:RESUMABLE_TEST_WSHDIR }).Count)
 $found = Get-Command wsh -ErrorAction SilentlyContinue
 $lines += 'WSH: ' + $(if ($found) { $found.Source } else { 'none' })
-$lines += 'WSHOUT: ' + $(if ($found) { (& wsh 2>&1 | Out-String).Trim() } else { 'none' })
+$lines += 'WSHOUT: ' + $(if ($found -and -not $env:RESUMABLE_TEST_NOWSH) { (& wsh 2>&1 | Out-String).Trim() } else { 'none' })
 $lines += 'ARGCOUNT: ' + $args.Count
 Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
 '@
@@ -76,6 +76,7 @@ switch ($PathMode) {
     'file' { $env:WAVETERM_WSHBINDIR = $WshDir + '\wsh.cmd' }
     'path-unset' { $env:WAVETERM_WSHBINDIR = $WshDir; [Environment]::SetEnvironmentVariable('PATH', $null) }
     'other' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = $env:RESUMABLE_TEST_OTHERDIR + $sep + $env:PATH }
+    'path-huge' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = ('x' + $sep) * 16380; $env:RESUMABLE_TEST_NOWSH = '1' }
     'unset' { Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
 }
 $extra = @{}
@@ -93,10 +94,13 @@ exit $LASTEXITCODE
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
         $a = @('-NoProfile', '-File', $child, '-Script', $script, '-Stub', $stub, '-Record', $rec, '-WshDir', $wshDir, '-PathMode', $mode, '-Cfg', $cfgDir, '-Id', $id)
         if ($prompt) { $a += '-ExtraPrompt', $prompt }
-        & pwsh @a 2>$null | Out-Null
+        $errFile = Join-Path $root 'child-error.txt'
+        & pwsh @a 2>$errFile | Out-Null
         $code = $LASTEXITCODE
+        $errText = if (Test-Path -LiteralPath $errFile) { (Get-Content -LiteralPath $errFile -Raw) } else { '' }
+        Remove-Item -LiteralPath $errFile -ErrorAction SilentlyContinue
         $lines = @(); if (Test-Path -LiteralPath $rec) { $lines = @(Get-Content -LiteralPath $rec) }
-        return [pscustomobject]@{ Code = $code; Lines = $lines; Text = ($lines -join ' | ') }
+        return [pscustomobject]@{ Code = $code; Lines = $lines; Text = (($lines -join ' | ') + $(if ($errText) { ' || stderr: ' + $errText.Substring(0, [Math]::Min(900, $errText.Length)) } else { '' })) }
     }
     $shellBefore = @('CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE', 'NO_COLOR') | ForEach-Object { "$_=" + [Environment]::GetEnvironmentVariable($_) }
     $r = Run-Child 'set'
@@ -110,9 +114,9 @@ exit $LASTEXITCODE
     Check 'wsh can be run from there and the stub prints what wsh printed' ($r.Lines -contains 'WSHOUT: wsh-from-wave') $r.Text
     foreach ($mode in 'missing', 'unset', 'relative', 'rooted-no-drive', 'drive-relative', 'file') {
         $r = Run-Child $mode
-        Check "with WAVETERM_WSHBINDIR '$mode' the session starts and the PATH is left alone" (($r.Code -eq 0) -and ($r.Lines -contains 'PATHCOUNT: 0') -and -not ($r.Lines -contains "PATHLAST: $wshDir") -and $r.Lines.Count -gt 0) $r.Text
+        Check "with WAVETERM_WSHBINDIR '$mode' the session starts and the PATH is left alone" (($r.Code -eq 0) -and ($r.Lines -contains 'PATHCOUNT: 0') -and -not ($r.Lines -contains "PATHLAST: $wshDir") -and -not ($r.Lines -contains "PATHLAST: $wshDir-nope") -and $r.Lines.Count -gt 0) $r.Text
     }
-    foreach ($mode in 'illegal', 'path-unset') {
+    foreach ($mode in 'illegal', 'path-unset', 'path-huge') {
         $r = Run-Child $mode
         Check "with WAVETERM_WSHBINDIR '$mode' the session still starts" (($r.Code -eq 0) -and ($r.Lines.Count -gt 0)) "exit=$($r.Code) $($r.Text)"
     }
@@ -140,6 +144,8 @@ exit $LASTEXITCODE
     Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
     & pwsh -NoProfile -File $script -SessionId ($id + "`n") -ConfigDir $cfg -Command $stub 2>$null | Out-Null
     Check 'a session id with a trailing newline is refused' (($LASTEXITCODE -ne 0) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE"
+    $threw = $false; try { & $script -SessionId ($id + "`n") -ConfigDir $cfg -DryRun | Out-Null } catch { $threw = $true }
+    Check 'a session id with a trailing newline is refused (in process, so that the newline arrives)' $threw ''
     $threw = $false; try { & $script -SessionId 'not-a-guid' -ConfigDir $cfg -DryRun } catch { $threw = $true }
     Check 'a session id that is not a guid is refused' $threw ''
 
@@ -184,6 +190,17 @@ exit $LASTEXITCODE
     Check 'a CLAUDE_CONFIG_DIR of .claude in the environment is refused with exit code 2' (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE"
     Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
 
+    # ---- the deny list is case-insensitive even where nothing on disk gives the real spelling (a profile that has no .claude folder) ----
+    $bareProfile = Join-Path $root 'bare profile'
+    Make-Dir $bareProfile; Make-Dir (Join-Path $bareProfile '.claude-personal')
+    $env:USERPROFILE = $bareProfile
+    foreach ($spelling in '.CLAUDE', '.Claude-Work', '.claude') {
+        Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
+        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir ($bareProfile + '\' + $spelling + '\x') -ThrowawayConfig -Command $stub 2>$null | Out-Null
+        Check ("a folder that does not exist yet below '$spelling' is refused with exit code 2") (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE"
+    }
+    $env:USERPROFILE = $profileDir
+
     # ---- what is accepted ----
     $dry = & $script -SessionId $id -ConfigDir $cfg -DryRun
     Check 'a folder under .claude-personal is accepted without the throwaway switch' ($dry[1] -eq "config=$cfg") ($dry -join ' | ')
@@ -203,7 +220,7 @@ exit $LASTEXITCODE
         $p = $made[$i]
         try {
             $item = Get-Item -LiteralPath $p -Force -ErrorAction Stop
-            if ($item.LinkType -eq 'Junction') { [IO.Directory]::Delete($p) } else { Remove-Item -LiteralPath $p -Force -Confirm:$false -ErrorAction Stop }
+            if ($item.PSIsContainer) { [IO.Directory]::Delete($p) } else { [IO.File]::Delete($p) }
         } catch { }
     }
 }

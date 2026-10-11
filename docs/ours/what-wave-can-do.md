@@ -796,3 +796,53 @@ listed there; `Restore-Sessions.ps1` reads that index). The command Wave starts 
   stopped and started again; the block started BY ITSELF and resumed the SAME id (`--resume <id>`, one transcript for that id, no second session). A block opened the old way came back as an empty finished block and was not started again.
   Two facts from it: a block in a tab that is NOT shown does not start at a restart, it starts when its tab is shown (`wsh tab switch`, or a click); and a cmd block that Wave starts directly gets `WAVETERM_SWAPTOKEN`, not `WAVETERM_JWT`, so a
   script in it must run `wsh token $env:WAVETERM_SWAPTOKEN pwsh` first (the starter itself needs no wsh). Closing the dev Wave through its window (`CloseMainWindow`) ended everything in 0.5 s with the layout intact.
+## 37. Attention marks, part 2: the stack tab shows the mark
+
+The attention design is settled (docs section 34): info is an icon with no motion; need is an orange DOT only, with no outline; urgent is a pulsing orange outline and dot. This part draws the first container: the
+strip tab of a stack member. A member's tab reads `attention:level` and `attention:reason` of its block (and its badge, `wsh badge`, as a small icon after the symbol):
+- **info:** a small "circle-info" icon after the name; the reason, if there is one, is the hover text.
+- **need:** an 8 px orange dot (`#ff9500`) at the right of the tab, steady, the reason as hover text. No outline, no ring.
+- **urgent:** the same dot and a 2 px orange outline round the whole tab that pulses slowly (1.6 s, opacity 0.25 to 1). With "reduce motion" set in the system the outline does not pulse and stays steady.
+- The attention colour is its own and never replaces or tints the member's own colour (the line under the tab, the tint of the shown tab). Nothing is filled.
+- A value that does not pass the rules (an orange level without a reason, an unknown level, a reason with hidden characters or over 120 code points) draws nothing: the tab reads it only through `attentionOf` (section 34). The reason is shown as an attribute (text), never as markup.
+- **Clearing:** a need or urgent mark on the FOCUSED block clears itself when the owner really has the tile: the window has focus and the block is the focused one, 0.5 s after the focus moved there and 3 s when it was already
+  there (the rule of badges, `AttentionAutoClearing` in `app.tsx`, rule in `attentionclear.ts`); it writes null to both keys, so the session sees it gone. Info does not clear by focus. A session clears its own mark with
+  `wsh attention clear`. Nothing clears a tile that is only shown in a tab without focus.
+- **Review fixes (Codex):** the plan for clearing is made again when the focused block, the window focus, the level OR the reason changes (a program that replaces the reason of a focused block's mark gets the full wait for
+  its new mark, it is not erased early); and when the timer fires the plan is checked against the present once more, synchronously right before the write: the window still has focus, the block is still the focused one, and
+  the mark is exactly the one that was planned for (level and reason). The logic is `scheduleAttentionClear` (`attentionschedule.ts`), tested with fake timers (focus change, window focus lost, cancel, a replaced reason or level, the
+  re-plan); there is no DOM test environment in this repository, so the component's effect is a thin call of it, pinned by source text. **Not closed:** the write takes a round trip to the server and block meta has no compare-and-set, so a mark
+  that a program writes during that round trip is erased.
+- **Review fixes (run-the-code review of PR 52):** the info icon is out of the flow like the dot (the label clips its overflow with an ellipsis, so an icon inside it vanished on a long name); the pulse also stops for Wave's own
+  setting `window:reducedmotion` (the class `prefers-reduced-motion` on the app), not only for the system media query; the window wiring of the clear (`makeAttentionClearEnv`, `focusSwitchedSince` in `attentionschedule.ts`) is a
+  function that reads the present at each call and is tested with fakes, instead of lines of `app.tsx` that only a source pin saw.
+- **Stated behaviour (known, on purpose, pinned by tests that say "observation"):** an orange level that draws nothing (no reason, or a reason with a hidden character) is still planned and erased on focus; a mark rewritten with the same
+  level and reason while the timer runs is erased by the old plan (the two are indistinguishable); the clear needs the window focus plus the focused block, not the keyboard in it; the CSS-wide colour keywords (`inherit`, `currentcolor`,
+  `transparent`) pass the colour check in a browser and give a text-coloured or invisible outline; a badge icon with `+spin` or `+beat` animates on the strip tab. A reviewer's attack file (25 tests: markup in a reason, hidden characters,
+  prototype names as levels, 43 bad values at the four colour entrances, the clear under cancel, replace and lost focus, the compiled stylesheets) is part of the tests as `attentionlook.test.tsx`. Merge commit `fc781392` of this line does NOT type-check
+  (an unclosed component, fixed by `46f301df`): remember it when bisecting.
+- **Not in this part:** the tile outline and header mark, the top tab, the workspace button, the taskbar flash; mute per tile; the five-minute limit of the pulse; the rate rule. The mark of a block that is not the active member of
+  its stack is on its strip tab (that is the point of this step); a tile that is not a stack has no strip, so its mark is not drawn yet.
+- **RAN:** vitest for the mark of every level and of every value a program could write that must draw nothing, for the clear rule (only orange levels, only with window focus, the two delays), the clear meta (both keys, null), and
+  source pins on the label, the stylesheet (the ring pulses, the dot does not, reduced motion stops it, the member's line is untouched) and the app wiring (timer re-checks focus, writes both keys); mutation table: the ring for need too, no validation, info clearing, clearing without window focus, no reduced-motion rule, no hover text: each red.
+- **NOT RUN, window check:** `wsh attention need --reason "x"` in one tile of a stack while another member is shown: a dot on the first member's tab with the reason on hover; `urgent`: the pulsing outline; click the tab (it takes the focus) and the mark goes after half a second;
+  `wsh attention info` shows the icon and stays; the pulse stops with "reduce motion" on; a long tab name keeps the dot visible.
+## 38. The top row shows the tab colour (colour work, step 4)
+
+By the settled scheme (the "SETTLED 11 Oct" row of the colour mock-up): the ACTIVE top tab is filled with its tab colour (`tab:flagcolor`, 20 percent: a tunable, `ActiveFillPercent` in `toptablook.ts`, and the line of the other tabs `InactiveLinePercent` (55); the tests are built from the constants, so changing them changes no test) and has its line under it (the full colour, 2 px); the other tabs
+that have a colour show only a dimmer line (55 percent); a tab without a colour looks as before. The top bar itself is not filled, the gaps between the tiles and the headers are not touched, and no edge mark is added. The
+rule is `topTabLook` (`frontend/app/tab/toptablook.ts`): the colour goes through `memberColorValue` (section 28), so a value that is not accepted draws nothing; the two small elements (`tab-colour-fill`,
+`tab-colour-line`) sit inside the tab behind its name. The existing flag glyph on the tab is unchanged.
+- **RAN:** vitest for active, inactive and every value that must draw nothing, named colours and functions, and source pins (the tab draws both elements from the rule, before its name; the stylesheet only adds the two
+  small elements); mutation table: fill on the other tabs, full line on the other tabs, no validation, no fill, no line: each red.
+- **NOT in this step:** the vertical tab bar (`app:tabbar` left; its tab component is a different one and is not changed), the window outline (step 5), the workspace button.
+- **NOT RUN, window check:** a tab with a flag colour: when active it is tinted with a line under it, when not active only a dimmer line; the bar behind the tabs stays unfilled; a tab without colour is as before; the close button and the name stay readable on the tint.
+## 39. The window outline in the workspace colour (colour work, step 5)
+
+By the settled scheme ("workspace = outline around the window, top bar not filled"): a 3 px border round the whole window in the colour of the workspace: its accent (`ws:accent`, set with `wsh workspace style`) when
+there is a valid one, else the colour of the workspace itself. No colour, no outline. It is a border only (`window-outline` in `app.tsx` and `app.scss`): it fills nothing, takes no mouse events, and sits above the
+content and below the modals and typeaheads (z-index 50). The colours go through `memberColorValue` (section 28): a value that is not accepted counts as not set.
+- **RAN:** vitest for the accent first, then the workspace colour, none, and every value that must not pass; source pins (one outline, from the workspace's accent and colour, a border without any background, no mouse
+  events, z-index 50).
+- **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
+  changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.

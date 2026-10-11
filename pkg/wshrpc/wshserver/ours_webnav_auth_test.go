@@ -91,6 +91,9 @@ func TestTheRouterRecordsTheBlockOnlyAfterTheRouteIsBound(t *testing.T) {
 	if guard < 0 || bind < 0 || set < 0 {
 		t.Fatalf("guard, checked bind and checked record must all be there (guard %d, bind %d, set %d)", guard, bind, set)
 	}
+	if !strings.Contains(text, `curRoute != "" && (curRoute != rtnData.RouteId || curBlock != rtnData.RpcContext.BlockId)`) || !strings.Contains(text, "already authenticated as another route or block") {
+		t.Fatal("a link that is already authenticated must refuse a token for another route or block")
+	}
 	if !(guard < bind && bind < set) {
 		t.Fatalf("order must be: identity guard, bind (error checked), record (guard %d, bind %d, set %d)", guard, bind, set)
 	}

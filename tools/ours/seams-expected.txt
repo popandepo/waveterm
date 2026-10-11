@@ -76,6 +76,7 @@ telemetry-default-off
 telemetry-setting
 theme-accent-scss
 theme-accent-tailwind
+top-tab-colour
 updater-fallback-off
 upstream-confirm-close-tab
 upstream-electron-tab-rpc

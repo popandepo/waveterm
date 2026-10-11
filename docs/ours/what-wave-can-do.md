@@ -763,3 +763,14 @@ stack, and when another top tab was shown and then this one again. Switching to 
   (2) put two of them into one stack and switch between the members ten times: forms, scroll position, video time; (3) the same in two windows and two workspaces, then switch workspace and back: which reload
   (expected: all of the other workspace); (4) open more tabs than the cache size (10) and come back to the first: does the web tile reload; (5) a hidden member's audio is muted (PR 27) and un-muted when shown;
   (6) close one web tile with a filled form: no question (it has no program), the others untouched; (7) restart Wave: web tiles reload (nothing keeps a form across a restart).
+
+## 38. The top row shows the tab colour (colour work, step 4)
+
+By the settled scheme (the "SETTLED 11 Oct" row of the colour mock-up): the ACTIVE top tab is filled with its tab colour (`tab:flagcolor`, 20 percent) and has its line under it (the full colour, 2 px); the other tabs
+that have a colour show only a dimmer line (55 percent); a tab without a colour looks as before. The top bar itself is not filled, the gaps between the tiles and the headers are not touched, and no edge mark is added. The
+rule is `topTabLook` (`frontend/app/tab/toptablook.ts`): the colour goes through `memberColorValue` (section 28), so a value that is not accepted draws nothing; the two small elements (`tab-colour-fill`,
+`tab-colour-line`) sit inside the tab behind its name. The existing flag glyph on the tab is unchanged.
+- **RAN:** vitest for active, inactive and every value that must draw nothing, named colours and functions, and source pins (the tab draws both elements from the rule, before its name; the stylesheet only adds the two
+  small elements); mutation table: fill on the other tabs, full line on the other tabs, no validation, no fill, no line: each red.
+- **NOT in this step:** the vertical tab bar (`app:tabbar` left; its tab component is a different one and is not changed), the window outline (step 5), the workspace button.
+- **NOT RUN, window check:** a tab with a flag colour: when active it is tinted with a line under it, when not active only a dimmer line; the bar behind the tabs stays unfilled; a tab without colour is as before; the close button and the name stay readable on the tint.

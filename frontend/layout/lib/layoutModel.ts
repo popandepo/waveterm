@@ -37,7 +37,7 @@ import {
     turnStackOff,
     unstackNode,
 } from "./layoutTree";
-import { applyStackLayout, canLayoutAsStack } from "./stackgeometry";
+import { applyStackLayout, canLayoutAsStack, stripTargetBelongsTo } from "./stackgeometry";
 import {
     ContentRenderer,
     FlexDirection,
@@ -270,6 +270,8 @@ export class LayoutModel {
      * True if the whole TileLayout container is being resized.
      */
     private isContainerResizing: PrimitiveAtom<boolean>;
+    // The tab of a strip that a dragged tab or tile is over right now (node id), for the drop indicator on that tab.
+    stripDropTarget: PrimitiveAtom<string>;
 
     constructor(
         tabAtom: Atom<Tab>,
@@ -320,6 +322,7 @@ export class LayoutModel {
 
         this.nodeModels = new Map();
         this.additionalProps = atom({});
+        this.stripDropTarget = atom(null) as PrimitiveAtom<string>;
 
         const resizeHandleListAtom = atom((get) => {
             const addlProps = get(this.additionalProps);
@@ -748,6 +751,7 @@ export class LayoutModel {
                     this.pendingTreeAction.throttledValueAtom,
                     computeMoveNode(this.treeState, action as LayoutTreeComputeMoveNodeAction)
                 );
+                this.setter(this.stripDropTarget, null);
                 break;
             case LayoutTreeActionType.Move:
                 moveNode(this.treeState, action as LayoutTreeMoveNodeAction);
@@ -784,6 +788,7 @@ export class LayoutModel {
             }
             case LayoutTreeActionType.ClearPendingAction:
                 this.setter(this.pendingTreeAction.throttledValueAtom, undefined);
+                this.setter(this.stripDropTarget, null);
                 break;
             case LayoutTreeActionType.CommitPendingAction: {
                 const pendingAction = this.getter(this.pendingTreeAction.currentValueAtom);
@@ -793,6 +798,7 @@ export class LayoutModel {
                 }
                 this.treeReducer(pendingAction);
                 this.setter(this.pendingTreeAction.throttledValueAtom, undefined);
+                this.setter(this.stripDropTarget, null);
                 break;
             }
             case LayoutTreeActionType.FocusNode:
@@ -1599,6 +1605,18 @@ export class LayoutModel {
     /**
      * Callback that is invoked when a drag operation completes and the pending action should be committed.
      */
+    clearStripPending(stackOrder: string[]) {
+        if (stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget))) {
+            this.treeReducer({ type: LayoutTreeActionType.ClearPendingAction });
+        }
+    }
+
+    setStripDropTarget(nodeId: string | null) {
+        if (this.getter(this.stripDropTarget) !== nodeId) {
+            this.setter(this.stripDropTarget, nodeId);
+        }
+    }
+
     onDrop() {
         if (this.getter(this.pendingTreeAction.currentValueAtom)) {
             this.treeReducer({

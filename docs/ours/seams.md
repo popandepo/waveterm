@@ -110,6 +110,7 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
 | close one block | `frontend/app/store/keymodel.ts` | `function uxCloseBlock(blockId: string) {` | the header menu and the close key of one block ask first when a program is running |
 | tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
+| strip drop target | `frontend/layout/lib/TileLayout.tsx` | `{overlayNodes} {overlayStrips}` | the drop target of each stack strip lives in the overlay layer, next to the tile drop targets |
 | tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |
 
 ## Accent colour

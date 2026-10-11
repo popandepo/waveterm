@@ -102,6 +102,7 @@ $seams = @(
     @('api-main-rpc-client', 'pkg/wshrpc/wshserver/wshserverutil.go', 'func GetMainRpcClient() *wshutil.WshRpc {', 'local API backend sends RPC calls through the main client'),
     @('api-startup-hook', 'cmd/server/main-server.go', 'go wshutil.RunWshRpcOverListener(unixListener, nil)', 'wavesrvapi.Start() is added on the next line of wavesrv startup'),
     @('close-block-ux', 'frontend/app/store/keymodel.ts', 'function uxCloseBlock(blockId: string) {', 'the header menu and the close key of one block; ours asks first when a program is running'),
+    @('stack-overlay-strip-hook', 'frontend/layout/lib/TileLayout.tsx', '{overlayNodes} {overlayStrips}', 'the drop target of each stack strip lives in the overlay layer, next to the tile drop targets'),
     @('block-runtime-status', 'pkg/blockcontroller/blockcontroller.go', 'func GetBlockControllerRuntimeStatus(blockId string) *BlockControllerRuntimeStatus {', 'status of a block program in wsh api list and the state record'),
     @('block-status-values', 'pkg/blockcontroller/blockcontroller.go', 'Status_Running = "running" Status_Done = "done" Status_Init = "init"', 'package blockstatus maps these three words to running, exited and notstarted'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),

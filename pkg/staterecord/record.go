@@ -8,7 +8,10 @@ package staterecord
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
+	"github.com/wavetermdev/waveterm/pkg/attention"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -40,11 +43,13 @@ type WorkspaceRec struct {
 }
 
 type TabRec struct {
-	TabId    string    `json:"tabid"`
-	Name     string    `json:"name"`
-	Position int       `json:"position"`
-	Active   bool      `json:"active"`
-	Tiles    []TileRec `json:"tiles"`
+	TabId    string `json:"tabid"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
+	Active   bool   `json:"active"`
+	// FlagColor is the tab's colour (tab:flagcolor) as it was set, for a tool that draws the tab; empty when none or when it is not plain text.
+	FlagColor string    `json:"flagcolor,omitempty"`
+	Tiles     []TileRec `json:"tiles"`
 }
 
 // A tile is one rectangle of a tab. A plain tile has a group of one block. A stack tile has a group of several: the
@@ -70,6 +75,12 @@ type BlockRec struct {
 	Status   string            `json:"status,omitempty"`
 	ExitCode *int              `json:"exitcode,omitempty"`
 	Session  map[string]string `json:"session,omitempty"`
+	// How the block looks, for a tool that draws a picture of the workspace: the icon (frame:icon) and its colour (icon:color) as they were set, and the
+	// attention mark (attention:level and attention:reason) after the same rules the window uses (a mark that would draw nothing is not recorded).
+	Icon            string `json:"icon,omitempty"`
+	IconColor       string `json:"iconcolor,omitempty"`
+	AttentionLevel  string `json:"attentionlevel,omitempty"`
+	AttentionReason string `json:"attentionreason,omitempty"`
 }
 
 // SessionRec is the index of the blocks that carry a session id: where each one sits and what it was started with.
@@ -119,6 +130,23 @@ func (r Record) WithoutStamp() Record {
 
 func metaString(meta waveobj.MetaMapType, key string) string {
 	s, _ := meta[key].(string)
+	return s
+}
+
+const maxLookValueRunes = 60
+
+// lookString is a display value (an icon name, an emoji, a colour) that is written as it was set, when it is short plain text: no control, format or
+// separator characters, at most maxLookValueRunes code points. Anything else is left out rather than cut, so that the file never holds half a value.
+func lookString(meta waveobj.MetaMapType, key string) string {
+	s := metaString(meta, key)
+	if s == "" || utf8.RuneCountInString(s) > maxLookValueRunes {
+		return ""
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return ""
+		}
+	}
 	return s
 }
 
@@ -278,18 +306,26 @@ func blockRec(blocks map[string]*waveobj.Block, statuses map[string]ProcStatus, 
 	if b == nil {
 		return BlockRec{}, false
 	}
+	level, reason := attention.Of(b.Meta["attention:level"], b.Meta["attention:reason"])
+	if level == attention.LevelNone {
+		level, reason = "", ""
+	}
 	return BlockRec{
-		Position:   position,
-		BlockId:    blockId,
-		Active:     active,
-		View:       metaString(b.Meta, "view"),
-		Title:      metaString(b.Meta, "frame:title"),
-		Cwd:        metaString(b.Meta, "cmd:cwd"),
-		Program:    programName(metaString(b.Meta, "cmd")),
-		Controller: metaString(b.Meta, "controller"),
-		Session:    sessionMeta(b.Meta),
-		Status:     statuses[blockId].Status,
-		ExitCode:   statuses[blockId].ExitCode,
+		Icon:            lookString(b.Meta, "frame:icon"),
+		IconColor:       lookString(b.Meta, "icon:color"),
+		AttentionLevel:  level,
+		AttentionReason: reason,
+		Position:        position,
+		BlockId:         blockId,
+		Active:          active,
+		View:            metaString(b.Meta, "view"),
+		Title:           metaString(b.Meta, "frame:title"),
+		Cwd:             metaString(b.Meta, "cmd:cwd"),
+		Program:         programName(metaString(b.Meta, "cmd")),
+		Controller:      metaString(b.Meta, "controller"),
+		Session:         sessionMeta(b.Meta),
+		Status:          statuses[blockId].Status,
+		ExitCode:        statuses[blockId].ExitCode,
 	}, true
 }
 
@@ -306,7 +342,7 @@ func BuildRecord(snap Snapshot) Record {
 			if tab == nil {
 				continue
 			}
-			tabRec := TabRec{TabId: tabId, Name: tab.Name, Position: tabIndex, Active: tabId == ws.ActiveTabId, Tiles: []TileRec{}}
+			tabRec := TabRec{TabId: tabId, Name: tab.Name, Position: tabIndex, Active: tabId == ws.ActiveTabId, FlagColor: lookString(tab.Meta, "tab:flagcolor"), Tiles: []TileRec{}}
 			var tiles []tileSrc
 			if layout := snap.Layouts[tab.LayoutState]; layout != nil {
 				walkLayout(layout.RootNode, &tiles)

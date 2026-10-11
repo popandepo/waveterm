@@ -10,6 +10,7 @@ import {
     getBlockBadgeAtom,
 } from "@/app/store/badge";
 import { ClientModel } from "@/app/store/client-model";
+import { windowOutlineColor, WindowOutlineWidthPx } from "@/app/windowoutline";
 import { FocusManager } from "@/app/store/focusManager";
 import { GlobalModel } from "@/app/store/global-model";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -356,6 +357,16 @@ const BadgeAutoClearing = () => {
     return null;
 };
 
+// The outline round the whole window in the workspace's colour (see windowoutline.ts): a border only, it fills nothing and takes no mouse events.
+const WindowOutline = () => {
+    const workspace = useAtomValue(atoms.workspace);
+    const color = windowOutlineColor(workspace?.meta?.["ws:accent"], workspace?.color);
+    if (color == null) {
+        return null;
+    }
+    return <div className="window-outline" style={{ borderColor: color, borderWidth: WindowOutlineWidthPx }} />;
+};
+
 const AppInner = () => {
     const prefersReducedMotion = useAtomValue(atoms.prefersReducedMotionAtom);
     const client = useAtomValue(ClientModel.getInstance().clientAtom);
@@ -386,6 +397,7 @@ const AppInner = () => {
             <AppSettingsUpdater />
             <BadgeAutoClearing />
             <AccentController />
+            <WindowOutline />
             <DndProvider backend={HTML5Backend}>
                 <Workspace />
             </DndProvider>

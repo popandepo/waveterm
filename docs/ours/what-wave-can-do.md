@@ -763,3 +763,13 @@ stack, and when another top tab was shown and then this one again. Switching to 
   (2) put two of them into one stack and switch between the members ten times: forms, scroll position, video time; (3) the same in two windows and two workspaces, then switch workspace and back: which reload
   (expected: all of the other workspace); (4) open more tabs than the cache size (10) and come back to the first: does the web tile reload; (5) a hidden member's audio is muted (PR 27) and un-muted when shown;
   (6) close one web tile with a filled form: no question (it has no program), the others untouched; (7) restart Wave: web tiles reload (nothing keeps a form across a restart).
+
+## 39. The window outline in the workspace colour (colour work, step 5)
+
+By the settled scheme ("workspace = outline around the window, top bar not filled"): a 3 px border round the whole window in the colour of the workspace: its accent (`ws:accent`, set with `wsh workspace style`) when
+there is a valid one, else the colour of the workspace itself. No colour, no outline. It is a border only (`window-outline` in `app.tsx` and `app.scss`): it fills nothing, takes no mouse events, and sits above the
+content and below the modals and typeaheads (z-index 50). The colours go through `memberColorValue` (section 28): a value that is not accepted counts as not set.
+- **RAN:** vitest for the accent first, then the workspace colour, none, and every value that must not pass; source pins (one outline, from the workspace's accent and colour, a border without any background, no mouse
+  events, z-index 50).
+- **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
+  changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.

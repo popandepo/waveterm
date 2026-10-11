@@ -26,9 +26,13 @@ const (
 	zeroWidthJoiner         = 0x200d
 )
 
+// An argument of a colour function in the record: a number, a percentage, a number with an angle unit, or the keyword none. The window's own rule also
+// lets letters through (any word between the brackets); the record is stricter on purpose, so "rgb(background)" is not recorded.
+const colorArg = `(?:[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:%|deg|grad|rad|turn)?|none)`
+
 var (
 	hexColorShape      = regexp.MustCompile(`(?i)^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$`)
-	functionColorShape = regexp.MustCompile(`(?i)^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([0-9 .,%/a-z+-]*\)$`)
+	functionColorShape = regexp.MustCompile(`(?i)^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\(\s*` + colorArg + `(?:[\s,]+` + colorArg + `)*(?:\s*/\s*` + colorArg + `)?\s*\)$`)
 	keywordColorShape  = regexp.MustCompile(`(?i)^[a-z]{3,30}$`)
 	iconNameShape      = regexp.MustCompile(`^(solid@|regular@|brands@|custom@)?[a-z0-9-]+(\+(spin|beat|fade|fw))*$`)
 )

@@ -12,7 +12,7 @@ func cp(codes ...rune) string { return string(codes) }
 
 func TestColorValueAcceptsWhatTheWindowDraws(t *testing.T) {
 	for _, good := range []string{"#fff", "#FFF8", "#2D7DD2", "#2d7dd2cc", "red", "RebeccaPurple", "transparent", "currentcolor",
-		"rgb(1,2,3)", "rgb(1 2 3 / 50%)", "hsl(120, 50%, 50%)", "oklch(0.7 0.1 200)", "  #fff  "} {
+		"rgb(1,2,3)", "rgb(1 2 3 / 50%)", "hsl(120, 50%, 50%)", "oklch(0.7 0.1 200)", "hsl(120deg 50% 50%)", "oklch(70% .1 200.5deg / none)", "rgb(none 2 3)", "rgba(255,0,0,0.5)", "lab(50% 40 59.5)", "  #fff  "} {
 		if got := ColorValue(good); got != strings.TrimSpace(good) {
 			t.Errorf("%q must pass as %q, got %q", good, strings.TrimSpace(good), got)
 		}
@@ -27,6 +27,7 @@ func TestColorValueRefusesEverythingElse(t *testing.T) {
 		"linear-gradient(red, blue)", "javascript:alert(1)", "\\72 ed", "re" + cp(0x200b) + "d", cp(0x202e) + "red", "re" + cp(0xa) + "d",
 		"rgb(1," + cp(0x2028) + "2,3)", cp(0xff52, 0xff45, 0xff44), strings.Repeat("r", 31), "rgb(" + strings.Repeat("1", 70) + ")", "<b>red</b>",
 		`"red"`, "red blue", "-moz-initial", "--x", "", "   ",
+		"rgb(background)", "rgb(red, green, blue)", "rgb(1 2 3 / alpha)", "hsl(1deg, calc, 3%)", "rgb()", "rgb(,)", "rgb(1 / )", "rgb(1,2,3,)", "rgb(1 2 3 / 4 / 5)", "rgb(--x)", "rgb(1e3, 2, 3)",
 		"notacolour", "inherit", "initial", "unset", "revert", "banana",
 	}
 	for _, b := range bad {

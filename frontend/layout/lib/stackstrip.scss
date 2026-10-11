@@ -94,9 +94,15 @@
             font-size: 11px;
         }
 
+        // out of the flow like the dot: the label clips its overflow with an ellipsis, and an icon inside it would vanish on a long name
         .stack-tab-attention-info {
-            margin-left: 4px;
+            position: absolute;
+            top: 50%;
+            right: 24px;
+            height: 12px;
+            margin-top: -6px;
             font-size: 11px;
+            line-height: 12px;
             opacity: 0.85;
         }
 
@@ -121,6 +127,7 @@
             animation: stack-tab-attention-pulse 1.6s ease-in-out infinite;
         }
 
+        // reduced motion: the system setting and Wave's own setting (window:reducedmotion puts the class prefers-reduced-motion on the app)
         @media (prefers-reduced-motion: reduce) {
             .stack-tab-attention-ring {
                 animation: none;
@@ -180,4 +187,8 @@
     50% {
         opacity: 1;
     }
+}
+
+.prefers-reduced-motion .tile-layout .stack-strip .stack-tab .stack-tab-attention-ring {
+    animation: none;
 }

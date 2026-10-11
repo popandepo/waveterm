@@ -51,3 +51,29 @@ export function scheduleAttentionClear(req: AttentionClearRequest, env: Attentio
     }, delay);
     return () => clearTimeout(timeoutId);
 }
+
+// What the window supplies to the plan: each function reads the present when it is called (never a value captured when the plan was made), which is
+// what lets the plan notice that the focus or the mark changed while the timer ran.
+export interface AttentionClearSources {
+    documentHasFocus: () => boolean;
+    focusedBlockId: () => string | undefined;
+    readMeta: (blockId: string, key: string) => unknown;
+    writeMeta: (blockId: string, meta: { [key: string]: null }) => void;
+}
+
+export function makeAttentionClearEnv(src: AttentionClearSources, clearMeta: { [key: string]: null }): AttentionClearEnv {
+    return {
+        documentHasFocus: () => src.documentHasFocus(),
+        focusedBlockId: () => src.focusedBlockId(),
+        read: (blockId) => ({ level: src.readMeta(blockId, "attention:level"), reason: src.readMeta(blockId, "attention:reason") }),
+        clear: (blockId) => src.writeMeta(blockId, clearMeta),
+    };
+}
+
+// The focus counts as switched when the focused block or the window focus differs from the last plan (the first plan counts as a switch).
+export function focusSwitchedSince(
+    prev: { blockId: string | undefined; documentHasFocus: boolean },
+    now: { blockId: string | undefined; documentHasFocus: boolean }
+): boolean {
+    return prev.blockId !== now.blockId || prev.documentHasFocus !== now.documentHasFocus;
+}

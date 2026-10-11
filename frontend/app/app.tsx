@@ -10,7 +10,7 @@ import {
     getBlockBadgeAtom,
 } from "@/app/store/badge";
 import { ClearAttentionMeta } from "@/app/store/attentionclear";
-import { scheduleAttentionClear } from "@/app/store/attentionschedule";
+import { focusSwitchedSince, makeAttentionClearEnv, scheduleAttentionClear } from "@/app/store/attentionschedule";
 import { ClientModel } from "@/app/store/client-model";
 import { windowOutlineColor, WindowOutlineWidthPx } from "@/app/windowoutline";
 import { FocusManager } from "@/app/store/focusManager";
@@ -325,8 +325,10 @@ const BadgeAutoClearing = () => {
             prevDocHasFocusRef.current = documentHasFocus;
             return;
         }
-        const focusSwitched =
-            prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus;
+        const focusSwitched = focusSwitchedSince(
+            { blockId: prevFocusedBlockIdRef.current, documentHasFocus: prevDocHasFocusRef.current },
+            { blockId: focusedBlockId, documentHasFocus }
+        );
         prevFocusedBlockIdRef.current = focusedBlockId;
         prevDocHasFocusRef.current = documentHasFocus;
         const delay = focusSwitched ? 500 : 3000;
@@ -390,21 +392,18 @@ const AttentionAutoClearing = () => {
         prevDocHasFocusRef.current = documentHasFocus;
         return scheduleAttentionClear(
             { blockId: focusedBlockId, level, reason, documentHasFocus, focusSwitched },
-            {
-                documentHasFocus: () => document.hasFocus(),
-                focusedBlockId: () => globalStore.get(layoutModel.focusedNode)?.data?.blockId,
-                read: (blockId) => ({
-                    level: globalStore.get(getBlockMetaKeyAtom(blockId, "attention:level")),
-                    reason: globalStore.get(getBlockMetaKeyAtom(blockId, "attention:reason")),
-                }),
-                clear: (blockId) =>
-                    util.fireAndForget(() =>
-                        RpcApi.SetMetaCommand(TabRpcClient, {
-                            oref: WOS.makeORef("block", blockId),
-                            meta: ClearAttentionMeta,
-                        })
-                    ),
-            }
+            makeAttentionClearEnv(
+                {
+                    documentHasFocus: () => document.hasFocus(),
+                    focusedBlockId: () => globalStore.get(layoutModel.focusedNode)?.data?.blockId,
+                    readMeta: (blockId, key) => globalStore.get(getBlockMetaKeyAtom(blockId, key as keyof MetaType)),
+                    writeMeta: (blockId, meta) =>
+                        util.fireAndForget(() =>
+                            RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("block", blockId), meta })
+                        ),
+                },
+                ClearAttentionMeta
+            )
         );
     }, [focusedBlockId, level, reason, documentHasFocus]);
 

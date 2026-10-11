@@ -106,11 +106,14 @@ describe("the wiring that no test can render", () => {
         assert.include(app, "<AttentionAutoClearing />");
         assert.include(app, "scheduleAttentionClear(");
         assert.include(app, "{ blockId: focusedBlockId, level, reason, documentHasFocus, focusSwitched }");
+        // the window's sources go through the env that attentionwiring.test.ts tests, and the switch through focusSwitchedSince
+        assert.include(app, "makeAttentionClearEnv(");
+        assert.include(app, "focusSwitchedSince(");
         // the plan is made again when ANY of these changes, the reason included
         assert.include(app, "}, [focusedBlockId, level, reason, documentHasFocus]);");
-        assert.include(app, "meta: ClearAttentionMeta");
+        assert.include(app, "ClearAttentionMeta");
         assert.include(app, 'WOS.makeORef("block", blockId)');
-        assert.include(app, 'getBlockMetaKeyAtom(blockId, "attention:reason")');
+        assert.include(app, "readMeta: (blockId, key) => globalStore.get(getBlockMetaKeyAtom(blockId, key");
         // it checks the window still has focus and the tile is still the focused one when the timer fires
         const body = app.slice(app.indexOf("const AttentionAutoClearing"), app.indexOf("const AppInner"));
         assert.include(body, "documentHasFocus: () => document.hasFocus()");

@@ -120,7 +120,7 @@ func TestStackCreateRequestTargetsTheGroupAndTakesNoFocus(t *testing.T) {
 	if d.Focused || d.Magnified {
 		t.Fatalf("a stacked session never takes focus and is never magnified: %+v", d)
 	}
-	if d.BlockDef == nil || !reflect.DeepEqual(d.BlockDef.Meta, meta) {
+	if d.BlockDef == nil || !reflect.DeepEqual(map[string]any(d.BlockDef.Meta), meta) {
 		t.Fatalf("the block meta must be the one given: %+v", d.BlockDef)
 	}
 }

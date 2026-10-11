@@ -814,3 +814,20 @@ content and below the modals and typeaheads (z-index 50). The colours go through
   events, z-index 50).
 - **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
   changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.
+
+## 42. No welcome screen and no upgrade screen (and what still sends data with telemetry off)
+
+The fork never opens the welcome screen (the "Welcome to Wave Terminal" modal with the usage-data tick box) or the upgrade screens by itself, on a fresh profile or after a version change. Upstream opened them from `modalsrenderer.tsx` when no terms had
+been agreed (`tosagreed`) and when `onboarding:lastversion` was older than the current onboarding version. The decision is now `onboardingToOpen` (`frontend/app/onboarding/onboardingpolicy.ts`), which always says "none"; nothing needs a
+screen to reach a working window, and `telemetry:enabled` stays at its default of off (pinned by `ours_defaults_test.go`). `tosagreed` stays 0 on a fresh profile; the only things that read it are the telemetry cohort fields, which are not sent
+with telemetry off. The modals themselves are still in the code (nothing else opens them: the other places only close them).
+RAN: vitest (`onboardingpolicy.test.ts`: fresh profile with and without a first tab, seven older versions, the same version, the renderer's wiring); mutations red: the old "no terms" rule back (2 red), the old "older version" rule back (3), the renderer
+opening a screen without the decision (1). NOT RUN: a fresh profile in a dev window (the dev window of 11-Oct-2026 showed the welcome screen on a fresh profile before this change; it has to be looked at again after it).
+
+What still sends data when `telemetry:enabled` is false (READ from the code, none of it RAN):
+- **Usage telemetry** (`telemetry.go`): not sent. The daily diagnostic ping (client id, version, architecture): not sent, `DiagnosticPingAllowed` is the telemetry setting. **Sent anyway:** `SendNoTelemetryUpdate` (`wcore.GoSendNoTelemetryUpdate`, `main-server.go`
+  `setupTelemetryConfigHandler`): when the setting CHANGES while Wave runs (either direction), the client id and the new value go to `api.waveterm.dev`. It does not run at start and not while the setting stays as it is.
+- **Update check:** off (`autoupdate:enabled` false by default and read as false when absent, pinned by `ours_defaults_test.go`).
+- **Wave AI cloud mode** (`cfapi.waveterm.dev`): refused while telemetry is off (`usechat.go`), and the AI panel shows a "telemetry required" prompt with a button that would switch it on; it appears only when that cloud mode is chosen, not at first run. Wave AI with a
+  provider of your own sends the prompt to that provider when you use it.
+- **Web tiles** load whatever address a tile is given; the shown page does its own requests.

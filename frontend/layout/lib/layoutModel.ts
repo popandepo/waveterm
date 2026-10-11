@@ -37,7 +37,7 @@ import {
     turnStackOff,
     unstackNode,
 } from "./layoutTree";
-import { applyStackLayout, canLayoutAsStack } from "./stackgeometry";
+import { applyStackLayout, canLayoutAsStack, stripTargetBelongsTo } from "./stackgeometry";
 import {
     ContentRenderer,
     FlexDirection,
@@ -1599,6 +1599,12 @@ export class LayoutModel {
     /**
      * Callback that is invoked when a drag operation completes and the pending action should be committed.
      */
+    clearStripPending(stackOrder: string[]) {
+        if (stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget))) {
+            this.treeReducer({ type: LayoutTreeActionType.ClearPendingAction });
+        }
+    }
+
     setStripDropTarget(nodeId: string | null) {
         if (this.getter(this.stripDropTarget) !== nodeId) {
             this.setter(this.stripDropTarget, nodeId);

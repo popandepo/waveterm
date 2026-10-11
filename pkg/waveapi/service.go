@@ -31,6 +31,9 @@ type Block struct {
 	Connection string `json:"connection,omitempty"`
 	Title      string `json:"title,omitempty"`
 	Url        string `json:"url,omitempty"`
+	// Status is running, exited or notstarted for a block that has a program; empty when it has none or when it is not known.
+	Status   string `json:"status,omitempty"`
+	ExitCode *int   `json:"exitcode,omitempty"`
 }
 
 type Tab struct {

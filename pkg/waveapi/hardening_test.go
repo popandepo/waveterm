@@ -314,7 +314,7 @@ func TestBlockHasOnlyTheAllowListedFields(t *testing.T) {
 	for i := 0; i < typ.NumField(); i++ {
 		got = append(got, typ.Field(i).Name)
 	}
-	want := []string{"BlockId", "View", "Slot", "Controller", "Connection", "Title", "Url"}
+	want := []string{"BlockId", "View", "Slot", "Controller", "Connection", "Title", "Url", "Status", "ExitCode"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Block fields changed: %v. A new field leaks meta unless this allow-list test is updated with it.", got)
 	}
@@ -413,5 +413,13 @@ func TestTokenFileCheckedAgainAfterTheRename(t *testing.T) {
 	}
 	if exists(filepath.Join(dir, TokenFileName)) {
 		t.Fatalf("the token file was left in place")
+	}
+}
+
+// Status and ExitCode come from the block controller, never from block meta: a block cannot claim a status by writing one.
+func TestStatusIsNeverTakenFromMeta(t *testing.T) {
+	b := BlockFromMeta(blk1, map[string]any{"status": "running", "exitcode": 0, "block:status": "exited"})
+	if b.Status != "" || b.ExitCode != nil {
+		t.Fatalf("status came from meta: %+v", b)
 	}
 }

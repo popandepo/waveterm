@@ -145,3 +145,12 @@ export function stripTabAt(tabs: StripTabRect[], x: number): string | undefined 
     }
     return before.nodeId;
 }
+
+// Whether the tab that is outlined for a drop belongs to the stack with these members: a strip clears the outline only when it is
+// its own, so that moving from one strip onto another does not wipe the new one.
+export function stripTargetBelongsTo(
+    stackOrder: string[] | undefined,
+    targetNodeId: string | null | undefined
+): boolean {
+    return targetNodeId != null && !!stackOrder?.includes(targetNodeId);
+}

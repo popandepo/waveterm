@@ -518,3 +518,17 @@ non-stack, stack of one, unknown id, focus lands on the shown tab).
   too, which does no harm; a web tile keeps its own keys inside its page, so the chord reaches the app only when the app, not the
   page, has the keyboard focus; the onboarding screens switch all global keys off. **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
   `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.
+
+## 26. Is the program in a block still running? (`status` in `wsh api list` and in the state record)
+
+Each block that has a program now shows one of three words: `running`, `exited` (with its exit code, also `0` for a clean exit) or
+`notstarted`. A block with no program (a web tile, a file view) or a state this code does not know shows nothing: unknown is never
+reported as running. It is read from the block controller's own state (`GetBlockControllerRuntimeStatus`), not from block meta, so a
+block cannot claim a status by writing one. `wsh api list` prints it after the title (`running`, `exited(2)`); `wsh api list --json`
+has `status` and `exitcode`; the state record has the same two fields per block in a tile's group, and the record is rewritten when a
+program starts or exits (the `controllerstatus` event with a block scope now counts as a change).
+- **RAN:** Go tests (`pkg/blockstatus`, `pkg/staterecord`, `pkg/waveapi`, `cmd/wsh/cmd`): the mapping, that an exit code of 0 is kept,
+  that unknown is empty, that the record changes when a program exits and is rewritten on the event, that the API block still has
+  only allow-listed fields and never takes a status from meta. Check-Seams: 2 new rows (`block-runtime-status`, `block-status-values`).
+- **READ, not run:** a real program starting and exiting in a window and the file then changing; `wsh api list` against a live Wave.
+- **Review of section 26:** the record writer used to push its timer back on every event, so a program that restarts in a loop (events faster than the 300 ms debounce) would have kept the file stale for as long as the loop lasted. It now arms the timer on the first event and lets the later ones ride on it: at most one write per window, and at least one (a test sends an event every 10 ms for 600 ms and needs 5 to 16 builds while they last; the old writer gave 0). An exit event is driven end to end in a test with a real store: the file shows `exited` and the code, and the test goes red when the event is dropped.

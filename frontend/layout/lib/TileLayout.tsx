@@ -377,10 +377,11 @@ interface OverlayStripProps {
  */
 const OverlayStrip = memo(({ layoutModel, stackId, props }: OverlayStripProps) => {
     const stripRef = useRef<HTMLDivElement>(null);
-    const [, drop] = useDrop(
+    const [{ isOver }, drop] = useDrop(
         () => ({
             accept: tileItemType,
             canDrop: () => true,
+            collect: (monitor) => ({ isOver: monitor.isOver({ shallow: true }) }),
             drop: (_, monitor) => {
                 if (!monitor.didDrop()) {
                     layoutModel.onDrop();
@@ -412,6 +413,13 @@ const OverlayStrip = memo(({ layoutModel, stackId, props }: OverlayStripProps) =
     useEffect(() => {
         drop(stripRef);
     }, []);
+    // The pointer left the strip (into a gap, a body, nothing at all) or the drag ended: the outline and the pending action that this
+    // strip set go away. A strip clears only its own, so moving onto another strip keeps what that one just set.
+    useEffect(() => {
+        if (!isOver) {
+            layoutModel.clearStripPending(props.stack.order);
+        }
+    }, [isOver]);
     return <div ref={stripRef} className="overlay-strip" style={setTransform(props.stack.strip)} />;
 });
 OverlayStrip.displayName = "OverlayStrip";

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/blockstatus"
 	"github.com/wavetermdev/waveterm/pkg/staterecord"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -27,6 +29,16 @@ const (
 	loadTimeout   = 5 * time.Second
 )
 
+// procStatusOf reads the state of a block's program from its controller (each controller reads it under its own lock). It is a
+// variable so that a test can stand in for a program starting and exiting.
+var procStatusOf = func(blockId string) (string, *int) {
+	rt := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+	if rt == nil {
+		return "", nil
+	}
+	return blockstatus.FromShellProc(rt.ShellProcStatus, rt.ShellProcExitCode)
+}
+
 func loadSnapshot() (staterecord.Snapshot, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 	defer cancel()
@@ -35,6 +47,7 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 		Tabs:        map[string]*waveobj.Tab{},
 		Blocks:      map[string]*waveobj.Block{},
 		Layouts:     map[string]*waveobj.LayoutState{},
+		Statuses:    map[string]staterecord.ProcStatus{},
 	}
 	entries, err := wcore.ListAllWorkspaces(ctx)
 	if err != nil {
@@ -76,6 +89,9 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 				}
 				if block != nil {
 					snap.Blocks[blockId] = block
+					if status, code := procStatusOf(blockId); status != "" {
+						snap.Statuses[blockId] = staterecord.ProcStatus{Status: status, ExitCode: code}
+					}
 				}
 			}
 		}

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/blockstatus"
 	"github.com/wavetermdev/waveterm/pkg/waveapi"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -65,13 +67,24 @@ func (b *Backend) Tree(ctx context.Context) ([]waveapi.Workspace, error) {
 				if err != nil {
 					return nil, fmt.Errorf("getting block %s: %w", blockId, err)
 				}
-				apiTab.Blocks = append(apiTab.Blocks, waveapi.BlockFromMeta(blockId, blk.Meta))
+				apiBlock := waveapi.BlockFromMeta(blockId, blk.Meta)
+				apiBlock.Status, apiBlock.ExitCode = statusOf(blockId)
+				apiTab.Blocks = append(apiTab.Blocks, apiBlock)
 			}
 			ws.Tabs = append(ws.Tabs, apiTab)
 		}
 		rtn = append(rtn, ws)
 	}
 	return rtn, nil
+}
+
+// statusOf reads the state of the block's program from its controller; a block without a controller has no status.
+func statusOf(blockId string) (string, *int) {
+	rt := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+	if rt == nil {
+		return "", nil
+	}
+	return blockstatus.FromShellProc(rt.ShellProcStatus, rt.ShellProcExitCode)
 }
 
 func electronOpts() *wshrpc.RpcOpts {

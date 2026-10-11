@@ -6,6 +6,7 @@ package staterecord
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -174,6 +175,9 @@ func TestTheFileIsPrivateWhereTheSystemAllowsIt(t *testing.T) {
 }
 
 func TestOnlyChangesToTheObjectsOfTheRecordTriggerAWrite(t *testing.T) {
+	if !IsRelevantUpdate("controllerstatus", []string{"tab:t1", "block:b1"}) {
+		t.Fatalf("a program that started or exited must trigger a write")
+	}
 	yes := [][]string{{"workspace:w1"}, {"tab:t1"}, {"block:b1"}, {"layout:l1"}, {"window:w"}}
 	for _, scopes := range yes {
 		if !IsRelevantUpdate("waveobj:update", scopes) {
@@ -189,6 +193,8 @@ func TestOnlyChangesToTheObjectsOfTheRecordTriggerAWrite(t *testing.T) {
 		{"waveobj:update", nil},
 		{"blockclose", []string{"block:b1"}},
 		{"sysinfo", []string{"block:b1"}},
+		{"controllerstatus", []string{"tab:t1"}},
+		{"controllerstatus", nil},
 	} {
 		if IsRelevantUpdate(c.event, c.scopes) {
 			t.Fatalf("%s %v should not trigger a write", c.event, c.scopes)
@@ -259,5 +265,32 @@ func TestARenameThatKeepsFailingGivesUpAfterTheBoundedRetries(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&tries); n < 2 || n > 30 {
 		t.Fatalf("expected a bounded number of tries, got %d", n)
+	}
+}
+
+// A program that restarts in a loop sends events faster than the debounce for as long as it loops. The record must still be
+// written during that time (at most once per debounce window), not only after the loop ends.
+func TestAContinuousStreamOfEventsStillWritesAtTheDebounceRate(t *testing.T) {
+	var builds int32
+	var n int32
+	path := filepath.Join(t.TempDir(), "state", "wave-state.json")
+	w := MakeWriter(path, func() (Record, error) {
+		atomic.AddInt32(&builds, 1)
+		rec := BuildRecord(fixture(t))
+		rec.Sequence = 0
+		rec.Wave.Version = fmt.Sprintf("v%d", atomic.AddInt32(&n, 1))
+		return rec, nil
+	}, 50*time.Millisecond)
+	end := time.Now().Add(600 * time.Millisecond)
+	for time.Now().Before(end) {
+		w.Notify()
+		time.Sleep(10 * time.Millisecond)
+	}
+	during := atomic.LoadInt32(&builds)
+	if during < 5 {
+		t.Fatalf("events every 10 ms for 600 ms with a 50 ms debounce gave only %d builds while they lasted: the record is starved", during)
+	}
+	if during > 16 {
+		t.Fatalf("%d builds in 600 ms with a 50 ms debounce: that is more than one per window", during)
 	}
 }

@@ -37,7 +37,7 @@ import {
     turnStackOff,
     unstackNode,
 } from "../lib/layoutTree";
-import { stripTabAt } from "../lib/stackgeometry";
+import { stripTabAt, stripTargetBelongsTo } from "../lib/stackgeometry";
 import { DropDirection, FlexDirection, LayoutNode, LayoutTreeActionType, LayoutTreeState } from "../lib/types";
 import { newLayoutTreeState } from "./model";
 
@@ -1122,6 +1122,29 @@ describe("which tab of a strip the pointer is over (drop onto a strip)", () => {
         );
     });
 
+    test("a strip never wraps onto a second row, so x alone picks the tab: it is one flex row that scrolls", () => {
+        const css = readFileSync(path.join(__dirname, "..", "lib", "stackstrip.scss"), "utf8");
+        const strip = css.slice(0, css.indexOf("}"));
+        assert.include(strip, "display: flex;");
+        assert.include(strip, "overflow-x: auto;");
+        assert.notInclude(css, "flex-wrap");
+    });
+
+    test("the outline belongs to a strip only when its tab is a member of that stack", () => {
+        assert.isTrue(stripTargetBelongsTo(["a", "b"], "b"));
+        assert.isFalse(stripTargetBelongsTo(["a", "b"], "z"));
+        assert.isFalse(stripTargetBelongsTo(["a", "b"], null));
+        assert.isFalse(stripTargetBelongsTo(undefined, "a"));
+    });
+
+    test("leaving a strip clears it: the effect on isOver, and only for its own members", () => {
+        const tile = readFileSync(path.join(__dirname, "..", "lib", "TileLayout.tsx"), "utf8");
+        const strip = tile.slice(tile.indexOf("const OverlayStrip = memo("));
+        assert.include(strip, "collect: (monitor) => ({ isOver: monitor.isOver({ shallow: true }) })");
+        assert.include(strip, "layoutModel.clearStripPending(props.stack.order)");
+        const model = readFileSync(path.join(__dirname, "..", "lib", "layoutModel.ts"), "utf8");
+        assert.include(model, "stripTargetBelongsTo(stackOrder, this.getter(this.stripDropTarget))");
+    });
     test("the wiring: the strip has its own drop target in the overlay, the tab itself has none, and a move computed elsewhere clears the indicator", () => {
         const read = (rel: string) => readFileSync(path.join(__dirname, "..", "lib", rel), "utf8");
         const tile = read("TileLayout.tsx");

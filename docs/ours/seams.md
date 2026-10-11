@@ -106,6 +106,7 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | event observer | `pkg/wps/wps.go` | `notifyObservers(event)` | the state record reacts to every published object update |
 | state record start | `cmd/server/main-server.go` | `wavesrvstate.Start()` | wavesrv starts the state record writer |
 | controller start decision | `pkg/blockcontroller/shellcontroller.go` | `shouldRunCommand(...)` | `wsh session start --restart` depends on `cmd:runonstart` blocks starting again |
+| program status | `pkg/blockcontroller/blockcontroller.go` | `GetBlockControllerRuntimeStatus`, `Status_Running`, `Status_Done`, `Status_Init` | the status of a block's program in `wsh api list` and in the state record |
 | close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
 | tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
 | strip drop target | `frontend/layout/lib/TileLayout.tsx` | `{overlayNodes} {overlayStrips}` | the drop target of each stack strip lives in the overlay layer, next to the tile drop targets |

@@ -764,6 +764,38 @@ stack, and when another top tab was shown and then this one again. Switching to 
   (expected: all of the other workspace); (4) open more tabs than the cache size (10) and come back to the first: does the web tile reload; (5) a hidden member's audio is muted (PR 27) and un-muted when shown;
   (6) close one web tile with a filled form: no question (it has no program), the others untouched; (7) restart Wave: web tiles reload (nothing keeps a form across a restart).
 
+## 40. A session opened in a tile comes back after Wave restarts (the starter, and what opens it)
+
+The chain, with who does what: a script that opens a session (outside this repository: `Open-WaveSession.ps1` of the owner's tools, called by `Wave-Sessions.ps1 open`) calls `wsh session start --restart --meta session:id=<guid>
+--meta session:name=... (and model, effort, permissionmode when given)`. Wave then (1) marks the block `cmd:runonstart=true` and `cmd:runonce=false` so it starts the SAME command again at every start of the app, in the same block, keeping the
+earlier output (`cmd:clearonstart=false`); (2) keeps the `session:*` keys on the block, which is what puts it into the `sessions` index of the state record (`<data dir>\state\wave-state.json`: only blocks that carry a session id are
+listed there; `Restore-Sessions.ps1` reads that index). The command Wave starts again is `tools/ours/Start-ResumableSession.ps1`: its first start creates the session under the id (`--session-id`), every later start resumes it
+(`--resume`). `--restart` is refused for a command line with a bare `--session-id` or an inline shell command (section 21), so a plain launcher cannot be used with it.
+- **The starter puts the folder of wsh on the PATH** (`WAVETERM_WSHBINDIR`, once). Wave adds that folder to the PATH of the shells it starts, not of a program it starts directly (as this one is), so a
+  Claude session in a tile could not run `wsh` by name. The folder goes AFTER the entries that are already there (a `wsh` the user already has wins), only if it is a fully qualified path (`X:\` or `X:/`) to an existing folder, and any error in this step leaves the PATH as it was and never stops the session, and is not added when the same
+  folder is already there under another spelling (compared as full paths, case-insensitive, trailing separators and `..` resolved). RAN: `Test-ResumableSession.ps1` (the folder is last on the PATH and the launched stub runs `wsh` and prints what
+  it printed; an earlier `wsh` of the same name wins; a missing, unset or relative variable leaves the PATH alone; a folder that is already there, also under another spelling, is not added again; red when the folder is put first, when the
+  comparison is textual, and when the absolute-path check is removed).
+- **The starter has NO default config folder (incident, 11-Oct-2026).** `CLAUDE_CONFIG_DIR` used to default to `%USERPROFILE%\.claude` when it was not set. That folder belongs to the old single runner on the work side of the machine and a
+  personal session must never read or write it. A dev Wave started by the proof script had every `CLAUDE*` variable stripped, so two throwaway sessions fell back to that default and stood at Claude's first-run screen for a few minutes
+  before they were stopped by their recorded ids. Rule now: the folder must be fully qualified (`X:\` or `X:/`: no relative path, no `X:name`, no UNC or `\\?\` form), is resolved to its FINAL path (junctions, symbolic links, 8.3 names, `..`)
+  and is then judged, with and without `-ThrowawayConfig`: at or below `<profile>\.claude` or `<profile>\.claude-work` (case-insensitive) is refused with exit code 2 before Claude is started; at or below `<profile>\.claude-personal` is accepted;
+  any other folder is accepted only with `-ThrowawayConfig` (a test). The folder handed on to Claude is the resolved full path. The opening script (`Open-WaveSession.ps1`), `Restore-Sessions.ps1` and the dev-proof start script carry the same
+  rule and write `-ConfigDir <full path>` into the block's stored command, because Wave itself NEVER has `CLAUDE_CONFIG_DIR`: the launcher (`WaveFork.exe`) removes every `CLAUDE*` variable from Wave's environment, so a restart cannot depend on it.
+  RAN (`Test-ResumableSession.ps1`, run with `pwsh`, under a made-up profile whose name has spaces and an 8.3 name; no path in any test is the real profile's): 20 refusal cases with exit code 2 and the stub never started (unset, empty, blank,
+  `.claude`, below it, capitals, `.claude-work`, `..` into `.claude`, forward slashes, the 8.3 name of the profile, a junction under `.claude-personal` that leads to `.claude`, a junction under a throwaway folder that leads to `.claude-work`,
+  a UNC form, an extended length form, relative and drive-relative paths, `.claude-personal-evil`, a throwaway folder without the switch), three more below a profile that has no `.claude` folder at all (the deny list is case-insensitive where no
+  on-disk spelling exists), `CLAUDE_CONFIG_DIR` of `.claude` in the environment. Removing only the old default line is not visible to a test, because the refusal catches the folder anyway (the default is gone as a second layer).
+  Also here: a launch under Windows PowerShell is refused (exit 2: a prompt with quotes or backslashes does not arrive as one argument there; `-DryRun` still runs there) and a prompt that starts with a dash is refused (it would be read as an
+  option); the session id must match to the end of the string (a trailing newline is refused); only a FILE named `<id>.jsonl` counts as a transcript. **Limit:** two starts of the same id at the same instant can both create the session (no lock).
+- **A block opened the OLD way** (`--restart` not given; the keys are `cmd:runonce=true` and no `session:*`) is not started again at a restart (it is marked run once): it comes back as an empty finished block with its old output, and it is not in
+  the record. It can be marked from inside Wave with `wsh setmeta -b <block> cmd:runonce=false cmd:clearonstart=false session:id=<guid> session:name=<name>` plus `cmd` and `cmd:args` replaced by the resumable starter's command line (the old command
+  would create the session again with its id and be refused as already in use): possible but NOT RUN, and it needs the session's real id (a session that Claude named itself has an id that only the session knows); reopening it with the new script
+  is the safe way, and `claude --resume <id>` in a new tile brings the conversation back.
+- **RAN (dev Wave on its own profile, top right of the screen, 11-Oct-2026, 16:35 to 16:47):** a session was opened with `Open-WaveSession.ps1` (restart on) through the dev block's wsh; the record showed it with its `session:id`; the dev Wave was
+  stopped and started again; the block started BY ITSELF and resumed the SAME id (`--resume <id>`, one transcript for that id, no second session). A block opened the old way came back as an empty finished block and was not started again.
+  Two facts from it: a block in a tab that is NOT shown does not start at a restart, it starts when its tab is shown (`wsh tab switch`, or a click); and a cmd block that Wave starts directly gets `WAVETERM_SWAPTOKEN`, not `WAVETERM_JWT`, so a
+  script in it must run `wsh token $env:WAVETERM_SWAPTOKEN pwsh` first (the starter itself needs no wsh). Closing the dev Wave through its window (`CloseMainWindow`) ended everything in 0.5 s with the layout intact.
 ## 37. Attention marks, part 2: the stack tab shows the mark
 
 The attention design is settled (docs section 34): info is an icon with no motion; need is an orange DOT only, with no outline; urgent is a pulsing orange outline and dot. This part draws the first container: the

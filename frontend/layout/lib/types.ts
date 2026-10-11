@@ -403,7 +403,7 @@ export interface StackTabMenuInfo {
     nodeId: string;
     canTakeOut: boolean;
     takeOut: () => void;
-    close: () => void;
+    close: () => unknown;
 }
 
 export type StackTabLabelRenderer = (blockId: string) => React.ReactNode;

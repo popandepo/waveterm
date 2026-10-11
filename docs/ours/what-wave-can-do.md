@@ -674,3 +674,9 @@ clipped to 3em in the strip, so a long string cannot widen a tab. The question b
   registry). Red when the colour check is removed from `memberLookMeta` and when Take out of stack is always shown. Two seam rows added.
 - **NOT RUN, window check:** the menus themselves (a right click on a strip tab, the nested submenus, the question box typing and pasting an emoji, Esc and Enter),
   that Rename shows in the strip and the header, and that the colour and icon appear at once.
+
+Review fixes for section 29: a name (Rename, or any caller of `memberLookMeta`) must have no control, format or line characters and at most 60 characters
+(`memberTitleValue`); the strip draws a title through `drawnTitle` whoever wrote it (`wsh setmeta` too): hidden characters mean the title is not used, a long one is cut to 60.
+The menus check that the block still exists before the menu is shown and again before each write. The Close of the strip tab menu is built by `makeStripTabMenuInfo`
+and goes through the same route as the X (`closeStripTab`); tested with a question that refuses (nothing closed) and with none set up (nothing closed).
+Colours: control characters and newlines are refused before any pattern, and the function pattern allows spaces only (section 28).

@@ -63,6 +63,9 @@ const TabContent = React.memo(({ tabId, noTopPadding }: { tabId: string; noTopPa
         };
 
         const onStackTabMenu = (info: StackTabMenuInfo, ev: React.MouseEvent<any>) => {
+            if (!MemberLookWindowDeps.exists(info.blockId)) {
+                return;
+            }
             const meta = (key: string) => globalStore.get(getBlockMetaKeyAtom(info.blockId, key as any)) as string | null;
             const menu = buildStripTabMenu(
                 info.blockId,

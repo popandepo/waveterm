@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, assert, describe, test, vi } from "vitest";
-import { lastSegment, memberColorValue, memberSymbolValue, stackTabLook } from "./stacktablook";
+import { drawnTitle, lastSegment, memberColorValue, memberSymbolValue, stackTabLook } from "./stacktablook";
 
 // CSS.supports does not exist outside a window; this stands in for it with the colours the tests use
 const validate = (c: string) => {
@@ -132,5 +132,20 @@ describe("the wiring that no test can render", () => {
         assert.include(css, "isolation: isolate;");
         assert.include(css, "z-index: -1;");
         assert.include(css, "max-width: 3em;");
+    });
+});
+
+describe("a title as the strip draws it", () => {
+    test("a long title is cut to 60 characters, one with hidden characters is not used, a plain one stays", () => {
+        assert.equal(drawnTitle("build"), "build");
+        assert.equal(drawnTitle("x".repeat(200))?.length, 60);
+        assert.isNull(drawnTitle("a\nb"));
+        assert.isNull(drawnTitle("a‮b"));
+        assert.isNull(drawnTitle("  "));
+        assert.isNull(drawnTitle(5));
+    });
+
+    test("the label draws it through drawnTitle", () => {
+        assert.include(readFileSync(path.join(__dirname, "stacktablabel.tsx"), "utf8"), "drawnTitle(title)");
     });
 });

@@ -6,10 +6,11 @@ import path from "node:path";
 import { assert, describe, test } from "vitest";
 import { buildMemberLookItems, buildStripTabMenu, memberLookMeta, MemberLookDeps } from "./memberlook";
 
-function fakeDeps(answers: (string | null)[] = []) {
+function fakeDeps(answers: (string | null)[] = [], gone = new Set<string>()) {
     const writes: { blockId: string; meta: { [key: string]: string | null } }[] = [];
     const asked: { title: string; label: string; initial: string }[] = [];
     const deps: MemberLookDeps = {
+        exists: (blockId) => !gone.has(blockId),
         setMeta: async (blockId, meta) => {
             writes.push({ blockId, meta });
         },
@@ -97,6 +98,35 @@ describe("Set colour and Set icon", () => {
     });
 });
 
+describe("names and blocks that are gone", () => {
+    test("a name with control characters or over 60 characters is refused, 60 passes", () => {
+        assert.isNull(memberLookMeta("title", "a\nb"));
+        assert.isNull(memberLookMeta("title", "a\u0000b"));
+        assert.isNull(memberLookMeta("title", "a‮b"));
+        assert.isNull(memberLookMeta("title", "x".repeat(61)));
+        assert.deepEqual(memberLookMeta("title", "x".repeat(60)), { "frame:title": "x".repeat(60) });
+    });
+
+    test("nothing is written for a block that was deleted, before or after the question", async () => {
+        const gone = new Set(["b1"]);
+        const k = fakeDeps(["tomato"], gone);
+        sub(buildMemberLookItems("b1", {}, k.deps), "Set colour")[1].click();
+        find(sub(buildMemberLookItems("b1", {}, k.deps), "Set colour"), "Other...").click();
+        await flush();
+        assert.deepEqual(k.writes, []);
+        const gone2 = new Set<string>();
+        const k2 = fakeDeps(["tomato"], gone2);
+        const other = find(sub(buildMemberLookItems("b2", {}, k2.deps), "Set colour"), "Other...");
+        k2.deps.ask = async () => {
+            gone2.add("b2");
+            return "tomato";
+        };
+        other.click();
+        await flush();
+        assert.deepEqual(k2.writes, []);
+    });
+});
+
 describe("the right-click menu of a strip tab", () => {
     const parts = (canTakeOut: boolean) => {
         const calls: string[] = [];
@@ -134,7 +164,7 @@ describe("the wiring that no test can render", () => {
         const strip = read("layout", "lib", "stacktabstrip.tsx");
         assert.include(strip, "onContextMenu={(e) => {");
         assert.include(strip, "layoutModel.onStackTabMenu(");
-        assert.include(strip, "closeStripTab(layoutModel.closeBlockAfterConfirm");
+        assert.include(strip, "makeStripTabMenuInfo(");
         assert.include(read("app", "tab", "tabcontent.tsx"), "buildStripTabMenu(");
         const ui = read("app", "block", "memberlook-ui.ts");
         assert.include(ui, "RpcApi.SetMetaCommand(TabRpcClient");

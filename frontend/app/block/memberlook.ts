@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { FlagColors } from "@/app/tab/flagcolors";
-import { memberColorValue, memberSymbolValue } from "@/app/tab/stacktablook";
+import { memberColorValue, memberSymbolValue, memberTitleValue } from "@/app/tab/stacktablook";
 
 export const ColorMetaKey = "icon:color";
 export const IconMetaKey = "frame:icon";
@@ -20,6 +20,8 @@ const MemberIcons: { label: string; value: string }[] = [
 ];
 
 export interface MemberLookDeps {
+    // whether the block is still there (a strip can still show a tab of a block that was deleted a moment ago)
+    exists: (blockId: string) => boolean;
     setMeta: (blockId: string, meta: { [key: string]: string | null }) => Promise<void>;
     // asks for one line of text; resolves null when the user cancels
     ask: (opts: { title: string; label: string; initial: string }) => Promise<string | null>;
@@ -32,7 +34,11 @@ export type MemberLookKind = "color" | "icon" | "title";
 export function memberLookMeta(kind: MemberLookKind, raw: string | null | undefined): { [key: string]: string | null } | null {
     const text = (raw ?? "").trim();
     if (kind === "title") {
-        return { [TitleMetaKey]: text === "" ? null : text };
+        if (text === "") {
+            return { [TitleMetaKey]: null };
+        }
+        const title = memberTitleValue(text);
+        return title == null ? null : { [TitleMetaKey]: title };
     }
     if (text === "") {
         return { [kind === "color" ? ColorMetaKey : IconMetaKey]: null };
@@ -47,7 +53,7 @@ export function memberLookMeta(kind: MemberLookKind, raw: string | null | undefi
 
 async function applyChoice(deps: MemberLookDeps, blockId: string, kind: MemberLookKind, raw: string | null) {
     const meta = memberLookMeta(kind, raw);
-    if (meta == null) {
+    if (meta == null || !deps.exists(blockId)) {
         return false;
     }
     await deps.setMeta(blockId, meta);
@@ -125,14 +131,14 @@ export function buildMemberLookItems(blockId: string, current: MemberLookCurrent
 export interface StripTabMenuParts {
     canTakeOut: boolean;
     takeOut: () => void;
-    close: () => void;
+    close: () => unknown;
 }
 
 // The right-click menu of a tab in a strip: Take out of stack, Close (through the close question), Rename (frame:title), and the look items.
 export function buildStripTabMenu(blockId: string, current: MemberLookCurrent, parts: StripTabMenuParts, deps: MemberLookDeps): ContextMenuItem[] {
     return [
         ...(parts.canTakeOut ? [{ label: "Take out of stack", click: () => parts.takeOut() }] : []),
-        { label: "Close", click: () => parts.close() },
+        { label: "Close", click: () => void parts.close() },
         { type: "separator" },
         {
             label: "Rename",

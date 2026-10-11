@@ -9,6 +9,7 @@ import { useDrag } from "react-dnd";
 import { tileItemType } from "./dndtypes";
 import type { LayoutModel } from "./layoutModel";
 import { closeStripTab } from "./stackclose";
+import { makeStripTabMenuInfo } from "./stacktabmenu";
 import { buildStripTabs, stripsToShow } from "./stackgeometry";
 import type { LayoutNode, LayoutNodeAdditionalProps } from "./types";
 import { setTransform } from "./utils";
@@ -74,18 +75,15 @@ const StripTab = memo(
                     e.preventDefault();
                     e.stopPropagation();
                     layoutModel.onStackTabMenu(
-                        {
-                            blockId: tab.blockId,
-                            nodeId: tab.nodeId,
-                            canTakeOut: stackSize > 1,
-                            takeOut: () => layoutModel.takeNodeOutOfStack(tab.nodeId),
-                            close: () =>
-                                fireAndForget(() =>
-                                    closeStripTab(layoutModel.closeBlockAfterConfirm, tab.blockId, tab.nodeId, (id) =>
-                                        layoutModel.closeNode(id)
-                                    )
-                                ),
-                        },
+                        makeStripTabMenuInfo(
+                            {
+                                closeAfterConfirm: layoutModel.closeBlockAfterConfirm,
+                                closeNode: (id) => layoutModel.closeNode(id),
+                                takeNodeOutOfStack: (id) => layoutModel.takeNodeOutOfStack(id),
+                            },
+                            tab,
+                            stackSize
+                        ),
                         e
                     );
                 }}

@@ -345,6 +345,7 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 				TargetBlockId: data.TargetBlockId,
 				Position:      "after",
 				Focused:       data.Focused,
+				NodeSize:      data.NodeSize,
 			}
 		case "splitleft":
 			layoutAction = &waveobj.LayoutActionData{
@@ -353,6 +354,7 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 				TargetBlockId: data.TargetBlockId,
 				Position:      "before",
 				Focused:       data.Focused,
+				NodeSize:      data.NodeSize,
 			}
 		case "splitup":
 			layoutAction = &waveobj.LayoutActionData{
@@ -361,6 +363,7 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 				TargetBlockId: data.TargetBlockId,
 				Position:      "before",
 				Focused:       data.Focused,
+				NodeSize:      data.NodeSize,
 			}
 		case "splitdown":
 			layoutAction = &waveobj.LayoutActionData{
@@ -369,6 +372,7 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 				TargetBlockId: data.TargetBlockId,
 				Position:      "after",
 				Focused:       data.Focused,
+				NodeSize:      data.NodeSize,
 			}
 		case wshrpc.CreateBlockAction_Stack:
 			layoutAction, err = planCreateInStack(blockData.OID, data.TargetBlockId, data.Focused)
@@ -385,6 +389,7 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 			Magnified:  data.Magnified,
 			Ephemeral:  data.Ephemeral,
 			Focused:    data.Focused,
+			NodeSize:   data.NodeSize,
 		}
 	}
 	err = wcore.QueueLayoutActionForTab(ctx, tabId, *layoutAction)

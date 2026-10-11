@@ -314,6 +314,7 @@ declare global {
         focused?: boolean;
         targetblockid?: string;
         targetaction?: string;
+        nodesize?: number;
     };
 
     // wshrpc.CommandCreateSubBlockData

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
+	"github.com/wavetermdev/waveterm/pkg/blockstatus"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote"
@@ -65,6 +66,9 @@ type ShellController struct {
 	// for shell/cmd
 	ShellProc    *shellexec.ShellProc
 	ShellInputCh chan *BlockInputUnion
+
+	// what the shell printed and what was sent to it decide whether it waits at a prompt (see blockstatus.PromptTracker); used by the idle check
+	promptTracker blockstatus.PromptTracker
 }
 
 // Constructor that returns the Controller interface
@@ -422,6 +426,15 @@ func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc 
 	}
 	var shellProc *shellexec.ShellProc
 	swapToken := makeSwapToken(ctx, logCtx, bc.BlockId, blockMeta, remoteName, connUnion.ShellType)
+	// a local PowerShell gets a token for its prompt markers (the idle check of the close question); any other shell none, so it never counts as idle
+	promptToken := ""
+	if connUnion.ShellType == shellutil.ShellType_pwsh && conncontroller.IsLocalConnName(remoteName) {
+		promptToken = newPromptToken()
+		if promptToken != "" {
+			swapToken.Env[shellutil.PromptTokenEnvVar] = promptToken
+		}
+	}
+	bc.promptTracker.SetToken(promptToken)
 	cmdOpts.SwapToken = swapToken
 	blocklogger.Debugf(logCtx, "[conndebug] created swaptoken: %s\n", swapToken.Token)
 	if connUnion.ConnType == ConnType_Wsl {
@@ -525,6 +538,7 @@ func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc 
 func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellProc, rc *RunShellOpts, blockMeta waveobj.MetaMapType) error {
 	shellInputCh := make(chan *BlockInputUnion, 32)
 	bc.ShellInputCh = shellInputCh
+	bc.promptTracker.Reset()
 
 	go func() {
 		// handles regular output from the pty (goes to the blockfile and xterm)
@@ -553,6 +567,7 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		for {
 			nr, err := shellProc.Cmd.Read(buf)
 			if nr > 0 {
+				bc.observeOutput(buf[:nr])
 				err := HandleAppendBlockFile(bc.BlockId, wavebase.BlockFile_Term, buf[:nr])
 				if err != nil {
 					log.Printf("error appending to blockfile: %v\n", err)
@@ -575,6 +590,7 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		}()
 		for ic := range shellInputCh {
 			if len(ic.InputData) > 0 {
+				bc.observeInput(ic.InputData)
 				shellProc.Cmd.Write(ic.InputData)
 			}
 			if ic.TermSize != nil {

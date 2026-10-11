@@ -33,6 +33,7 @@ layout-rootnode-any
 layout-update-helper
 ping-gated-on-telemetry
 pwsh-init-swaptoken
+pwsh-prompt-marker
 server-resolve-simple-id
 stack-add-hook
 stack-create-block-hook

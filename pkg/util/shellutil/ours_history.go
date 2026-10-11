@@ -66,3 +66,7 @@ func RemoveBlockHistory(dataDir string, blockId string) error {
 	}
 	return nil
 }
+
+// PromptTokenEnvVar is the environment variable through which wavesrv gives a local PowerShell the token for its prompt markers (see
+// blockstatus.PromptTracker). The start-up script reads it and removes it, so programs started from the shell do not inherit it.
+const PromptTokenEnvVar = "WAVETERM_PROMPT_TOKEN"

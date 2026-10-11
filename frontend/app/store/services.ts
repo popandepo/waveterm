@@ -30,6 +30,11 @@ export class BlockServiceType {
         return callBackendService(this?.waveEnv, "block", "GetControllerStatus", Array.from(arguments))
     }
 
+    // whether the block's local shell is waiting at its prompt (no child process but console helpers); false when it cannot be told
+    GetShellIdle(blockId: string): Promise<boolean> {
+        return callBackendService(this?.waveEnv, "block", "GetShellIdle", Array.from(arguments))
+    }
+
     // save the terminal state to a blockfile
     SaveTerminalState(blockId: string, state: string, stateType: string, ptyOffset: number, termSize: TermSize): Promise<void> {
         return callBackendService(this?.waveEnv, "block", "SaveTerminalState", Array.from(arguments))

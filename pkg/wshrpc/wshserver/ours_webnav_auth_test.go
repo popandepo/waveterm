@@ -86,20 +86,24 @@ func TestTheRouterRecordsTheBlockOnlyAfterTheRouteIsBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(src)
-	guard := strings.Index(text, "linkAuthIdentity(linkId)")
-	bind := strings.Index(text, "impl.Router.bindRoute(linkId, rtnData.RouteId, true); err != nil")
-	set := strings.Index(text, "impl.Router.SetLinkAuthBlockId(linkId, rtnData.RpcContext.BlockId); err != nil")
-	if guard < 0 || bind < 0 || set < 0 {
-		t.Fatalf("guard, checked bind and checked record must all be there (guard %d, bind %d, set %d)", guard, bind, set)
+	start := strings.Index(text, "func (impl *WshRouterControlImpl) bindLeafIdentity(")
+	if start < 0 {
+		t.Fatal("bindLeafIdentity not found")
 	}
-	if !strings.Contains(text, `curRoute != "" && (curRoute != rtnData.RouteId || curBlock != rtnData.RpcContext.BlockId)`) || !strings.Contains(text, "already authenticated as another route or block") {
-		t.Fatal("a link that is already authenticated must refuse a token for another route or block")
-	}
-	if !(guard < bind && bind < set) {
+	body := text[start:]
+	body = body[:strings.Index(body, "\n}\n")]
+	guard := strings.Index(body, `curRoute != "" && (curRoute != routeId || curBlock != blockId)`)
+	bind := strings.Index(body, "impl.Router.bindRoute(linkId, routeId, true); err != nil")
+	set := strings.Index(body, "impl.Router.SetLinkAuthBlockId(linkId, blockId)")
+	if guard < 0 || bind < 0 || set < 0 || !(guard < bind && bind < set) {
 		t.Fatalf("order must be: identity guard, bind (error checked), record (guard %d, bind %d, set %d)", guard, bind, set)
 	}
-	if strings.Contains(text, "impl.Router.bindRoute(linkId, rtnData.RouteId, true)"+string(rune(10))) {
-		t.Fatal("the result of bindRoute must be checked")
+	if !strings.Contains(body, "already authenticated as another route or block") {
+		t.Fatal("the refusal text is missing")
+	}
+	// both ways of authenticating go through it: the JWT (every wsh command but "wsh token") and the swap token
+	if n := strings.Count(text, "impl.bindLeafIdentity("); n != 2 {
+		t.Fatalf("the JWT path and the token path must both call bindLeafIdentity, found %d calls", n)
 	}
 }
 

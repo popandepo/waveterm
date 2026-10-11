@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { assert, describe, test } from "vitest";
-import { authorizeWebNav, MaxTitleLength, MaxUrlLength, schemeOf, webNavigate, WebNavTarget } from "./emain-webnav";
+import { authorizeWebNav, MaxTitleLength, MaxUrlLength, schemeOf, webNavigate, WebNavTarget, withoutCredentials } from "./emain-webnav";
 
 function stub(opts: { back?: boolean; forward?: boolean; url?: string; title?: string; history?: string[]; index?: number } = {}) {
     const calls: string[] = [];
@@ -149,7 +149,7 @@ describe("the caller of a web command (source pin: the handler needs a window)",
     const src = readFileSync(path.join(__dirname, "emain-wsh.ts"), "utf8");
     const body = src.slice(src.indexOf("async handle_webnav"), src.indexOf("async handle_notify"));
     test("emain asks the server whether the caller may act on the block, with the route that the router stamped", () => {
-        assert.include(body, "RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid })");
+        assert.include(body, "WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }");
     });
     test("the question comes before any window, tab or web contents is looked at", () => {
         const ask = body.indexOf("WebNavAuthorizeCommand");
@@ -169,5 +169,40 @@ describe("the caller of a web command (source pin: the handler needs a window)",
     test("the caller is never taken from the request", () => {
         assert.notInclude(body, "data.callerroute");
         assert.notInclude(body, "data.callerblock");
+    });
+});
+
+describe("round 5: the other web command, the answer's credentials, the time limit, and no focus", () => {
+    const wsh = readFileSync(path.join(__dirname, "emain-wsh.ts"), "utf8");
+    const nav = readFileSync(path.join(__dirname, "emain-webnav.ts"), "utf8");
+    test("wsh web get (webselector) asks the same question before it looks at any window", () => {
+        const body = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_webnav"));
+        const ask = body.indexOf("WebNavAuthorizeCommand");
+        assert.isAbove(ask, -1);
+        assert.isAbove(body.indexOf("getWaveWindowByWorkspaceId("), ask);
+        assert.isAbove(body.indexOf("getWebContentsByBlockId("), ask);
+        assert.include(body, "callerroute: rh.getSource()");
+    });
+    test("the question has a time limit shorter than wsh's own", () => {
+        assert.match(nav, /export const AuthorizeTimeoutMs = 3000;/);
+        const asks = wsh.split("WebNavAuthorizeCommand(").length - 1;
+        assert.equal(asks, 3);
+        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 3);
+    });
+    test("no handler focuses a window or switches the shown tab before the action", () => {
+        const handlers = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_notify"));
+        for (const word of [".focus(", "setActiveTab", ".show(", "moveTop", "activateTab", "switchTab", "setIsActive"]) {
+            assert.notInclude(handlers, word, word);
+            assert.notInclude(nav, word, word);
+        }
+    });
+    test("an address with credentials is returned without them", () => {
+        assert.equal(withoutCredentials("http://user:secret@host.example/path?q=1"), "http://host.example/path?q=1");
+        assert.equal(withoutCredentials("https://onlyuser@host.example/"), "https://host.example/");
+        assert.equal(withoutCredentials("http://127.0.0.1:8080/x"), "http://127.0.0.1:8080/x");
+        assert.equal(withoutCredentials("not a url"), "not a url");
+        const res = webNavigate(stub({ url: "http://u:p@h.example/" }).wc, "url");
+        assert.equal(res.url, "http://h.example/");
+        assert.notInclude(JSON.stringify(res), "p@");
     });
 });

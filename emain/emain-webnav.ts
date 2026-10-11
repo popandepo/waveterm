@@ -10,6 +10,9 @@ export type WebNavAction = "reload" | "back" | "forward" | "url";
 // (file:, data:, javascript:, devtools:, chrome:, view-source:, about:) is refused, and the owner says if file: pages are to be added.
 export const AllowedNavSchemes = ["http:", "https:"];
 
+// The window's question to the server must be answered before wsh gives up (5000 ms), or a late yes would act after the caller has been told no.
+export const AuthorizeTimeoutMs = 3000;
+
 export const MaxTitleLength = 200;
 export const MaxUrlLength = 2048;
 
@@ -49,6 +52,21 @@ function requireAllowed(url: unknown, what: string) {
     if (!AllowedNavSchemes.includes(schemeOf(url))) {
         const shown = schemeOf(url) || "no scheme";
         throw new Error(`${what} is not an http or https page (${shown}); wsh web only reloads and steps through http and https pages`);
+    }
+}
+
+// An address with a user name or a password in it (http://user:secret@host/) is returned without them: the answer goes to whoever asked and may be logged.
+export function withoutCredentials(url: string): string {
+    try {
+        const u = new URL(url);
+        if (u.username === "" && u.password === "") {
+            return url;
+        }
+        u.username = "";
+        u.password = "";
+        return u.toString();
+    } catch {
+        return url;
     }
 }
 
@@ -116,7 +134,7 @@ export function webNavigate(wc: WebNavTarget, action: string): WebNavResult {
             throw new Error(`unknown web action ${JSON.stringify(action)} (reload, back, forward or url)`);
     }
     return {
-        url: capText(wc.getURL(), MaxUrlLength),
+        url: capText(withoutCredentials(wc.getURL()), MaxUrlLength),
         title: capText(wc.getTitle(), MaxTitleLength),
         cangoback: history.canGoBack(),
         cangoforward: history.canGoForward(),

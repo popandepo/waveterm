@@ -4,6 +4,10 @@
 package wshutil
 
 import (
+	"context"
+
+	"github.com/wavetermdev/waveterm/pkg/wavejwt"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -83,5 +87,90 @@ func TestABlockIsNotRecordedOnALinkWithoutASourceRoute(t *testing.T) {
 	route, block := router.linkAuthIdentity(1)
 	if route != "" || block != "" {
 		t.Fatalf("nothing recorded: %q %q", route, block)
+	}
+}
+
+type stubClient struct{}
+
+func (stubClient) GetPeerInfo() string                                             { return "stub" }
+func (stubClient) SendRpcMessage(msg []byte, ingress baseds.LinkId, d string) bool { return true }
+func (stubClient) RecvRpcMessage() ([]byte, bool)                                  { return nil, false }
+
+func authCtx(linkId baseds.LinkId) context.Context {
+	return context.WithValue(context.Background(), wshRpcRespHandlerContextKey{}, &RpcResponseHandler{ingressLinkId: linkId})
+}
+
+func routerWithUntrustedLink(linkId baseds.LinkId) (*WshRouter, *WshRouterControlImpl) {
+	router := NewWshRouter()
+	router.linkMap[linkId] = &linkMeta{linkId: linkId, client: stubClient{}}
+	return router, &WshRouterControlImpl{Router: router}
+}
+
+func useTestKeys(t *testing.T) {
+	t.Helper()
+	kp, err := wavejwt.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wavejwt.SetPublicKey(kp.PublicKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := wavejwt.SetPrivateKey(kp.PrivateKey); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func jwtFor(t *testing.T, rpcCtx wshrpc.RpcContext) string {
+	t.Helper()
+	tok, err := MakeClientJWTToken(rpcCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
+// The way wsh authenticates for every command but "wsh token": the JWT in WAVETERM_JWT, through AuthenticateCommand on the link. The block of the JWT must be the
+// block that the router knows behind the route it bound.
+func TestAJwtAuthenticatedLinkIsKnownByItsBlock(t *testing.T) {
+	useTestKeys(t)
+	router, impl := routerWithUntrustedLink(1)
+	rtn, err := impl.AuthenticateCommand(authCtx(1), jwtFor(t, wshrpc.RpcContext{BlockId: "blockA", ProcRoute: true}))
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if got := router.BlockIdForSourceRoute(rtn.RouteId); got != "blockA" {
+		t.Fatalf("the route %q must lead to blockA, got %q", rtn.RouteId, got)
+	}
+}
+
+func TestASecondJwtOnTheSameLinkCannotChangeTheIdentity(t *testing.T) {
+	useTestKeys(t)
+	router, impl := routerWithUntrustedLink(1)
+	first, err := impl.AuthenticateCommand(authCtx(1), jwtFor(t, wshrpc.RpcContext{BlockId: "blockA", RouteId: "tab:route-a"}))
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, err := impl.AuthenticateCommand(authCtx(1), jwtFor(t, wshrpc.RpcContext{BlockId: "blockB", RouteId: "tab:route-b"})); err == nil {
+		t.Fatal("a second JWT for another route and block on the same link must be refused")
+	}
+	if _, err := impl.AuthenticateCommand(authCtx(1), jwtFor(t, wshrpc.RpcContext{BlockId: "blockB", RouteId: "tab:route-a"})); err == nil {
+		t.Fatal("the same route with another block must be refused")
+	}
+	if got := router.BlockIdForSourceRoute(first.RouteId); got != "blockA" {
+		t.Fatalf("the identity must stay blockA, got %q", got)
+	}
+	if _, err := impl.AuthenticateCommand(authCtx(1), jwtFor(t, wshrpc.RpcContext{BlockId: "blockA", RouteId: "tab:route-a"})); err != nil {
+		t.Fatalf("the same route and block again changes nothing and is allowed: %v", err)
+	}
+}
+
+func TestAnUnknownRouteOfAnotherLinkHasNoBlock(t *testing.T) {
+	useTestKeys(t)
+	router, impl := routerWithUntrustedLink(1)
+	router.linkMap[2] = &linkMeta{linkId: 2, client: stubClient{}}
+	a, _ := impl.AuthenticateCommand(authCtx(1), jwtFor(t, wshrpc.RpcContext{BlockId: "blockA", ProcRoute: true}))
+	b, _ := impl.AuthenticateCommand(authCtx(2), jwtFor(t, wshrpc.RpcContext{BlockId: "blockB", ProcRoute: true}))
+	if router.BlockIdForSourceRoute(a.RouteId) != "blockA" || router.BlockIdForSourceRoute(b.RouteId) != "blockB" {
+		t.Fatalf("each link must lead to its own block: %q %q", router.BlockIdForSourceRoute(a.RouteId), router.BlockIdForSourceRoute(b.RouteId))
 	}
 }

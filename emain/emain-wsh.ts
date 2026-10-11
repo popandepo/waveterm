@@ -9,7 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
-import { authorizeWebNav, webNavigate } from "./emain-webnav";
+import { authorizeWebNav, AuthorizeTimeoutMs, webNavigate } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
 export class ElectronWshClientType extends WshClient {
@@ -21,6 +21,8 @@ export class ElectronWshClientType extends WshClient {
         if (!data.tabid || !data.blockid || !data.workspaceid) {
             throw new Error("tabid and blockid are required");
         }
+        // the same question as for the web commands (wsh web get reads the page of a tile): the caller may act only on a tile of its own workspace
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
         const ww = getWaveWindowByWorkspaceId(data.workspaceid);
         if (ww == null) {
             throw new Error(`no window found with workspace ${data.workspaceid}`);
@@ -42,7 +44,7 @@ export class ElectronWshClientType extends WshClient {
         }
         // the caller is the block behind the source route that the router stamped on this message (a session cannot choose it): it may act only on a
         // web tile in its own workspace. Asked before any window, tab or web contents is looked at.
-        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid });
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
         const ww = getWaveWindowByWorkspaceId(data.workspaceid);
         if (ww == null) {
             throw new Error(`no window found with workspace ${data.workspaceid}`);
@@ -57,7 +59,7 @@ export class ElectronWshClientType extends WshClient {
             throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
         }
         // the same question again right before acting (a belt: no code moves a block to another tab or workspace today, but the lookups above take time)
-        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid });
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
         return webNavigate(wc, data.action);
     }
 

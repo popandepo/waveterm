@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
@@ -68,8 +69,15 @@ func (ws *WshServer) WebNavAuthorizeCommand(ctx context.Context, data wshrpc.Com
 	callerBlock := webNavCallerBlockFn(data.CallerRoute)
 	callerWorkspace := ""
 	if callerBlock != "" {
-		callerWorkspace, _ = webNavWorkspaceOfFn(ctx, callerBlock)
+		var werr error
+		callerWorkspace, werr = webNavWorkspaceOfFn(ctx, callerBlock)
+		if werr != nil {
+			log.Printf("webnav authorize: workspace of the caller's block %s: %v", callerBlock, werr)
+		}
 	}
-	targetWorkspace, _ := webNavWorkspaceOfFn(ctx, data.BlockId)
+	targetWorkspace, terr := webNavWorkspaceOfFn(ctx, data.BlockId)
+	if terr != nil {
+		log.Printf("webnav authorize: workspace of block %s: %v", data.BlockId, terr)
+	}
 	return checkWebNavCaller(data.CallerRoute, callerBlock, callerWorkspace, targetWorkspace)
 }

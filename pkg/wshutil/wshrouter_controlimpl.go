@@ -112,12 +112,30 @@ func (impl *WshRouterControlImpl) AuthenticateCommand(ctx context.Context, data 
 		log.Printf("wshrouter authenticate success linkid=%d (router)", linkId)
 		impl.Router.trustLink(linkId, LinkKind_Router)
 	} else {
+		// every wsh command but "wsh token" authenticates here, with the JWT: the identity that a web command is judged by is recorded on this path too
+		if err := impl.bindLeafIdentity(linkId, routeId, newCtx.BlockId); err != nil {
+			log.Printf("wshrouter authenticate refused linkid=%d: %v", linkId, err)
+			return wshrpc.CommandAuthenticateRtnData{}, err
+		}
 		log.Printf("wshrouter authenticate success linkid=%d routeid=%q", linkId, routeId)
-		impl.Router.trustLink(linkId, LinkKind_Leaf)
-		impl.Router.bindRoute(linkId, routeId, true)
 	}
 
 	return rtnData, nil
+}
+
+// bindLeafIdentity makes a link a trusted leaf with ONE identity: its source route and the block id of the token it authenticated with, from either way of
+// authenticating (the JWT, which every wsh command but "wsh token" uses, or the swap token). A link authenticates once: a second token on the same link must be
+// for the same route and the same block (it changes nothing), never another identity; the result of binding the route is checked, and the block is recorded
+// only after a successful bind.
+func (impl *WshRouterControlImpl) bindLeafIdentity(linkId baseds.LinkId, routeId string, blockId string) error {
+	if curRoute, curBlock := impl.Router.linkAuthIdentity(linkId); curRoute != "" && (curRoute != routeId || curBlock != blockId) {
+		return fmt.Errorf("this link is already authenticated as another route or block")
+	}
+	impl.Router.trustLink(linkId, LinkKind_Leaf)
+	if err := impl.Router.bindRoute(linkId, routeId, true); err != nil {
+		return fmt.Errorf("cannot bind the route of this token: %w", err)
+	}
+	return impl.Router.SetLinkAuthBlockId(linkId, blockId)
 }
 
 func extractTokenData(token string) (wshrpc.CommandAuthenticateRtnData, error) {
@@ -207,18 +225,8 @@ func (impl *WshRouterControlImpl) AuthenticateTokenCommand(ctx context.Context, 
 	if rtnData.RouteId == "" {
 		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("no routeid in token response")
 	}
-	// a link authenticates once: a second token on the same link must be for the same route and the same block (it changes nothing), never another identity
-	if curRoute, curBlock := impl.Router.linkAuthIdentity(linkId); curRoute != "" && (curRoute != rtnData.RouteId || curBlock != rtnData.RpcContext.BlockId) {
-		log.Printf("wshrouter authenticate-token refused linkid=%d: the link is already authenticated as route %q", linkId, curRoute)
-		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("this link is already authenticated as another route or block")
-	}
-	impl.Router.trustLink(linkId, LinkKind_Leaf)
-	if err := impl.Router.bindRoute(linkId, rtnData.RouteId, true); err != nil {
-		log.Printf("wshrouter authenticate-token error linkid=%d: cannot bind route %q: %v", linkId, rtnData.RouteId, err)
-		return wshrpc.CommandAuthenticateRtnData{}, fmt.Errorf("cannot bind the route of this token: %w", err)
-	}
-	if err := impl.Router.SetLinkAuthBlockId(linkId, rtnData.RpcContext.BlockId); err != nil {
-		log.Printf("wshrouter authenticate-token error linkid=%d: %v", linkId, err)
+	if err := impl.bindLeafIdentity(linkId, rtnData.RouteId, rtnData.RpcContext.BlockId); err != nil {
+		log.Printf("wshrouter authenticate-token refused linkid=%d: %v", linkId, err)
 		return wshrpc.CommandAuthenticateRtnData{}, err
 	}
 	log.Printf("wshrouter authenticate-token success linkid=%d routeid=%q", linkId, rtnData.RouteId)

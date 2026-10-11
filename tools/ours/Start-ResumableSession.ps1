@@ -226,6 +226,9 @@ function ConvertFrom-WshAssignment([string]$line) {
 function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
     $token = $env:WAVETERM_SWAPTOKEN
     if (-not $token) { return $true }
+    # Wave mints a UUID (36 characters: hex digits and dashes). Anything that is not a plain token (a space, a quote, a leading dash, a very long text) is no
+    # token: wsh is not called, so a token can never become extra arguments of the call.
+    if ($token -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9_-]{7,63}$') { return $false }
     $binDir = $env:WAVETERM_WSHBINDIR
     if (-not $binDir -or $binDir -notmatch '^[A-Za-z]:[\\/]' -or -not (Test-Path -LiteralPath $binDir -PathType Container)) { return $false }
     $wsh = Join-Path $binDir 'wsh.exe'
@@ -234,7 +237,7 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $wsh
-        $psi.Arguments = 'token ' + $token + ' pwsh'
+        foreach ($a in 'token', $token, 'pwsh') { $psi.ArgumentList.Add($a) }
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true

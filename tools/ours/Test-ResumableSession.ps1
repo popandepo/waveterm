@@ -79,9 +79,9 @@ switch ($PathMode) {
     'other' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = $env:RESUMABLE_TEST_OTHERDIR + $sep + $env:PATH }
     'path-huge' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = ('x' + $sep) * 16380; $env:RESUMABLE_TEST_NOWSH = '1' }
     'unset' { Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
-    'swap' { $env:WAVETERM_SWAPTOKEN = 'tok-123'; $env:WAVETERM_WSHBINDIR = $SwapDir }
-    'swap-nowsh' { $env:WAVETERM_SWAPTOKEN = 'tok-123'; Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
-    'swap-nodir' { $env:WAVETERM_SWAPTOKEN = 'tok-123'; $env:WAVETERM_WSHBINDIR = $WshDir }
+    'swap' { $env:WAVETERM_SWAPTOKEN = $(if ($env:RESUMABLE_TEST_SWAPTOKEN) { $env:RESUMABLE_TEST_SWAPTOKEN } else { '11111111-aaaa-bbbb-cccc-222222222222' }); $env:WAVETERM_WSHBINDIR = $SwapDir }
+    'swap-nowsh' { $env:WAVETERM_SWAPTOKEN = '11111111-aaaa-bbbb-cccc-222222222222'; Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
+    'swap-nodir' { $env:WAVETERM_SWAPTOKEN = '11111111-aaaa-bbbb-cccc-222222222222'; $env:WAVETERM_WSHBINDIR = $WshDir }
 }
 $extra = @{}
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
@@ -183,6 +183,7 @@ class P {
         if (Environment.GetEnvironmentVariable("SWAP_FAIL") == "1") return 1;
         string o = Environment.GetEnvironmentVariable("SWAP_OUTPUT");
         if (o != null) Console.Out.Write(File.ReadAllText(o));
+        if (Environment.GetEnvironmentVariable("SWAP_FAIL_AFTER") == "1") return 1;
         return 0;
     }
 }
@@ -219,12 +220,32 @@ class P {
     Check 'a value with an escaped quote, dollar sign and backtick arrives as Wave meant it' ($jwt -eq ('jwt"quoted$value' + $bt + 'end')) "got [$jwt]"
     Check 'a name that is not on the list, a PATH assignment (either case), a line with more after the value, a subexpression and plain commands have no effect' (-not ($r.Text -match 'EVIL_VAR') -and -not ($r.Text -match 'WAVETERM_WORKSPACEID') -and -not ($r.Text -match 'WAVETERM=') -and ($r.Lines -contains 'ENV: TERM_PROGRAM=waveterm') -and ($r.Lines | Where-Object { $_ -like 'PATHLAST:*' }) -notcontains 'PATHLAST: C:\evil') $r.Text
     Check 'a value with an escaped newline or another backtick sequence is refused' (-not ($r.Text -match 'WAVETERM_VERSION') -and -not ($r.Text -match 'WAVETERM_CONN')) $r.Text
-    Check 'the swap token is gone from the environment of the program and never printed' (-not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match 'tok-123')) $r.Text
-    Check 'wsh was called once with exactly: token <the token> pwsh' ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq 'token tok-123 pwsh') ((Get-Content -LiteralPath $swapArgs -Raw))
+    Check 'the swap token is gone from the environment of the program and never printed' (-not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match '11111111-aaaa-bbbb-cccc-222222222222')) $r.Text
+    Check 'wsh was called once with exactly: token <the token> pwsh' ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq 'token 11111111-aaaa-bbbb-cccc-222222222222 pwsh') ((Get-Content -LiteralPath $swapArgs -Raw))
     Check 'an injected command line did not run (the file it names is still there)' (Test-Path -LiteralPath $swapOut) ''
+    # a token that is not a plain token never reaches wsh (a space, a quote, a leading dash, too short, too long, a semicolon)
+    foreach ($badToken in 'tok 123 extra', 'tok"123', "tok'123", '-11111111-aaaa-bbbb-cccc-22222222222245', '11111111-aaaa-bbbb-cccc-222222222222;calc', 'short', ('a' * 80)) {
+        Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
+        $env:RESUMABLE_TEST_SWAPTOKEN = $badToken
+        $r = Run-Child 'swap' $cfg '' '' $swapDir
+        Check ("a token '" + $badToken.Substring(0, [Math]::Min(12, $badToken.Length)) + "' is no token: wsh is not called, the session starts, one plain line says so") ((-not (Test-Path -LiteralPath $swapArgs)) -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and ($r.Text -match 'could not be exchanged') -and -not ($r.Text -match 'WAVETERM_BLOCKID')) "exit=$($r.Code) args=$(Test-Path -LiteralPath $swapArgs) $($r.Text)"
+    }
+    Remove-Item Env:RESUMABLE_TEST_SWAPTOKEN -ErrorAction SilentlyContinue
+    # wsh prints good lines and then exits with an error: nothing is taken
+    $env:SWAP_FAIL_AFTER = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a wsh that exits with an error is not believed, even if it printed assignments' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text)"
+    Remove-Item Env:SWAP_FAIL_AFTER -ErrorAction SilentlyContinue
+    # a value with a control character (tab, bell) is refused
+    $ctl = Join-Path $root 'swap-control.txt'
+    Make-File $ctl ([string]::Join([string][char]10, @(('$env:WAVETERM_JWT = "a' + [char]9 + 'b"'), ('$env:WAVETERM_TABID = "x' + [char]7 + 'y"'), '$env:WAVETERM_BLOCKID = "block-ok"')))
+    $env:SWAP_OUTPUT = $ctl
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a value with a control character is refused, the line next to it is still taken' (-not ($r.Text -match 'WAVETERM_JWT') -and -not ($r.Text -match 'WAVETERM_TABID') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-ok')) $r.Text
+    $env:SWAP_OUTPUT = $swapOut
     $env:SWAP_FAIL = '1'
     $r = Run-Child 'swap' $cfg '' '' $swapDir
-    Check 'a failing wsh does not stop the session, the token is removed, nothing is set, one plain line says so' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged') -and -not ($r.Text -match 'tok-123')) "exit=$($r.Code) $($r.Text)"
+    Check 'a failing wsh does not stop the session, the token is removed, nothing is set, one plain line says so' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged') -and -not ($r.Text -match '11111111-aaaa-bbbb-cccc-222222222222')) "exit=$($r.Code) $($r.Text)"
     Remove-Item Env:SWAP_FAIL -ErrorAction SilentlyContinue
     $env:SWAP_HANG = '1'; $env:RESUMABLE_TEST_SWAPTIMEOUT = '1'
     $t0 = Get-Date

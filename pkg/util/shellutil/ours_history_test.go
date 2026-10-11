@@ -5,6 +5,7 @@ package shellutil
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -96,17 +97,57 @@ func TestRemovingTheHistoryOfABlockRemovesThatOneFile(t *testing.T) {
 	}
 }
 
-func TestThePwshStartupSetsTheHistoryPathFromTheEnvironmentOnly(t *testing.T) {
-	script := PwshStartup_wavepwsh
-	if !strings.Contains(script, "$env:"+PwshHistFileEnvName) || !strings.Contains(script, "Set-PSReadLineOption -HistorySavePath") {
-		t.Fatalf("the startup script must set the history path from %s", PwshHistFileEnvName)
+// The history block of the start-up script, run in a real PowerShell (skipped where there is none). It must set PSReadLine's save path
+// from the environment, remove the variable, and never break the shell start when the line editor is missing or fails.
+func historyBlock(t *testing.T) string {
+	t.Helper()
+	begin := strings.Index(PwshStartup_wavepwsh, "# wave-history-begin")
+	end := strings.Index(PwshStartup_wavepwsh, "# wave-history-end")
+	if begin < 0 || end < begin {
+		t.Fatalf("the history block is not marked in the start-up script")
 	}
-	i := strings.Index(script, "Set-PSReadLineOption -HistorySavePath")
-	before := script[:i]
-	if !strings.Contains(before[strings.LastIndex(before, "try"):], "try") {
-		t.Fatalf("a failure to set the history path must not break the shell start")
+	return PwshStartup_wavepwsh[begin:end]
+}
+
+func runPwsh(t *testing.T, script string, env ...string) string {
+	t.Helper()
+	pwsh, err := exec.LookPath("pwsh")
+	if err != nil {
+		t.Skip("no pwsh on this machine")
 	}
-	if strings.Contains(script, "Remove-Item") && !strings.Contains(script, "Remove-Item Env:"+PwshHistFileEnvName) {
-		t.Fatalf("the variable is removed after use so that child programs do not inherit it")
+	cmd := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("pwsh failed: %v\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestThePwshStartupSetsTheHistoryPathAndRemovesTheVariable(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "block-history.txt")
+	script := historyBlock(t) + "\nWrite-Output ('path=' + (Get-PSReadLineOption).HistorySavePath)\nWrite-Output ('var=[' + $env:WAVETERM_PWSH_HISTFILE + ']')\n"
+	out := runPwsh(t, script, PwshHistFileEnvName+"="+file)
+	if !strings.Contains(out, "path="+file) {
+		t.Fatalf("the save path must be the block's file %q, got:\n%s", file, out)
+	}
+	if !strings.Contains(out, "var=[]") {
+		t.Fatalf("the variable must be removed after use, got:\n%s", out)
+	}
+}
+
+func TestThePwshStartupLeavesHistoryAloneWhenThereIsNoVariableOrTheEditorFails(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "block-history.txt")
+	probe := "\nWrite-Output ('path=' + (Get-PSReadLineOption).HistorySavePath)\nWrite-Output 'reached the end'\n"
+	// no variable: nothing changes
+	out := runPwsh(t, "Import-Module PSReadLine\n"+historyBlock(t)+probe)
+	if strings.Contains(out, "block-history") || !strings.Contains(out, "reached the end") {
+		t.Fatalf("without the variable the history is untouched, got:\n%s", out)
+	}
+	// the line editor cannot be loaded: the start goes on, the path is not changed, the variable is still removed
+	failing := "function Import-Module { throw 'no line editor' }\n" + historyBlock(t) + probe + "Write-Output ('var=[' + $env:WAVETERM_PWSH_HISTFILE + ']')\n"
+	out = runPwsh(t, "Import-Module PSReadLine\n"+failing, PwshHistFileEnvName+"="+file)
+	if strings.Contains(out, "block-history") || !strings.Contains(out, "reached the end") || !strings.Contains(out, "var=[]") {
+		t.Fatalf("a failing line editor must not break the start or change the path, got:\n%s", out)
 	}
 }

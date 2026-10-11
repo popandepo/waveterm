@@ -12,18 +12,25 @@ Remove-Item Env:WAVETERM_SWAPTOKEN
 # Per-block command history (setting term:perblockhistory): PSReadLine's one shared history file makes every new shell show the last
 # command typed in any other. Pointing it at this block's own file before the first prompt means the history is read from there (an
 # empty one for a new block); if the line editor is already running, its history is replaced with the block's file.
+# Only for a line editor that can clear its history (PSReadLine 2.4.5 on pwsh 7.6 is the one this was checked against); an older one that has
+# already loaded the shared file would show it anyway while saving to the block's file, so there the history is left alone.
+# wave-history-begin
 if ($env:WAVETERM_PWSH_HISTFILE) {
     try {
-        Set-PSReadLineOption -HistorySavePath $env:WAVETERM_PWSH_HISTFILE
-        try {
-            [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
-            if (Test-Path -LiteralPath $env:WAVETERM_PWSH_HISTFILE) {
-                Get-Content -LiteralPath $env:WAVETERM_PWSH_HISTFILE | ForEach-Object { [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($_) }
-            }
-        } catch { }
+        Import-Module PSReadLine -ErrorAction Stop
+        if ([Microsoft.PowerShell.PSConsoleReadLine].GetMethod('ClearHistory')) {
+            Set-PSReadLineOption -HistorySavePath $env:WAVETERM_PWSH_HISTFILE
+            try {
+                [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
+                if (Test-Path -LiteralPath $env:WAVETERM_PWSH_HISTFILE) {
+                    Get-Content -LiteralPath $env:WAVETERM_PWSH_HISTFILE | ForEach-Object { [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($_) }
+                }
+            } catch { }
+        }
     } catch { }
     Remove-Item Env:WAVETERM_PWSH_HISTFILE
 }
+# wave-history-end
 
 # Load Wave completions
 wsh completion powershell | Out-String | Invoke-Expression

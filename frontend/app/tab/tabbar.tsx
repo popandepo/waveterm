@@ -15,6 +15,7 @@ import { debounce } from "throttle-debounce";
 import { Tab } from "./tab";
 import "./tabbar.scss";
 import { TabBarEnv } from "./tabbarenv";
+import { getWindowDragRightWidth } from "./tabbarlayout";
 import { UpdateStatusBanner } from "./updatebanner";
 import { WorkspaceSwitcher } from "./workspaceswitcher";
 
@@ -586,15 +587,9 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
         }
     }
 
-    // Calculate window drag right width
-    let windowDragRightWidth = 12;
-    if (env.isWindows()) {
-        if (zoomFactor > 0) {
-            windowDragRightWidth = 139 / zoomFactor;
-        } else {
-            windowDragRightWidth = 139;
-        }
-    }
+    // The block at the right end: the room of the window buttons (Windows) and a grab strip left of them. It is measured with the right container
+    // in setSizeAndPosition, so the tabs shrink and then scroll instead of taking the strip.
+    const windowDragRightWidth = getWindowDragRightWidth(env.isWindows(), zoomFactor);
 
     return (
         <div ref={tabbarWrapperRef} className="tab-bar-wrapper">

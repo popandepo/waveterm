@@ -846,3 +846,12 @@ content and below the modals and typeaheads (z-index 50). The colours go through
   events, z-index 50).
 - **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
   changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.
+
+## 45. A grab strip in the top row (`frontend/app/tab/tabbarlayout.ts`)
+
+Why the right side could not be grabbed: the row (`.tab-bar-wrapper`) is a drag region, but `.tab-bar` is `-webkit-app-region: no-drag` over its whole box, every tab is inside it, and with ten tabs at the minimum width of 100 px the tabs take all the room. What was left at the right end was 139 px on Windows, and that is where the window's own buttons sit (minimise, maximise, close), so nothing could be grabbed; the left end is 10 px. Read from `tabbar.tsx` and `tabbar.scss`.
+
+The change: the block at the right end is 96 px wider (`WindowDragStripWidth`), left of the window buttons, a drag region. It is part of the right container that `setSizeAndPosition` already measures, so the tabs get their width from what is left: they shrink to the minimum and then scroll (the scrolling is the existing overlay scrollbar), instead of taking the strip. The empty room right of the tabs when there are few tabs was already a drag region.
+
+- **NOT RUN, NOT BUILT:** written under the hold on builds and test runs; `frontend/app/tab/tabbarlayout.test.ts` (the width at zoom, the Windows case, source pins) has not been run.
+- **NOT RUN, window check:** at 1280 px with ten tabs, a 96 px strip left of the window buttons moves the window when dragged; the tabs scroll and the last tab can still be reached; a double click on the strip maximises (the system's behaviour for a drag region; not seen). The 3 px at the top above the tabs is unchanged and still thin.

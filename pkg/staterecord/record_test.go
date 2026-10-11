@@ -329,7 +329,7 @@ func TestTheStatusOfAProgramIsInTheRecordAndAbsentWhenUnknown(t *testing.T) {
 	}
 }
 
-func TestAStatusChangeChangesTheRecordSoItIsRewritten(t *testing.T) {
+func TestAStatusChangeChangesTheRecordContent(t *testing.T) {
 	a := fixture(t)
 	a.Statuses = map[string]ProcStatus{"b1": {Status: "running"}}
 	b := fixture(t)

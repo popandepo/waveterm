@@ -29,6 +29,16 @@ const (
 	loadTimeout   = 5 * time.Second
 )
 
+// procStatusOf reads the state of a block's program from its controller (each controller reads it under its own lock). It is a
+// variable so that a test can stand in for a program starting and exiting.
+var procStatusOf = func(blockId string) (string, *int) {
+	rt := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+	if rt == nil {
+		return "", nil
+	}
+	return blockstatus.FromShellProc(rt.ShellProcStatus, rt.ShellProcExitCode)
+}
+
 func loadSnapshot() (staterecord.Snapshot, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 	defer cancel()
@@ -79,10 +89,8 @@ func loadSnapshot() (staterecord.Snapshot, error) {
 				}
 				if block != nil {
 					snap.Blocks[blockId] = block
-					if rt := blockcontroller.GetBlockControllerRuntimeStatus(blockId); rt != nil {
-						status, code := blockstatus.FromShellProc(rt.ShellProcStatus, rt.ShellProcExitCode)
-						snap.Statuses[blockId] = staterecord.ProcStatus{Status: status, ExitCode: code}
-					}
+					status, code := procStatusOf(blockId)
+					snap.Statuses[blockId] = staterecord.ProcStatus{Status: status, ExitCode: code}
 				}
 			}
 		}

@@ -41,14 +41,20 @@ func MakeWriter(path string, build func() (Record, error), debounce time.Duratio
 	return &Writer{path: path, build: build, debounce: debounce, renameFn: os.Rename, retryDelay: 100 * time.Millisecond}
 }
 
-// Notify says that something may have changed. It returns at once.
+// Notify says that something may have changed. It returns at once. The first call arms a timer and later calls inside that window
+// do nothing: the flush builds from the state as it is when the timer fires. A timer that every call pushed back would never fire
+// while events keep coming faster than the debounce (a program restarting in a loop), and the file would stay stale for as long as
+// the loop lasts; this way the file is written at most once per debounce window and at least once per window.
 func (w *Writer) Notify() {
 	w.lock.Lock()
 	defer w.lock.Unlock()
 	if w.timer != nil {
-		w.timer.Stop()
+		return
 	}
 	w.timer = time.AfterFunc(w.debounce, func() {
+		w.lock.Lock()
+		w.timer = nil
+		w.lock.Unlock()
 		if err := w.Flush(); err != nil {
 			log.Printf("state record not written: %v\n", err)
 		}

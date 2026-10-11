@@ -637,3 +637,18 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 32. Web tiles: what was seen in a window, and what is not known
+
+Seen by the owner in the preview 17760c63 (11 Oct 2026, first look): a web tile with a filled form kept the form when it was moved within its tab, moved into another
+stack, and when another top tab was shown and then this one again. Switching to another WORKSPACE reloaded it.
+- **Correction of an earlier reading.** The first reading of the code said that moving a web tile makes a new web view and loses the page. That was wrong for the moves above: the
+  layout keeps every tile mounted at a place of its own (a tile is moved by changing its position, not by remounting it), and the web contents of a tab that is not shown stay alive in a tab view that is kept
+  (`window:maxtabcachesize`, 10 by default). What reloads: leaving a workspace (its tab views are destroyed), and, not tested, a tab whose view was dropped from the cache because more than
+  the cache size of tabs were shown since.
+- **There is no "move a tile into another top tab" operation in this fork** (no drag onto a top tab, no `wsh` command; `wsh stack move` and `wsh group add` need the same tab). "Switching to another top tab" in
+  the first look was a switch of the shown tab, which keeps the web contents; whether he also dragged a tile to another top tab is not known and is not possible with what is built.
+- **Window check for later (web tiles, harder):** (1) three or four web tiles at once in one tab, each with a different filled form (a text field, a long page scrolled down, a video paused at a time);
+  (2) put two of them into one stack and switch between the members ten times: forms, scroll position, video time; (3) the same in two windows and two workspaces, then switch workspace and back: which reload
+  (expected: all of the other workspace); (4) open more tabs than the cache size (10) and come back to the first: does the web tile reload; (5) a hidden member's audio is muted (PR 27) and un-muted when shown;
+  (6) close one web tile with a filled form: no question (it has no program), the others untouched; (7) restart Wave: web tiles reload (nothing keeps a form across a restart).

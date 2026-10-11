@@ -53,7 +53,7 @@ test("a vertical split and a plain insert keep the weight of the new tile too", 
     const first = newLayoutNode(undefined, undefined, undefined, { blockId: "first" });
     const istate = newLayoutTreeState(first);
     const second = newLayoutNode(undefined, 4, undefined, { blockId: "second" });
-    insertNode(istate, { type: LayoutTreeActionType.InsertNode, node: second });
+    insertNode(istate, { type: LayoutTreeActionType.InsertNode, node: second, magnified: false, focused: false });
     assert.deepEqual(
         istate.rootNode.children!.map((c) => c.size),
         [DefaultNodeSize, 4]

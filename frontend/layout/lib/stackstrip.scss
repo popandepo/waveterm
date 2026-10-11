@@ -30,6 +30,7 @@
     }
 
     .stack-tab {
+        position: relative;
         display: flex;
         flex: 0 0 auto;
         min-width: 96px;
@@ -53,6 +54,37 @@
 
         &.focused.active {
             box-shadow: inset 0 -2px 0 var(--accent-color);
+        }
+
+        // a member's colour (icon:color): a line under its tab, and a tint on the tab of the member that is shown
+        .stack-tab-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 2px;
+            pointer-events: none;
+        }
+
+        .stack-tab-fill {
+            display: none;
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            opacity: 0.22;
+            pointer-events: none;
+        }
+
+        &.active .stack-tab-fill {
+            display: block;
+        }
+
+        .stack-tab-symbol {
+            margin-right: 4px;
+        }
+
+        .stack-tab-emoji {
+            font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
         }
 
         .stack-tab-label {

@@ -637,3 +637,16 @@ running member, or the first one restored here). **It only prints the plan unles
   the start is skipped, unreadable folder or file stops it); with the running check removed the test goes red.
 - **READ, not run:** against a live Wave with real sessions; where a restored tab ends up in the layout (it opens a new background tab; only
   stack membership is restored, not the tile's place in the tab).
+
+## 28. A member's icon and colour on its strip tab (colour work, step 1)
+
+Each tab of a stack strip draws the member's symbol before its name: `frame:icon` when that is a usable symbol, else `icon` (both validated by
+`parseTabSymbol`: a Font Awesome name or at most two graphemes of text, so an emoji works; hidden and bidirectional characters are refused).
+The member's colour is `icon:color` (a value that is not a CSS colour counts as no colour): a 2px line in that colour under its tab, and a
+tint (22 percent) on the tab of the member that is shown. A member without a colour looks as before. The decision is `stackTabLook`
+(`frontend/app/tab/stacktablook.ts`); the label is `stacktablabel.tsx`; the placement is in `stackstrip.scss`.
+- **RAN:** vitest for `stackTabLook` (frame:icon before icon, a refused frame:icon falls back, emoji, three graphemes refused, no icon or colour,
+  a colour that is not a colour); red when the order is swapped and when the colour check is dropped. Source pins on the label and the stylesheet.
+- **NOT RUN, window check:** that an emoji renders in the strip (and in the tile header, which is not changed here), the line and the tint on
+  a real strip, a member without a colour looking as before.
+- **Later steps (own PRs):** the right-click menu on strip tabs and Set colour / Set icon, tile outlines, top row, window outline, one wsh line.

@@ -23,6 +23,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/wslconn"
@@ -482,6 +483,9 @@ func makeSwapToken(ctx context.Context, logCtx context.Context, blockId string, 
 	}
 	token.Env["WAVETERM_CLIENTID"] = wstore.GetClientId()
 	token.Env["WAVETERM_CONN"] = remoteName
+	for k, v := range shellutil.PerBlockHistoryEnv(wconfig.GetWatcher().GetFullConfig().Settings.TermPerBlockHistory, shellType, remoteName, blockId) {
+		token.Env[k] = v
+	}
 	envMap, err := resolveEnvMap(blockId, blockMeta, remoteName)
 	if err != nil {
 		log.Printf("error resolving env map: %v\n", err)

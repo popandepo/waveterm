@@ -537,6 +537,32 @@ non-stack, stack of one, unknown id, focus lands on the shown tab).
   page, has the keyboard focus; the onboarding screens switch all global keys off. **READ, not run:** that the keys reach the app while a terminal has the keyboard focus (other global chords such as
   `Ctrl+Shift+Arrow` do), and the chord names (`PageDown` is the key name the browser reports): part of the window check.
 
+## 25a. Command history per PowerShell tile (setting `term:perblockhistory`, on in this fork)
+
+PowerShell keeps one history file for the whole machine (`%APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt`); every
+new shell loads it, so after a restart pressing Up in any tile showed the last command typed in another tile. Wave does nothing about history
+for PowerShell (checked: its start-up script has no history line). Now a local PowerShell block gets its own file, `<data dir>\history\<block id>.txt`
+(the block id survives a restart, so a tile gets its own history back; a new tile starts empty, as asked). The path travels in the shell's
+environment (`WAVETERM_PWSH_HISTFILE`, only for local PowerShell and only when the setting is not false) and Wave's PowerShell start-up script
+sets PSReadLine's `HistorySavePath` to it; if the line editor is already running, its history is replaced with the block's file. The variable
+is removed after use. When a block is deleted its history file is removed by name (one file, validated as a uuid so an id can never point
+outside the folder). Bash and zsh are left as they are (zsh already keeps Wave's own history file and merges it into `~/.zsh_history`).
+- **RAN:** Go tests (the path only for a uuid id, on unless switched off, local PowerShell only, the folder is made, removal takes exactly one file
+  and a bad id is ignored, the start-up script text sets the path inside a try); `task generate` for the setting (clean diff).
+- **Probed, not in a Wave window:** in a non-interactive PowerShell 7.6 with PSReadLine 2.4.5 the methods `ClearHistory`, `AddToHistory`,
+  `GetHistoryItems` exist, but they fail without a running line editor; the start-up script therefore sets the path first and only then tries
+  them, inside a try. Whether the path alone is enough before the first prompt, or the replace is needed, is the window check.
+  **Loading without doubling, and multi-line commands:** when the line editor is already running, the saved entries are put back with saving switched off
+  (and the save style restored afterwards, also on a failure), because with incremental saving every added entry would be appended to the file again and
+  every restart would double it. The file is read in PSReadLine's own format: a command of several lines has a backtick at the end of every line but the
+  last, and those lines are joined again; empty lines are skipped. Both are run in a real PowerShell by the Go tests (the save style goes off before the
+  first entry and back after the last, also when adding fails; with the switch-off removed that test goes red).
+  **Limit, on purpose:** the block only acts when the line editor has a `ClearHistory` method (PSReadLine 2.4.5 on pwsh 7.6, the one on his PC, is the version
+  this was checked against); an older one that had already loaded the shared file would show it anyway while saving to the block's file, so there the
+  history is left alone (the shared one). The start-up block is run in a real PowerShell by the Go tests: it sets the path from the environment,
+  removes the variable, and a failing or missing line editor neither breaks the start nor changes the path (with the path line removed the test goes red).
+- **NOT RUN, window check:** open a new PowerShell tile (Up shows nothing from other tiles); type two commands; quit Wave and start it again
+  (Up in the same tile shows those two, not other tiles' commands); delete the tile and look that `<data dir>\history\<id>.txt` is gone.
 ## 26. Is the program in a block still running? (`status` in `wsh api list` and in the state record)
 
 Each block that has a program now shows one of three words: `running`, `exited` (with its exit code, also `0` for a clean exit) or

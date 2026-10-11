@@ -103,6 +103,7 @@ $seams = @(
     @('api-startup-hook', 'cmd/server/main-server.go', 'go wshutil.RunWshRpcOverListener(unixListener, nil)', 'wavesrvapi.Start() is added on the next line of wavesrv startup'),
     @('block-runtime-status', 'pkg/blockcontroller/blockcontroller.go', 'func GetBlockControllerRuntimeStatus(blockId string) *BlockControllerRuntimeStatus {', 'status of a block program in wsh api list and the state record'),
     @('block-status-values', 'pkg/blockcontroller/blockcontroller.go', 'Status_Running = "running" Status_Done = "done" Status_Init = "init"', 'package blockstatus maps these three words to running, exited and notstarted'),
+    @('wsh-deleteblock-cmd', 'cmd/wsh/cmd/wshcmd-deleteblock.go', 'var deleteBlockCmd = &cobra.Command{', 'wsh deleteblock; ours refuses a block with a running program unless --force'),
     @('badge-store-memory', 'pkg/wcore/badge.go', 'transient map[string]baseds.Badge', 'badges are transient, which is why we add a persistent symbol'),
     @('electron-bell-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSystemBellCommand(ctx context.Context) error', 'pattern for electron-route commands (tab new, switch, close)'),
     @('state-record-event-hook', 'pkg/wps/wps.go', 'notifyObservers(event)', 'the state record reacts to every published object update'),

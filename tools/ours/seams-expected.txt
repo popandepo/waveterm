@@ -84,6 +84,7 @@ workspace-atom
 workspace-list-rpc
 workspace-tabids-rpc
 wsh-badge
+wsh-deleteblock-cmd
 wsh-jwt-var
 wsh-prerun
 wsh-resolve-simple-id

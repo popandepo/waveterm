@@ -108,6 +108,7 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 | controller start decision | `pkg/blockcontroller/shellcontroller.go` | `shouldRunCommand(...)` | `wsh session start --restart` depends on `cmd:runonstart` blocks starting again |
 | program status | `pkg/blockcontroller/blockcontroller.go` | `GetBlockControllerRuntimeStatus`, `Status_Running`, `Status_Done`, `Status_Init` | the status of a block's program in `wsh api list` and in the state record |
 | close handler | `emain/emain-window.ts` | `closeTabHandler(tabId, confirmClose, ww)` | every UI route that closes a tab goes through the one handler that asks first |
+| delete block command | `cmd/wsh/cmd/wshcmd-deleteblock.go` | `var deleteBlockCmd = &cobra.Command{` | `wsh deleteblock` refuses a block with a running program unless `--force` |
 | tab drag type | `frontend/layout/lib/TileLayout.tsx` | `import { tileItemType } from "./dndtypes";` | tabs of a stack are drag sources of the same type as tile headers |
 | tab reorder | `frontend/layout/lib/layoutModel.ts` | `case LayoutTreeActionType.StackReorder:` | dropping a tab on another tab of its strip |
 

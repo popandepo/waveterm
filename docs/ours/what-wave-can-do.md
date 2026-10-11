@@ -345,6 +345,17 @@ Review notes on step C: a **tab as `--to` is refused with a message** (only bloc
 window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
 
+## 20a. `wsh deleteblock` refuses a block with a running program unless `--force`
+
+Deleting a block stops the program in it, and a script or a session that deletes a tile by command could kill a program by accident (the
+click on an X asks since the close-one-block question; a command has nobody to ask, so it refuses instead, as `wsh session close` and `wsh tab close`
+already do). `wsh deleteblock` now reads the block's view and, for a terminal or a tsunami app, its program state, and deletes without
+`--force` only when the answer is known: the view has no program (web, preview, files) or the program has `done`. A running program, one that is
+starting (`init`), a missing or unknown state, or a state that cannot be read all refuse with a message that names `--force`. A block whose meta
+cannot be read also refuses. `--force` deletes as before.
+- **RAN:** Go test of the decision (running, starting, no state, unknown state, unreadable state refuse; ended terminal, web and preview pass;
+  `--force` passes in every case).
+- **NOT RUN:** against a live Wave. Anything of mine that deletes terminals by command (the repro script) now passes `--force`.
 ## 21. A session block that comes back after Wave restarts (`wsh session start --restart --meta`)
 
 `wsh session start --restart` marks the block so that Wave starts its program again at every start of the app (the

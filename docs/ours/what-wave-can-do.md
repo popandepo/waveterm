@@ -763,3 +763,22 @@ stack, and when another top tab was shown and then this one again. Switching to 
   (2) put two of them into one stack and switch between the members ten times: forms, scroll position, video time; (3) the same in two windows and two workspaces, then switch workspace and back: which reload
   (expected: all of the other workspace); (4) open more tabs than the cache size (10) and come back to the first: does the web tile reload; (5) a hidden member's audio is muted (PR 27) and un-muted when shown;
   (6) close one web tile with a filled form: no question (it has no program), the others untouched; (7) restart Wave: web tiles reload (nothing keeps a form across a restart).
+
+## 37. Attention marks, part 2: the stack tab shows the mark
+
+The attention design is settled (docs section 34): info is an icon with no motion; need is an orange DOT only, with no outline; urgent is a pulsing orange outline and dot. This part draws the first container: the
+strip tab of a stack member. A member's tab reads `attention:level` and `attention:reason` of its block (and its badge, `wsh badge`, as a small icon after the symbol):
+- **info:** a small "circle-info" icon after the name; the reason, if there is one, is the hover text.
+- **need:** an 8 px orange dot (`#ff9500`) at the right of the tab, steady, the reason as hover text. No outline, no ring.
+- **urgent:** the same dot and a 2 px orange outline round the whole tab that pulses slowly (1.6 s, opacity 0.25 to 1). With "reduce motion" set in the system the outline does not pulse and stays steady.
+- The attention colour is its own and never replaces or tints the member's own colour (the line under the tab, the tint of the shown tab). Nothing is filled.
+- A value that does not pass the rules (an orange level without a reason, an unknown level, a reason with hidden characters or over 120 code points) draws nothing: the tab reads it only through `attentionOf` (section 34). The reason is shown as an attribute (text), never as markup.
+- **Clearing:** a need or urgent mark on the FOCUSED block clears itself when the owner really has the tile: the window has focus and the block is the focused one, 0.5 s after the focus moved there and 3 s when it was already
+  there (the rule of badges, `AttentionAutoClearing` in `app.tsx`, rule in `attentionclear.ts`); it writes null to both keys, so the session sees it gone. Info does not clear by focus. A session clears its own mark with
+  `wsh attention clear`. Nothing clears a tile that is only shown in a tab without focus.
+- **Not in this part:** the tile outline and header mark, the top tab, the workspace button, the taskbar flash; mute per tile; the five-minute limit of the pulse; the rate rule. The mark of a block that is not the active member of
+  its stack is on its strip tab (that is the point of this step); a tile that is not a stack has no strip, so its mark is not drawn yet.
+- **RAN:** vitest for the mark of every level and of every value a program could write that must draw nothing, for the clear rule (only orange levels, only with window focus, the two delays), the clear meta (both keys, null), and
+  source pins on the label, the stylesheet (the ring pulses, the dot does not, reduced motion stops it, the member's line is untouched) and the app wiring (timer re-checks focus, writes both keys); mutation table: the ring for need too, no validation, info clearing, clearing without window focus, no reduced-motion rule, no hover text: each red.
+- **NOT RUN, window check:** `wsh attention need --reason "x"` in one tile of a stack while another member is shown: a dot on the first member's tab with the reason on hover; `urgent`: the pulsing outline; click the tab (it takes the focus) and the mark goes after half a second;
+  `wsh attention info` shows the icon and stays; the pulse stops with "reduce motion" on; a long tab name keeps the dot visible.

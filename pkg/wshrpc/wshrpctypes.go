@@ -136,6 +136,8 @@ type WshRpcInterface interface {
 
 	// emain
 	WebSelectorCommand(ctx context.Context, data CommandWebSelectorData) ([]string, error)
+	WebNavCommand(ctx context.Context, data CommandWebNavData) (*CommandWebNavRtnData, error)
+	WebNavAuthorizeCommand(ctx context.Context, data CommandWebNavAuthorizeData) error // asked by emain: may the caller of a web command act on this block?
 	NotifyCommand(ctx context.Context, notificationOptions WaveNotificationOptions) error
 	FocusWindowCommand(ctx context.Context, windowId string) error
 	ElectronEncryptCommand(ctx context.Context, data CommandElectronEncryptData) (*CommandElectronEncryptRtnData, error)
@@ -466,6 +468,28 @@ type CommandWebSelectorData struct {
 	TabId       string           `json:"tabid"`
 	Selector    string           `json:"selector"`
 	Opts        *WebSelectorOpts `json:"opts,omitempty"`
+}
+
+// CommandWebNavData asks the window to reload a web tile, step back or forward in its history, or report its address. The tile may be in a tab
+// that is not shown (its page must be loaded); nothing takes focus.
+type CommandWebNavData struct {
+	WorkspaceId string `json:"workspaceid"`
+	BlockId     string `json:"blockid"`
+	TabId       string `json:"tabid"`
+	Action      string `json:"action"` // reload, back, forward or url
+}
+
+// CallerRoute is the source route that the router stamped on the web command (emain reads it from the message, the sender cannot choose it).
+type CommandWebNavAuthorizeData struct {
+	CallerRoute string `json:"callerroute"`
+	BlockId     string `json:"blockid"`
+}
+
+type CommandWebNavRtnData struct {
+	Url          string `json:"url"`
+	Title        string `json:"title"`
+	CanGoBack    bool   `json:"cangoback"`
+	CanGoForward bool   `json:"cangoforward"`
 }
 
 type BlockInfoData struct {

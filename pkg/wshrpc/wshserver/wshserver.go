@@ -658,6 +658,9 @@ func (ws *WshServer) EventReadHistoryCommand(ctx context.Context, data wshrpc.Co
 }
 
 func (ws *WshServer) SetConfigCommand(ctx context.Context, data wshrpc.MetaSettingsType) error {
+	if err := wconfig.CheckNoOwnerOnlyKeys(data.MetaMapType); err != nil {
+		return err
+	}
 	return wconfig.SetBaseConfigValue(data.MetaMapType)
 }
 

@@ -86,6 +86,15 @@ func planStackBlock(
 	return "", none, fmt.Errorf("unknown stack action %q (stack, unstack or activate)", data.Action)
 }
 
+// createTargetNeedsSameTab: a new block that goes into a group, or replaces a block, acts on a target block that must be in the tab the block
+// is created in. The server decides this at the moment of the request, so it holds whatever the caller looked up earlier.
+func createTargetNeedsSameTab(action string, targetBlockId string) bool {
+	if action == wshrpc.CreateBlockAction_Stack {
+		return true
+	}
+	return action == wshrpc.CreateBlockAction_Replace && targetBlockId != ""
+}
+
 // checkStackTargetInTab runs before anything is created: a new block that is meant for a group must have its
 // target in the same tab, or the layout action could not find it.
 func checkStackTargetInTab(tabId string, targetBlockId string, findTab func(blockId string) (string, error)) error {

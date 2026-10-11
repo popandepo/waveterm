@@ -40,7 +40,8 @@ func TestCheckWebNavCaller(t *testing.T) {
 }
 
 func withWebNavFakes(t *testing.T, routes map[string]string, workspaces map[string]string) {
-	oldBlock, oldWs := webNavCallerBlockFn, webNavWorkspaceOfFn
+	oldBlock, oldWs, oldSource := webNavCallerBlockFn, webNavWorkspaceOfFn, webNavSourceFn
+	webNavSourceFn = func(ctx context.Context) string { return wshutil.ElectronRoute }
 	webNavCallerBlockFn = func(route string) string { return routes[route] }
 	webNavWorkspaceOfFn = func(ctx context.Context, blockId string) (string, error) {
 		if ws, ok := workspaces[blockId]; ok {
@@ -48,7 +49,7 @@ func withWebNavFakes(t *testing.T, routes map[string]string, workspaces map[stri
 		}
 		return "", fmt.Errorf("no block %s", blockId)
 	}
-	t.Cleanup(func() { webNavCallerBlockFn, webNavWorkspaceOfFn = oldBlock, oldWs })
+	t.Cleanup(func() { webNavCallerBlockFn, webNavWorkspaceOfFn, webNavSourceFn = oldBlock, oldWs, oldSource })
 }
 
 // The caller is the block behind the route that the router stamped, never an id in the request: a call from workspace A for a tile in workspace B is
@@ -115,5 +116,36 @@ func TestADeniedTileAnswersTheSameWhetherItExistsOrNot(t *testing.T) {
 	}
 	if other.Error() != missing.Error() || other.Error() != WebNavDenied {
 		t.Fatalf("the two answers must be the same text: %q and %q", other.Error(), missing.Error())
+	}
+}
+
+func TestOnlyEmainMayNameAnotherCallersRoute(t *testing.T) {
+	if got := callerRouteOf("electron", "proc:inA"); got != "proc:inA" {
+		t.Fatalf("emain asks in the name of the caller: %q", got)
+	}
+	if got := callerRouteOf("proc:evil", "wavesrv"); got != "proc:evil" {
+		t.Fatalf("a session cannot ask in the name of the server: %q", got)
+	}
+	if got := callerRouteOf("proc:evil", "proc:inA"); got != "proc:evil" {
+		t.Fatalf("a session cannot ask in the name of another route: %q", got)
+	}
+	if got := callerRouteOf("proc:inA", ""); got != "proc:inA" {
+		t.Fatalf("a session that names nothing asks about itself: %q", got)
+	}
+}
+
+func TestASessionAskingInTheNameOfTheServerIsRefused(t *testing.T) {
+	withWebNavFakes(t,
+		map[string]string{"proc:inA": "blockA"},
+		map[string]string{"blockA": "wsA", "tileB": "wsB"})
+	old := webNavSourceFn
+	webNavSourceFn = func(ctx context.Context) string { return "proc:inA" }
+	t.Cleanup(func() { webNavSourceFn = old })
+	ws := &WshServer{}
+	if err := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: wshutil.DefaultRoute, BlockId: "tileB"}); err == nil {
+		t.Fatal("a session that claims to be the server must still be judged as itself")
+	}
+	if err := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inB", BlockId: "blockA"}); err != nil {
+		t.Fatalf("a session asking about its own workspace is allowed whatever it claims: %v", err)
 	}
 }

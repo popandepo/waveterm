@@ -33,6 +33,9 @@ func checkWebNavCaller(callerRoute string, callerBlockId string, callerWorkspace
 	return nil
 }
 
+// the route that the router stamped on THIS call (the caller of the call, not an id inside it)
+var webNavSourceFn = func(ctx context.Context) string { return wshutil.GetRpcSourceFromContext(ctx) }
+
 var (
 	webNavCallerBlockFn = func(route string) string { return wshutil.DefaultRouter.BlockIdForSourceRoute(route) }
 	webNavWorkspaceOfFn = workspaceOfBlock
@@ -46,7 +49,19 @@ func workspaceOfBlock(ctx context.Context, blockId string) (string, error) {
 	return wstore.DBFindWorkspaceForTabId(ctx, tabId)
 }
 
+// callerRouteOf decides whose request this is. Emain asks on behalf of the caller of a web command and names that caller's route (it read it from the
+// stamped source of the message). Anybody else who asks is asking about itself: the route that the router stamped on the call is used and the one in the
+// data is ignored, so a session cannot ask in the name of another route (or of the server), and cannot use this command to find out which blocks of
+// another workspace exist.
+func callerRouteOf(source string, claimed string) string {
+	if source == wshutil.ElectronRoute {
+		return claimed
+	}
+	return source
+}
+
 func (ws *WshServer) WebNavAuthorizeCommand(ctx context.Context, data wshrpc.CommandWebNavAuthorizeData) error {
+	data.CallerRoute = callerRouteOf(webNavSourceFn(ctx), data.CallerRoute)
 	if data.CallerRoute == wshutil.DefaultRoute {
 		return checkWebNavCaller(data.CallerRoute, "", "", "")
 	}

@@ -51,9 +51,10 @@ func TestOnlyAWebTileIsNavigated(t *testing.T) {
 
 func TestTheFourCommandsExistAndSendTheirAction(t *testing.T) {
 	t.Setenv("WAVETERM_TABID", "caller-tab")
-	oldInfo, oldRPC, oldBlockArg := webNavBlockInfo, webNavRPC, blockArg
-	defer func() { webNavBlockInfo, webNavRPC, blockArg = oldInfo, oldRPC, oldBlockArg }()
+	oldAuth, oldInfo, oldRPC, oldBlockArg := webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg
+	defer func() { webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg = oldAuth, oldInfo, oldRPC, oldBlockArg }()
 	var sent []wshrpc.CommandWebNavData
+	webNavAuthorize = func(blockId string) error { return nil }
 	webNavBlockInfo = func(blockId string) (*wshrpc.BlockInfoData, error) { return webInfo("web"), nil }
 	webNavRPC = func(d wshrpc.CommandWebNavData) (*wshrpc.CommandWebNavRtnData, error) {
 		sent = append(sent, d)
@@ -84,11 +85,12 @@ func TestTheFourCommandsExistAndSendTheirAction(t *testing.T) {
 }
 
 func TestAnErrorFromTheWindowIsReturnedAndNothingIsPrinted(t *testing.T) {
-	oldInfo, oldRPC := webNavBlockInfo, webNavRPC
-	defer func() { webNavBlockInfo, webNavRPC = oldInfo, oldRPC }()
+	oldAuth, oldInfo, oldRPC := webNavAuthorize, webNavBlockInfo, webNavRPC
+	defer func() { webNavAuthorize, webNavBlockInfo, webNavRPC = oldAuth, oldInfo, oldRPC }()
 	oldResolve := resolveBlockRef
 	defer func() { resolveBlockRef = oldResolve }()
 	resolveBlockRef = func(ref string) (string, error) { return webBlockId, nil }
+	webNavAuthorize = func(blockId string) error { return nil }
 	webNavBlockInfo = func(blockId string) (*wshrpc.BlockInfoData, error) { return webInfo("web"), nil }
 	webNavRPC = func(d wshrpc.CommandWebNavData) (*wshrpc.CommandWebNavRtnData, error) {
 		return nil, errors.New("nothing to go back to")
@@ -114,5 +116,65 @@ func TestFormatWebNav(t *testing.T) {
 	}
 	if _, err := formatWebNav("url", nil, false); err == nil {
 		t.Fatalf("no answer is an error")
+	}
+}
+
+// A tile that does not exist and a tile in another workspace give the same answer, and nothing about the tile is read before the question is answered.
+func TestAForeignTileAndAMissingTileGetTheSameDenial(t *testing.T) {
+	oldAuth, oldInfo, oldRPC, oldBlock := webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg
+	defer func() { webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg = oldAuth, oldInfo, oldRPC, oldBlock }()
+	infoCalls, rpcCalls := 0, 0
+	webNavBlockInfo = func(blockId string) (*wshrpc.BlockInfoData, error) {
+		infoCalls++
+		return webInfo("web"), nil
+	}
+	webNavRPC = func(d wshrpc.CommandWebNavData) (*wshrpc.CommandWebNavRtnData, error) {
+		rpcCalls++
+		return &wshrpc.CommandWebNavRtnData{Url: "http://x/"}, nil
+	}
+	blockArg = webBlockId
+	oldResolveB := resolveBlockRef
+	defer func() { resolveBlockRef = oldResolveB }()
+	resolveBlockRef = func(ref string) (string, error) { return webBlockId, nil }
+	webNavAuthorize = func(blockId string) error { return errors.New("the server said no, with its own words") }
+	foreign := webNavRun(wshrpc.WebNavAction_Url)
+	webNavAuthorize = func(blockId string) error { return errors.New("no such block") }
+	missing := webNavRun(wshrpc.WebNavAction_Url)
+	if foreign == nil || missing == nil || foreign.Error() != missing.Error() || foreign.Error() != webNavDenied {
+		t.Fatalf("both must be the one denial: %v | %v", foreign, missing)
+	}
+	if infoCalls != 0 || rpcCalls != 0 {
+		t.Fatalf("nothing about the tile may be read or done before the question is answered (info %d, rpc %d)", infoCalls, rpcCalls)
+	}
+}
+
+func TestADenialFromTheWindowIsTheSameText(t *testing.T) {
+	oldAuth, oldInfo, oldRPC, oldBlock := webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg
+	defer func() { webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg = oldAuth, oldInfo, oldRPC, oldBlock }()
+	blockArg = webBlockId
+	oldResolveB := resolveBlockRef
+	defer func() { resolveBlockRef = oldResolveB }()
+	resolveBlockRef = func(ref string) (string, error) { return webBlockId, nil }
+	webNavAuthorize = func(blockId string) error { return nil }
+	webNavAuthorize = func(blockId string) error { return nil }
+	webNavBlockInfo = func(blockId string) (*wshrpc.BlockInfoData, error) { return webInfo("web"), nil }
+	webNavRPC = func(d wshrpc.CommandWebNavData) (*wshrpc.CommandWebNavRtnData, error) {
+		return nil, errors.New("rpc error: " + webNavDenied + " (from the window)")
+	}
+	err := webNavRun(wshrpc.WebNavAction_Url)
+	if err == nil || err.Error() != webNavDenied {
+		t.Fatalf("a denial from the window must be printed as the one denial: %v", err)
+	}
+}
+
+func TestAMissingBlockRefIsTheSameDenialForAnExplicitBlock(t *testing.T) {
+	oldAuth, oldBlock, oldResolve := webNavAuthorize, blockArg, resolveBlockRef
+	defer func() { webNavAuthorize, blockArg, resolveBlockRef = oldAuth, oldBlock, oldResolve }()
+	blockArg = "00000000-0000-0000-0000-000000000000"
+	resolveBlockRef = func(ref string) (string, error) { return "", errors.New("block not found: " + ref) }
+	webNavAuthorize = func(blockId string) error { t.Fatal("nothing to ask about"); return nil }
+	err := webNavRun(wshrpc.WebNavAction_Url)
+	if err == nil || err.Error() != webNavDenied {
+		t.Fatalf("an explicit block that cannot be resolved must give the one denial: %v", err)
 	}
 }

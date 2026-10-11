@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -50,10 +51,17 @@ func init() {
 	webCmd.AddCommand(webReloadCmd, webBackCmd, webForwardCmd, webUrlCmd)
 }
 
+// the one answer for a tile that the caller may not act on, whether it exists or not (the same text as the server's)
+const webNavDenied = "that web tile is not available to this caller"
+
 // seams for tests
 var (
 	webNavBlockInfo = func(blockId string) (*wshrpc.BlockInfoData, error) {
 		return wshclient.BlockInfoCommand(RpcClient, blockId, nil)
+	}
+	// asks the server (which knows who is calling from the route the router stamped) whether the caller may act on the block
+	webNavAuthorize = func(blockId string) error {
+		return wshclient.WebNavAuthorizeCommand(RpcClient, wshrpc.CommandWebNavAuthorizeData{BlockId: blockId}, nil)
 	}
 	webNavRPC = func(data wshrpc.CommandWebNavData) (*wshrpc.CommandWebNavRtnData, error) {
 		return wshclient.WebNavCommand(RpcClient, data, &wshrpc.RpcOpts{Route: wshutil.ElectronRoute, Timeout: 5000})
@@ -106,7 +114,15 @@ func webNavRun(action string) error {
 	}
 	blockId, err := resolveBlockRef(ref)
 	if err != nil {
+		if blockArg != "" {
+			return errors.New(webNavDenied)
+		}
 		return fmt.Errorf("resolving blockid: %w", err)
+	}
+	// the question of who may act on which tile is asked FIRST, before anything about the tile is read: a tile that does not exist and a tile in another
+	// workspace get the same answer
+	if err := webNavAuthorize(blockId); err != nil {
+		return errors.New(webNavDenied)
 	}
 	info, err := webNavBlockInfo(blockId)
 	if err != nil {
@@ -118,6 +134,9 @@ func webNavRun(action string) error {
 	}
 	res, err := webNavRPC(data)
 	if err != nil {
+		if strings.Contains(err.Error(), webNavDenied) {
+			return errors.New(webNavDenied)
+		}
 		return err
 	}
 	text, err := formatWebNav(action, res, webUrlJson && action == wshrpc.WebNavAction_Url)

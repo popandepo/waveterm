@@ -312,6 +312,11 @@ func (ws *WshServer) ResolveIdsCommand(ctx context.Context, data wshrpc.CommandR
 func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.CommandCreateBlockData) (*waveobj.ORef, error) {
 	ctx = waveobj.ContextWithUpdates(ctx)
 	tabId := data.TabId
+	nodeSize, err := checkNodeSize(data.NodeSize)
+	if err != nil {
+		return nil, err
+	}
+	data.NodeSize = nodeSize
 	if createTargetNeedsSameTab(data.TargetAction, data.TargetBlockId) {
 		err := checkStackTargetInTab(tabId, data.TargetBlockId, func(blockId string) (string, error) {
 			return wstore.DBFindTabForBlockId(ctx, blockId)

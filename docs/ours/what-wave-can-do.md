@@ -786,8 +786,8 @@ strip tab of a stack member. A member's tab reads `attention:level` and `attenti
   function that reads the present at each call and is tested with fakes, instead of lines of `app.tsx` that only a source pin saw.
 - **Stated behaviour (known, on purpose, pinned by tests that say "observation"):** an orange level that draws nothing (no reason, or a reason with a hidden character) is still planned and erased on focus; a mark rewritten with the same
   level and reason while the timer runs is erased by the old plan (the two are indistinguishable); the clear needs the window focus plus the focused block, not the keyboard in it; the CSS-wide colour keywords (`inherit`, `currentcolor`,
-  `transparent`) pass the colour check in a browser and give a text-coloured or invisible outline; a badge icon with `+spin` or `+beat` animates on the strip tab. A reviewer's attack file (24 cases: markup in a reason, hidden characters,
-  prototype names as levels, 40 bad colours at the four colour entrances, the clear under cancel, replace and lost focus, the compiled stylesheets) is part of the tests as `attentionlook.test.tsx`. Merge commit `fc781392` of this line does NOT type-check
+  `transparent`) pass the colour check in a browser and give a text-coloured or invisible outline; a badge icon with `+spin` or `+beat` animates on the strip tab. A reviewer's attack file (25 tests: markup in a reason, hidden characters,
+  prototype names as levels, 43 bad values at the four colour entrances, the clear under cancel, replace and lost focus, the compiled stylesheets) is part of the tests as `attentionlook.test.tsx`. Merge commit `fc781392` of this line does NOT type-check
   (an unclosed component, fixed by `46f301df`): remember it when bisecting.
 - **Not in this part:** the tile outline and header mark, the top tab, the workspace button, the taskbar flash; mute per tile; the five-minute limit of the pulse; the rate rule. The mark of a block that is not the active member of
   its stack is on its strip tab (that is the point of this step); a tile that is not a stack has no strip, so its mark is not drawn yet.

@@ -10,6 +10,7 @@ import {
     getBlockBadgeAtom,
 } from "@/app/store/badge";
 import { ClearAttentionMeta } from "@/app/store/attentionclear";
+import { ReducedMotionClass } from "@/app/reducedmotion";
 import { focusSwitchedSince, makeAttentionClearEnv, scheduleAttentionClear } from "@/app/store/attentionschedule";
 import { ClientModel } from "@/app/store/client-model";
 import { windowOutlineColor, WindowOutlineWidthPx } from "@/app/windowoutline";
@@ -325,10 +326,8 @@ const BadgeAutoClearing = () => {
             prevDocHasFocusRef.current = documentHasFocus;
             return;
         }
-        const focusSwitched = focusSwitchedSince(
-            { blockId: prevFocusedBlockIdRef.current, documentHasFocus: prevDocHasFocusRef.current },
-            { blockId: focusedBlockId, documentHasFocus }
-        );
+        const focusSwitched =
+            prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus;
         prevFocusedBlockIdRef.current = focusedBlockId;
         prevDocHasFocusRef.current = documentHasFocus;
         const delay = focusSwitched ? 500 : 3000;
@@ -386,8 +385,10 @@ const AttentionAutoClearing = () => {
     // the plan is made again whenever the focused block, the window focus, the level or the reason changes (a program that replaces the reason of a mark
     // while the timer runs gets the full wait for its new mark)
     useEffect(() => {
-        const focusSwitched =
-            prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus;
+        const focusSwitched = focusSwitchedSince(
+            { blockId: prevFocusedBlockIdRef.current, documentHasFocus: prevDocHasFocusRef.current },
+            { blockId: focusedBlockId, documentHasFocus }
+        );
         prevFocusedBlockIdRef.current = focusedBlockId;
         prevDocHasFocusRef.current = documentHasFocus;
         return scheduleAttentionClear(
@@ -439,7 +440,7 @@ const AppInner = () => {
         <div
             className={clsx("flex flex-col w-full h-full", PLATFORM, {
                 fullscreen: isFullScreen,
-                "prefers-reduced-motion": prefersReducedMotion,
+                [ReducedMotionClass]: prefersReducedMotion,
             })}
             onContextMenu={handleContextMenu}
         >

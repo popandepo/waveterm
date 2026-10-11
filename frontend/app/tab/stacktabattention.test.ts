@@ -104,19 +104,31 @@ describe("the wiring that no test can render", () => {
     test("the app clears the focused block's orange mark through the clear rule, with both keys null", () => {
         const app = read("app", "app.tsx");
         assert.include(app, "<AttentionAutoClearing />");
-        assert.include(app, "scheduleAttentionClear(");
-        assert.include(app, "{ blockId: focusedBlockId, level, reason, documentHasFocus, focusSwitched }");
-        // the window's sources go through the env that attentionwiring.test.ts tests, and the switch through focusSwitchedSince
-        assert.include(app, "makeAttentionClearEnv(");
-        assert.include(app, "focusSwitchedSince(");
+        // everything below is read from the body of the attention component only (the badge component above it has its own, upstream, switch rule)
+        const body = app.slice(app.indexOf("const AttentionAutoClearing"), app.indexOf("const WindowOutline"));
+        const badgeBody = app.slice(app.indexOf("const BadgeAutoClearing"), app.indexOf("const AttentionAutoClearing"));
+        assert.include(body, "scheduleAttentionClear(");
+        assert.include(body, "{ blockId: focusedBlockId, level, reason, documentHasFocus, focusSwitched }");
+        // the switch is decided by focusSwitchedSince, bound to the attention component, and the badge component keeps its upstream expression
+        assert.match(body, /const focusSwitched = focusSwitchedSince\(\s*\{ blockId: prevFocusedBlockIdRef\.current, documentHasFocus: prevDocHasFocusRef\.current },\s*\{ blockId: focusedBlockId, documentHasFocus }\s*\);/);
+        assert.notInclude(badgeBody, "focusSwitchedSince");
+        assert.include(badgeBody, "prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus");
+        // the window's sources go through the env that attentionwiring.test.ts tests, and the env clears with ClearAttentionMeta itself (not an empty object)
+        assert.match(body, /makeAttentionClearEnv\(\s*\{[\s\S]*?},\s*ClearAttentionMeta\s*\)/);
         // the plan is made again when ANY of these changes, the reason included
-        assert.include(app, "}, [focusedBlockId, level, reason, documentHasFocus]);");
-        assert.include(app, "ClearAttentionMeta");
-        assert.include(app, 'WOS.makeORef("block", blockId)');
-        assert.include(app, "readMeta: (blockId, key) => globalStore.get(getBlockMetaKeyAtom(blockId, key");
-        // it checks the window still has focus and the tile is still the focused one when the timer fires
-        const body = app.slice(app.indexOf("const AttentionAutoClearing"), app.indexOf("const AppInner"));
+        assert.include(body, "}, [focusedBlockId, level, reason, documentHasFocus]);");
+        assert.include(body, 'WOS.makeORef("block", blockId)');
+        assert.include(body, "readMeta: (blockId, key) => globalStore.get(getBlockMetaKeyAtom(blockId, key");
+        // when the timer fires the focused block is read from the layout model right then, not the value of the render that made the plan
+        assert.include(body, "focusedBlockId: () => globalStore.get(layoutModel.focusedNode)?.data?.blockId");
+        assert.notMatch(body, /focusedBlockId: \(\) => focusedBlockId\b/);
         assert.include(body, "documentHasFocus: () => document.hasFocus()");
-        assert.include(body, "layoutModel.focusedNode");
+    });
+
+    test("the app puts the reduced motion class on its root through the one constant that the stylesheet rule is built from", () => {
+        const app = read("app", "app.tsx");
+        assert.include(app, "[ReducedMotionClass]: prefersReducedMotion");
+        assert.notInclude(app, '"prefers-reduced-motion": prefersReducedMotion');
+        assert.include(read("app", "reducedmotion.ts"), 'export const ReducedMotionClass = "prefers-reduced-motion";');
     });
 });

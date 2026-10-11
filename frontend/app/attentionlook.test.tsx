@@ -1,3 +1,6 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Attack and pin tests for the attention marks, the colours and the stylesheets of the strip tab, the top tab and the window outline (from the run-the-code
 // review of PR 52; the tests that say "observation" pin behaviour that is stated in docs/ours/what-wave-can-do.md section 37, on purpose).
 
@@ -19,12 +22,13 @@ vi.mock("@/app/store/badge", async (importOriginal) => ({
     getBlockBadgeAtom: (_blockId: string) => atom(() => badge),
 }));
 
+import { ReducedMotionClass } from "@/app/reducedmotion";
 import { ClearAttentionMeta } from "@/app/store/attentionclear";
 import { AttentionClearEnv, scheduleAttentionClear } from "@/app/store/attentionschedule";
 import { StackTabLabel } from "@/app/tab/stacktablabel";
 import { badgeColorValue, memberColorValue, stackTabAttention } from "@/app/tab/stacktablook";
 import { TabV } from "@/app/tab/tab";
-import { topTabLook } from "@/app/tab/toptablook";
+import { ActiveFillPercent, InactiveLinePercent, topTabLook } from "@/app/tab/toptablook";
 import { windowOutlineColor } from "@/app/windowoutline";
 
 const cp = (...n: number[]) => String.fromCodePoint(...n);
@@ -203,11 +207,11 @@ describe("(a) a colour reaching a style", () => {
         const on = renderTab("#ff8800", true);
         assert.equal(on.split("tab-colour-fill").length - 1, 1);
         assert.equal(on.split("tab-colour-line").length - 1, 1);
-        assert.include(on, "background:color-mix(in srgb, #ff8800 20%, transparent)");
+        assert.include(on, `background:color-mix(in srgb, #ff8800 ${ActiveFillPercent}%, transparent)`);
         assert.include(on, "background:#ff8800");
         const off = renderTab("#ff8800", false);
         assert.notInclude(off, "tab-colour-fill");
-        assert.include(off, "background:color-mix(in srgb, #ff8800 55%, transparent)");
+        assert.include(off, `background:color-mix(in srgb, #ff8800 ${InactiveLinePercent}%, transparent)`);
     });
 
     test("the rendered strip tab drops a bad badge colour and a bad member colour", () => {
@@ -231,8 +235,8 @@ describe("(a) a colour reaching a style", () => {
         (globalThis as any).CSS = { supports: (_p: string, v: string) => wide.has(v.toLowerCase()) || /^#[\da-f]{6}$/i.test(v) };
         try {
             assert.equal(windowOutlineColor("inherit", null), "inherit");
-            assert.equal(topTabLook("inherit", true).fill, "color-mix(in srgb, inherit 20%, transparent)");
-            assert.equal(topTabLook("transparent", false).line, "color-mix(in srgb, transparent 55%, transparent)");
+            assert.equal(topTabLook("inherit", true).fill, `color-mix(in srgb, inherit ${ActiveFillPercent}%, transparent)`);
+            assert.equal(topTabLook("transparent", false).line, `color-mix(in srgb, transparent ${InactiveLinePercent}%, transparent)`);
             assert.isNull(windowOutlineColor("banana", null));
         } finally {
             (globalThis as any).CSS = original;
@@ -451,7 +455,7 @@ describe("(c) mouse events and layout, read from the compiled stylesheets", () =
 
     test("the app's own reduced-motion class (window:reducedmotion setting) stops the pulse as well as the system media query", () => {
         const css = compile("layout/lib/stackstrip.scss");
-        const rule = ruleBody(css, ".prefers-reduced-motion .tile-layout .stack-strip .stack-tab .stack-tab-attention-ring");
+        const rule = ruleBody(css, "." + ReducedMotionClass + " .tile-layout .stack-strip .stack-tab .stack-tab-attention-ring");
         assert.equal(decls(rule)["animation"], "none");
     });
 
@@ -460,6 +464,8 @@ describe("(c) mouse events and layout, read from the compiled stylesheets", () =
         const info = decls(ruleBody(css, ".tile-layout .stack-strip .stack-tab .stack-tab-attention-info"));
         assert.equal(info["position"], "absolute");
         assert.isUndefined(info["margin-left"]);
+        const dot = decls(ruleBody(css, ".tile-layout .stack-strip .stack-tab .stack-tab-attention-dot"));
+        assert.equal(info["right"], dot["right"], "the info icon sits where the dot sits, left of the close button");
         const label = decls(ruleBody(css, ".tile-layout .stack-strip .stack-tab .stack-tab-label"));
         assert.equal(label["overflow"], "hidden");
     });

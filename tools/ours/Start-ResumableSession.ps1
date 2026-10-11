@@ -4,6 +4,7 @@
 # (Wave was restarted) resumes it (--resume), so the same conversation comes back in the same block.
 # -DryRun prints the claude arguments instead of starting it (used by the self test).
 # Runs under PowerShell 7 (pwsh): a prompt with quotes or backslashes reaches claude as one argument only there. -DryRun also runs under Windows PowerShell.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory)][string]$SessionId,
     [string]$Name,
@@ -16,6 +17,7 @@ param(
     [switch]$ThrowawayConfig,
     [string[]]$PluginDir = @(),
     [string]$Command = 'claude',
+    [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 5,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -198,5 +200,71 @@ try {
         }
     }
 } catch { }
+# Wave starts this program directly, so it gets WAVETERM_SWAPTOKEN (one use, valid 5 minutes after the block started) and none of the variables that wsh
+# needs (WAVETERM_JWT, BLOCKID, TABID, WORKSPACEID ...). The shells that Wave starts exchange it themselves (wavepwsh.ps1); a program started directly never
+# does, and a session that was resumed after a restart sits idle past the 5 minutes. So it is exchanged HERE, before claude starts, and claude and every tool
+# shell below it inherit the variables.
+#  - wsh is the wsh.exe in the folder Wave names (WAVETERM_WSHBINDIR, an existing fully qualified folder), run ONCE with "token <token> pwsh" and a time limit.
+#  - What it prints is PARSED, never run: only lines of the exact form  $env:NAME = "value"  with NAME on the fixed list below are taken; every other line is
+#    ignored (a command, a subexpression, an assignment to PATH or to another name, a line with more after the value). Inside the value Wave escapes a double
+#    quote, a backtick and a dollar sign with a backtick; that is all that is undone. A value that holds a newline, a control character or any other
+#    backtick sequence is refused.
+#  - The token never reaches the screen or an error message. It is on the command line of the wsh call while that runs (a few milliseconds; another process of
+#    the same user can list it then, as it can read this process's environment all along); it is single use, and it is removed from this process's environment
+#    afterwards, so claude and its shells never see a spent token.
+#  - A failed, slow or refused exchange never stops the session: it starts without wsh access and one plain line says so.
+$SwapVariables = @('WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID', 'WAVETERM_CLIENTID', 'WAVETERM_CONN', 'WAVETERM_VERSION', 'WAVETERM', 'TERM_PROGRAM')
+
+function ConvertFrom-WshAssignment([string]$line) {
+    $m = [regex]::Match($line, '^\$env:([A-Z][A-Z0-9_]*) = "((?:[^"`$]|`["`$`])*)"$')
+    if (-not $m.Success -or $SwapVariables -cnotcontains $m.Groups[1].Value) { return $null }
+    $value = $m.Groups[2].Value.Replace('``', [string][char]1).Replace('`"', '"').Replace('`$', '$').Replace([string][char]1, '`')
+    if ($value -match '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]') { return $null }
+    return @{ Name = $m.Groups[1].Value; Value = $value }
+}
+
+function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
+    $token = $env:WAVETERM_SWAPTOKEN
+    if (-not $token) { return $true }
+    $binDir = $env:WAVETERM_WSHBINDIR
+    if (-not $binDir -or $binDir -notmatch '^[A-Za-z]:[\\/]' -or -not (Test-Path -LiteralPath $binDir -PathType Container)) { return $false }
+    $wsh = Join-Path $binDir 'wsh.exe'
+    if (-not (Test-Path -LiteralPath $wsh -PathType Leaf)) { return $false }
+    $proc = $null
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $wsh
+        $psi.Arguments = 'token ' + $token + ' pwsh'
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $null = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit($timeoutSeconds * 1000)) {
+            try { $proc.Kill() } catch { }
+            return $false
+        }
+        if ($proc.ExitCode -ne 0) { return $false }
+        $taken = 0
+        foreach ($line in ($outTask.Result -split "`r?`n")) {
+            $parsed = ConvertFrom-WshAssignment $line
+            if ($parsed) { Set-Item -Path "env:$($parsed.Name)" -Value $parsed.Value; $taken++ }
+        }
+        return ($taken -gt 0)
+    } catch {
+        return $false
+    } finally {
+        if ($proc) { $proc.Dispose() }
+    }
+}
+
+if ($env:WAVETERM_SWAPTOKEN) {
+    $swapped = $false
+    try { $swapped = Invoke-WaveTokenSwap $SwapTimeoutSeconds } catch { }
+    Remove-Item Env:WAVETERM_SWAPTOKEN -ErrorAction SilentlyContinue
+    if (-not $swapped) { [Console]::Error.WriteLine('Note: the Wave token could not be exchanged, so this session starts without wsh access (restart the block to get it).') }
+}
 $claudeArgs = @(Get-ClaudeArgs)
 & $Command @claudeArgs

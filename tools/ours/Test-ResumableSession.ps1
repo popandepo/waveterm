@@ -48,7 +48,7 @@ try {
     Make-File $stub @'
 param()
 $lines = @("ARGS: " + ($args -join ' '))
-Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -like 'STATUS_*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR' } | ForEach-Object { $lines += "ENV: $($_.Name)=$($_.Value)" }
+Get-ChildItem env: | Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -like 'STATUS_*' -or $_.Name -like 'WAVETERM*' -or $_.Name -in 'NO_COLOR', 'FORCE_COLOR', 'TERM_PROGRAM', 'EVIL_VAR' } | ForEach-Object { $lines += "ENV: $($_.Name)=$($_.Value)" }
 $lines += 'PATHLAST: ' + (@($env:PATH -split ';' | Where-Object { $_ })[-1])
 $lines += 'PATHCOUNT: ' + (@($env:PATH -split ';' | Where-Object { $_ -ieq $env:RESUMABLE_TEST_WSHDIR }).Count)
 $found = Get-Command wsh -ErrorAction SilentlyContinue
@@ -59,7 +59,7 @@ Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
 '@
     $child = Join-Path $root 'child.ps1'
     Make-File $child @'
-param($Script, $Stub, $Record, $WshDir, $PathMode, $Cfg, $Id, [string]$ExtraPrompt, [string]$ExtraName)
+param($Script, $Stub, $Record, $WshDir, $PathMode, $Cfg, $Id, [string]$ExtraPrompt, [string]$ExtraName, [string]$SwapDir)
 $env:CLAUDE_CONFIG_DIR = 'X:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
 $env:RESUMABLE_TEST_RECORD = $Record
 $env:RESUMABLE_TEST_WSHDIR = $WshDir
@@ -79,10 +79,14 @@ switch ($PathMode) {
     'other' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = $env:RESUMABLE_TEST_OTHERDIR + $sep + $env:PATH }
     'path-huge' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = ('x' + $sep) * 16380; $env:RESUMABLE_TEST_NOWSH = '1' }
     'unset' { Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
+    'swap' { $env:WAVETERM_SWAPTOKEN = 'tok-123'; $env:WAVETERM_WSHBINDIR = $SwapDir }
+    'swap-nowsh' { $env:WAVETERM_SWAPTOKEN = 'tok-123'; Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
+    'swap-nodir' { $env:WAVETERM_SWAPTOKEN = 'tok-123'; $env:WAVETERM_WSHBINDIR = $WshDir }
 }
 $extra = @{}
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
 if ($ExtraName) { $extra.Name = $ExtraName }
+if ($env:RESUMABLE_TEST_SWAPTIMEOUT) { $extra.SwapTimeoutSeconds = [int]$env:RESUMABLE_TEST_SWAPTIMEOUT }
 & $Script -SessionId $Id -ConfigDir $Cfg -Command $Stub -Model m1 @extra
 exit $LASTEXITCODE
 '@
@@ -92,11 +96,12 @@ exit $LASTEXITCODE
     Make-File (Join-Path $wshDir 'wsh.cmd') '@echo wsh-from-wave'
     Make-File (Join-Path $otherDir 'wsh.cmd') '@echo wsh-already-there'
     $env:RESUMABLE_TEST_OTHERDIR = $otherDir
-    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '', [string]$name = '') {
+    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '', [string]$name = '', [string]$swapDir = '') {
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
         $a = @('-NoProfile', '-File', $child, '-Script', $script, '-Stub', $stub, '-Record', $rec, '-WshDir', $wshDir, '-PathMode', $mode, '-Cfg', $cfgDir, '-Id', $id)
         if ($prompt) { $a += '-ExtraPrompt', $prompt }
         if ($name) { $a += '-ExtraName', $name }
+        if ($swapDir) { $a += '-SwapDir', $swapDir }
         $errFile = Join-Path $root 'child-error.txt'
         & pwsh @a 2>$errFile | Out-Null
         $code = $LASTEXITCODE
@@ -161,6 +166,81 @@ exit $LASTEXITCODE
         Remove-Item -LiteralPath $perr -ErrorAction SilentlyContinue
         Check ("plugin folder '" + $pp2.Replace($root, '<root>') + "' is refused by its plain spelling, before anything is opened") (($LASTEXITCODE -eq 2) -and ($ptext -match 'plain spelling \(nothing was opened\)')) "exit=$LASTEXITCODE $ptext"
     }
+
+    # ---- the token swap: what wsh prints is parsed, never run ----
+    $swapDir = Join-Path $root 'swapbin'
+    Make-Dir $swapDir
+    $swapSrc = Join-Path $root 'swapstub.cs'
+    Make-File $swapSrc @'
+using System;
+using System.IO;
+using System.Threading;
+class P {
+    static int Main(string[] a) {
+        string argsFile = Environment.GetEnvironmentVariable("SWAP_ARGS");
+        if (argsFile != null) File.WriteAllText(argsFile, string.Join(" ", a));
+        if (Environment.GetEnvironmentVariable("SWAP_HANG") == "1") Thread.Sleep(20000);
+        if (Environment.GetEnvironmentVariable("SWAP_FAIL") == "1") return 1;
+        string o = Environment.GetEnvironmentVariable("SWAP_OUTPUT");
+        if (o != null) Console.Out.Write(File.ReadAllText(o));
+        return 0;
+    }
+}
+'@
+    $swapExe = Join-Path $swapDir 'wsh.exe'
+    & powershell.exe -NoProfile -Command "Add-Type -TypeDefinition (Get-Content -LiteralPath '$swapSrc' -Raw) -OutputAssembly '$swapExe' -OutputType ConsoleApplication" 2>$null | Out-Null
+    $made.Add($swapExe)
+    Check 'the stub wsh.exe was built (Windows PowerShell compiles it)' (Test-Path -LiteralPath $swapExe) 'no wsh.exe'
+    $swapOut = Join-Path $root 'swap-output.txt'
+    $swapArgs = Join-Path $root 'swap-args.txt'
+    $bt = [string][char]96
+    $swapLines = @(
+        ('$env:WAVETERM_JWT = "jwt' + $bt + '"quoted' + $bt + '$value' + $bt + $bt + 'end"'),
+        '$env:WAVETERM_BLOCKID = "block-1"',
+        '$env:WAVETERM_TABID = "tab-1"',
+        '$env:WAVETERM_CLIENTID = "client-1"',
+        '$env:EVIL_VAR = "x"',
+        '$env:PATH = "C:\evil"',
+        '$env:path = "C:\evil2"',
+        '$env:WAVETERM_WORKSPACEID = "ws-1" ; $env:EVIL_VAR = "y"',
+        ('$env:WAVETERM_VERSION = "' + $bt + 'nnewline"'),
+        ('$env:WAVETERM_CONN = "' + $bt + 'x"'),
+        '$env:WAVETERM = $(Remove-Item C:\important)',
+        'Remove-Item C:\important',
+        'calc.exe',
+        '& calc.exe',
+        '$env:TERM_PROGRAM = "waveterm"'
+    )
+    Make-File $swapOut ([string]::Join([string][char]10, $swapLines))
+    $env:SWAP_OUTPUT = $swapOut; $env:SWAP_ARGS = $swapArgs; $env:RESUMABLE_TEST_NOWSH = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    $jwt = ($r.Lines | Where-Object { $_ -like 'ENV: WAVETERM_JWT=*' }) -replace '^ENV: WAVETERM_JWT=', ''
+    Check 'the token is exchanged before claude starts: the variables on the list reach the program' (($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1') -and ($r.Lines -contains 'ENV: WAVETERM_TABID=tab-1') -and ($r.Lines -contains 'ENV: WAVETERM_CLIENTID=client-1') -and ($r.Lines -contains 'ENV: TERM_PROGRAM=waveterm')) $r.Text
+    Check 'a value with an escaped quote, dollar sign and backtick arrives as Wave meant it' ($jwt -eq ('jwt"quoted$value' + $bt + 'end')) "got [$jwt]"
+    Check 'a name that is not on the list, a PATH assignment (either case), a line with more after the value, a subexpression and plain commands have no effect' (-not ($r.Text -match 'EVIL_VAR') -and -not ($r.Text -match 'WAVETERM_WORKSPACEID') -and -not ($r.Text -match 'WAVETERM=') -and ($r.Lines -contains 'ENV: TERM_PROGRAM=waveterm') -and ($r.Lines | Where-Object { $_ -like 'PATHLAST:*' }) -notcontains 'PATHLAST: C:\evil') $r.Text
+    Check 'a value with an escaped newline or another backtick sequence is refused' (-not ($r.Text -match 'WAVETERM_VERSION') -and -not ($r.Text -match 'WAVETERM_CONN')) $r.Text
+    Check 'the swap token is gone from the environment of the program and never printed' (-not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match 'tok-123')) $r.Text
+    Check 'wsh was called once with exactly: token <the token> pwsh' ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq 'token tok-123 pwsh') ((Get-Content -LiteralPath $swapArgs -Raw))
+    Check 'an injected command line did not run (the file it names is still there)' (Test-Path -LiteralPath $swapOut) ''
+    $env:SWAP_FAIL = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a failing wsh does not stop the session, the token is removed, nothing is set, one plain line says so' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged') -and -not ($r.Text -match 'tok-123')) "exit=$($r.Code) $($r.Text)"
+    Remove-Item Env:SWAP_FAIL -ErrorAction SilentlyContinue
+    $env:SWAP_HANG = '1'; $env:RESUMABLE_TEST_SWAPTIMEOUT = '1'
+    $t0 = Get-Date
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    $took = ((Get-Date) - $t0).TotalSeconds
+    Check 'a wsh that hangs is stopped after the time limit and the session starts without wsh access' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and $took -lt 15 -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) took=$took $($r.Text)"
+    Remove-Item Env:SWAP_HANG, Env:RESUMABLE_TEST_SWAPTIMEOUT -ErrorAction SilentlyContinue
+    $r = Run-Child 'swap-nowsh' $cfg '' '' $swapDir
+    Check 'a token and no wsh folder does not stop the session, and the token is removed' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text)"
+    $r = Run-Child 'swap-nodir' $cfg '' '' $swapDir
+    Check 'a token and a wsh folder without a wsh.exe does not stop the session' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN')) "exit=$($r.Code) $($r.Text)"
+    $r = Run-Child 'set'
+    Check 'without a swap token wsh is not called and nothing is added' (-not ($r.Text -match 'WAVETERM_JWT') -and -not ($r.Text -match 'could not be exchanged')) $r.Text
+    Remove-Item Env:SWAP_OUTPUT, Env:SWAP_ARGS, Env:RESUMABLE_TEST_NOWSH -ErrorAction SilentlyContinue
+    $stray = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -DryRun stray-positional-piece 2>&1
+    Check 'a stray positional argument is an error, not a model or an effort' (($LASTEXITCODE -ne 0) -and ($stray -join ' ') -match 'positional') ($stray -join ' ')
 
     # ---- the prompt ----
     foreach ($lead in '-x', ' -x', "`t-x", "  `t -x") {

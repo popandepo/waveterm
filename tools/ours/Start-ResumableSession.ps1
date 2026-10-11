@@ -19,7 +19,8 @@ param(
     [string]$Command = 'claude',
     [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 15,
     [string]$WshRoot = (Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin'),
-    [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log'),
+    [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
+    [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -230,7 +231,7 @@ try {
 #    anything else is no token and wsh is not called. It goes in as ONE argument list element, never joined into a string.
 #  - The outcome is ONE code from a closed list (ok, no-token, token-shape, wsh-folder, wsh-missing, start-failed, timeout, too-large, no-lines, exit-code:<n>),
 #    never wsh's own words. It is on the Note line and in one line of a small log (-LogPath, default %LOCALAPPDATA%\WaveFork\logs\starter.log, 200 lines).
-#  - One deadline (-SwapTimeoutSeconds, default 5) covers the whole exchange: the read of the output and the exit. At the deadline wsh is killed and the
+#  - One deadline (-SwapTimeoutSeconds, default 15) covers the whole exchange: the read of the output and the exit. At the deadline wsh is killed and the
 #    session goes on. The output is read in pieces and refused above 256 KB; a line above 16 KB is ignored.
 #  - What it prints is PARSED, never run: only lines of the exact form  $env:NAME = "value"  with NAME on the fixed list below are taken; every other line is
 #    ignored (a command, a subexpression, an assignment to PATH or to another name, a line with more after the value). Inside the value Wave escapes a double
@@ -262,8 +263,8 @@ $script:SwapNames = @()
 function Test-PackedSwapToken([string]$token) {
     if ($token -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9_+/=-]{7,8191}\z') { return $false }
     try {
-        $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($token)) | ConvertFrom-Json -ErrorAction Stop
-        return (($json.token -is [string]) -and $json.token -and ($json.rpccontext.sockname -is [string]) -and $json.rpccontext.sockname)
+        $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($token)) | ConvertFrom-Json -NoEnumerate -ErrorAction Stop
+        return [bool]((($json -is [System.Management.Automation.PSCustomObject]) -and $json.token -is [string]) -and $json.token -and ($json.rpccontext.sockname -is [string]) -and $json.rpccontext.sockname)
     } catch { return $false }
 }
 
@@ -333,7 +334,16 @@ function Write-SwapLog([string]$code, [string[]]$names) {
         $line = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $who + ' swap=' + $code
         if ($names -and $names.Count -gt 0) { $line += ' set=' + ($names -join ',') }
         $dir = Split-Path -Parent $LogPath
-        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { $null = New-Item -ItemType Directory -Path $dir -Force }
+        # the log's FINAL folder (the deepest existing ancestor resolved, as for every other folder) must be at or below -LogRoot and never at or below .claude or
+        # .claude-work: judged BEFORE any folder is made or the file is opened. A log file that is itself a link is not written.
+        if ($LogRoot -notmatch '^[A-Za-z]:[\\/]') { return }
+        $finalDir = Get-FinalPath $dir
+        $rootFinal = Get-FinalPath $LogRoot
+        $homeFinal = Get-FinalPath $env:USERPROFILE
+        if (-not $finalDir -or -not $rootFinal -or -not $homeFinal -or -not (Test-Under $finalDir $rootFinal)) { return }
+        foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { return } }
+        if ((Test-Path -LiteralPath $LogPath) -and ((Get-Item -LiteralPath $LogPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
         $old = @(); if (Test-Path -LiteralPath $LogPath -PathType Leaf) { $old = @(Get-Content -LiteralPath $LogPath -Tail 199) }
         [IO.File]::WriteAllLines($LogPath, [string[]](@($old) + $line))
     } catch { }
@@ -349,8 +359,6 @@ if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
         foreach ($n in 'WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID') { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
         [Console]::Error.WriteLine("Note: the Wave token could not be exchanged (swap=$swapCode), so this session starts without wsh access. Restarting the block gives a new token.")
     }
-} else {
-    Write-SwapLog 'no-token' @()
 }
 $claudeArgs = @(Get-ClaudeArgs)
 & $Command @claudeArgs

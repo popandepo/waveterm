@@ -30,6 +30,7 @@ Make-Dir $logDir
 $swapLog = Join-Path $logDir 'starter.log'
 $made.Add($swapLog)
 $env:RESUMABLE_TEST_LOG = $swapLog
+$env:RESUMABLE_TEST_LOGROOT = $root
 # a token made the way Wave makes it (shellutil PackSwapToken): base64 of JSON {"token": uuid, "rpccontext": {...}}, here with bytes that give + / and =
 $packedJson = '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"C:\\Users\\x\\AppData\\Local\\Temp\\wave-1234\\wave.sock","routeid":"proc:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","blockid":"22222222-aaaa-bbbb-cccc-333333333333","conn":">>>???>>>???x"}}'
 $packedToken = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($packedJson))
@@ -99,6 +100,7 @@ switch ($PathMode) {
 $extra = @{}
 if ($env:RESUMABLE_TEST_WSHROOT) { $extra.WshRoot = $env:RESUMABLE_TEST_WSHROOT }
 if ($env:RESUMABLE_TEST_LOG) { $extra.LogPath = $env:RESUMABLE_TEST_LOG }
+if ($env:RESUMABLE_TEST_LOGROOT) { $extra.LogRoot = $env:RESUMABLE_TEST_LOGROOT }
 if ($env:RESUMABLE_TEST_INHERIT) { $env:WAVETERM_JWT = 'inherited-jwt'; $env:WAVETERM_BLOCKID = 'inherited-block'; $env:WAVETERM_TABID = 'inherited-tab'; $env:WAVETERM_WORKSPACEID = 'inherited-ws' }
 if ($env:RESUMABLE_TEST_DECOYDIR) { $env:PATH = $env:RESUMABLE_TEST_DECOYDIR + $sep + $env:PATH }
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
@@ -246,7 +248,7 @@ class P {
     Check 'wsh was called once with exactly: token <the token> pwsh' ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq ('token ' + $packedToken + ' pwsh')) ((Get-Content -LiteralPath $swapArgs -Raw))
     Check 'an injected command line did not run (the file it names is still there)' (Test-Path -LiteralPath $swapOut) ''
     # a token that is not a plain token never reaches wsh (a space, a quote, a leading dash, too short, too long, a semicolon)
-    foreach ($badToken in 'tok 123 extra', 'tok"123', "tok'123", ('-' + $packedToken), ($packedToken + ';calc'), ($packedToken + [string][char]10), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{"sockname":"s"},"pad":"' + ('p' * 7000) + '"}'))), 'short', ('a' * 80), ('a' * 8200), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('hello this is not json at all')), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{}}')), '11111111-aaaa-bbbb-cccc-222222222222') {
+    foreach ($badToken in 'tok 123 extra', 'tok"123', "tok'123", ('-' + $packedToken), ($packedToken + ';calc'), ($packedToken + [string][char]10), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('[{"token":"x","rpccontext":{"sockname":"s"}}]'))), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{"sockname":"s"},"pad":"' + ('p' * 7000) + '"}'))), 'short', ('a' * 80), ('a' * 8200), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('hello this is not json at all')), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{}}')), '11111111-aaaa-bbbb-cccc-222222222222') {
         Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
         $env:RESUMABLE_TEST_SWAPTOKEN = $badToken
         $r = Run-Child 'swap' $cfg '' '' $swapDir
@@ -289,8 +291,9 @@ class P {
     $r = Run-Child 'swap' $cfg '' 'logname' $swapDir
     Check 'a good exchange logs swap=ok with the NAMES of the variables set and no value' (((Last-Log) -match ' logname swap=ok set=') -and ((Last-Log) -match 'WAVETERM_BLOCKID') -and -not ((Last-Log) -cmatch 'block-1|jwt|quoted')) (Last-Log)
     Check 'a log line starts with a date and time' ((Last-Log) -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} logname ') (Last-Log)
+    $before = @(Get-Content -LiteralPath $swapLog).Count
     $r = Run-Child 'set'
-    Check 'no swap token at all logs swap=no-token and prints no Note' (((Last-Log) -match ' swap=no-token$') -and -not ($r.Text -match 'could not be exchanged')) "$(Last-Log) $($r.Text)"
+    Check 'no swap token at all writes no log line and prints no Note' ((@(Get-Content -LiteralPath $swapLog).Count -eq $before) -and -not ($r.Text -match 'could not be exchanged')) "$(Last-Log) $($r.Text)"
     $r = Run-Child 'swap-nowsh' $cfg '' '' $swapDir
     Check 'a token and no wsh folder is swap=wsh-folder' (((Last-Log) -match ' swap=wsh-folder$') -and ($r.Text -match '\(swap=wsh-folder\)')) "$(Last-Log) $($r.Text)"
     $r = Run-Child 'swap-nodir' $cfg '' '' $swapDir
@@ -337,6 +340,31 @@ class P {
     $r = Run-Child 'swap' $cfg '' '' $swapDir
     Check 'a log path below .claude is refused: nothing is written there, the session still starts' ((-not (Test-Path -LiteralPath (Join-Path $oldDir 'logs'))) -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0) "exit=$($r.Code)"
     $env:RESUMABLE_TEST_LOG = $swapLog
+    # the log's FINAL folder is judged: a junction under the allowed root that leads into .claude gets no log and no new folder; a folder outside the root gets none
+    $logJunc = Join-Path $root 'log-to-old'
+    $null = New-Item -ItemType Junction -Path $logJunc -Target $oldDir; $made.Add($logJunc)
+    foreach ($lc in @(@('a junction into .claude (existing folder)', ($logJunc + '\x.log'), (Join-Path $oldDir 'x.log')), @('a junction into .claude (new folder below it)', ($logJunc + '\newdir\x.log'), (Join-Path $oldDir 'newdir')), @('a folder outside the log root', (Join-Path $env:TEMP ('log-outside-' + [guid]::NewGuid().ToString('N') + '\x.log')), $null))) {
+        $env:RESUMABLE_TEST_LOG = $lc[1]
+        $r = Run-Child 'swap' $cfg '' '' $swapDir
+        $made_there = if ($lc[2]) { Test-Path -LiteralPath $lc[2] } else { Test-Path -LiteralPath (Split-Path -Parent $lc[1]) }
+        Check ("a log path in " + $lc[0] + " is refused: nothing is created or written, the session starts") ((-not $made_there) -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code) created=$made_there"
+    }
+    # a log that cannot be written never stops the start: a folder where the file should be, a read-only file
+    $logAsDir = Join-Path $logDir 'dir-as-log'
+    Make-Dir $logAsDir
+    $env:RESUMABLE_TEST_LOG = $logAsDir
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a folder in place of the log file does not stop the start' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code) $($r.Text)"
+    $roLog = Join-Path $logDir 'readonly.log'
+    Make-File $roLog 'kept'
+    Set-ItemProperty -LiteralPath $roLog -Name IsReadOnly -Value $true
+    $env:RESUMABLE_TEST_LOG = $roLog
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    $roKept = ((Get-Content -LiteralPath $roLog -Raw).Trim() -eq 'kept')
+    Set-ItemProperty -LiteralPath $roLog -Name IsReadOnly -Value $false
+    Check 'a read-only log file does not stop the start and is left as it was' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and $roKept -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code) kept=$roKept $($r.Text)"
+    $env:RESUMABLE_TEST_LOG = $swapLog
+$env:RESUMABLE_TEST_LOGROOT = $root
     # ---- round 2 of the review of the swap: where wsh is run from, one deadline, no inherited access, sizes ----
     # a folder under .claude, one outside the allowed root, a junction under the root that leads to .claude: wsh.exe in them is never run
     $evilBin = Join-Path $oldDir 'bin'
@@ -505,7 +533,7 @@ class P {
 } finally {
     $env:USERPROFILE = $realProfile
     $env:LOCALAPPDATA = $realLocal
-    Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue
+    Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue
     Remove-Item Env:RESUMABLE_TEST_OTHERDIR -ErrorAction SilentlyContinue
     Remove-Item Env:RESUMABLE_TEST_RECORD -ErrorAction SilentlyContinue
     Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue

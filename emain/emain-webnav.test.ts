@@ -12,14 +12,18 @@ import {
     effectiveMaxBytes,
     MaxSelectorLength,
     MaxTitleLength,
+    MaxShotBytes,
     MaxUrlLength,
     MaxWebTextBytes,
     schemeOf,
+    ShotImage,
+    ShrunkShotWidth,
     webLoadState,
     webNavigate,
     WebNavTarget,
     webText,
-    webTextRefusal,
+    webReadRefusal,
+    webShot,
     withoutCredentials,
 } from "./emain-webnav";
 
@@ -202,10 +206,10 @@ describe("round 5: the other web command, the answer's credentials, the time lim
     });
     test("the question has a time limit shorter than wsh's own", () => {
         assert.match(nav, /export const AuthorizeTimeoutMs = 3000;/);
-        // webselector 1, webnav 2, webtext 2
+        // webselector 1, webnav 2, webtext 2, webshot 2
         const asks = wsh.split("WebNavAuthorizeCommand(").length - 1;
-        assert.equal(asks, 5);
-        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 5);
+        assert.equal(asks, 7);
+        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 7);
     });
     test("no handler focuses a window or switches the shown tab before the action", () => {
         const handlers = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_notify"));
@@ -276,13 +280,13 @@ describe("wsh web info: the load state of a tile", () => {
 describe("wsh web text: what is read, and from which tiles", () => {
     test("a tile with no partition of its own is refused, whatever the record holds in its place", () => {
         for (const meta of [undefined, null, {}, { "web:partition": "" }, { "web:partition": "   " }, { "web:partition": 3 }, { "web:partition": null }, { "web:partition": ["persist:x"] }, { web: { partition: "x" } }]) {
-            assert.include(webTextRefusal(meta as any), "shared default sign-in store", JSON.stringify(meta));
+            assert.include(webReadRefusal(meta as any), "shared default sign-in store", JSON.stringify(meta));
         }
     });
 
     test("a tile with a partition of its own is allowed", () => {
-        assert.equal(webTextRefusal({ "web:partition": "persist:agent-1" }), "");
-        assert.equal(webTextRefusal({ "web:partition": "agent-1", view: "web" }), "");
+        assert.equal(webReadRefusal({ "web:partition": "persist:agent-1" }), "");
+        assert.equal(webReadRefusal({ "web:partition": "agent-1", view: "web" }), "");
     });
 
     test("the selector goes into the script as a JSON string, never as code", () => {
@@ -365,7 +369,7 @@ describe("wsh web text: the wiring (source pins)", () => {
     test("the caller is asked first, then the record of the block, then the partition rule, and only then the page", () => {
         const ask = body.indexOf("WebNavAuthorizeCommand");
         const info = body.indexOf("BlockInfoCommand");
-        const rule = body.indexOf("webTextRefusal(");
+        const rule = body.indexOf("webReadRefusal(");
         const page = body.indexOf("getWebContentsByBlockId");
         const run = body.indexOf("await webText(");
         assert.isAbove(ask, -1);
@@ -375,7 +379,77 @@ describe("wsh web text: the wiring (source pins)", () => {
         const first = body.indexOf("WebNavAuthorizeCommand");
         const second = body.indexOf("WebNavAuthorizeCommand", first + 1);
         assert.isAbove(second, body.indexOf("getWebContentsByBlockId"));
-        assert.include(body, "webTextRefusal(info.block?.meta)");
+        assert.include(body, "webReadRefusal(info.block?.meta)");
         assert.notInclude(body, "data.partition");
+    });
+});
+
+describe("wsh web shot: the picture of one tile", () => {
+    function image(opts: { empty?: boolean; bytes?: number; width?: number; height?: number; shrunkBytes?: number } = {}): ShotImage {
+        const make = (bytes: number, width: number): ShotImage => ({
+            isEmpty: () => opts.empty === true,
+            getSize: () => ({ width, height: opts.height ?? 600 }),
+            toPNG: () => new Uint8Array(bytes).fill(7),
+            resize: (o: { width: number }) => make(opts.shrunkBytes ?? 100, o.width),
+        });
+        return make(opts.bytes ?? 100, opts.width ?? 800);
+    }
+
+    test("the picture of the tile comes back as base64 with its size", async () => {
+        const res = await webShot({ capturePage: async () => image({ bytes: 3 }) });
+        assert.deepEqual(res, { png: Buffer.from([7, 7, 7]).toString("base64"), width: 800, height: 600 });
+    });
+
+    test("an empty picture is an error, not a blank file", async () => {
+        await webShot({ capturePage: async () => image({ empty: true }) }).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /empty picture/)
+        );
+        await webShot({ capturePage: async () => null }).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /empty picture/)
+        );
+        await webShot(null).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /no web contents/)
+        );
+    });
+
+    test("a picture above the cap is scaled down once, and refused if it is still too large", async () => {
+        const res = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: 50 }) });
+        assert.equal(res.width, ShrunkShotWidth);
+        assert.equal(Buffer.from(res.png, "base64").length, 50);
+        await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: MaxShotBytes + 1 }) }).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /larger than/)
+        );
+    });
+
+    test("a picture exactly at the cap is not scaled", async () => {
+        const res = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes }) });
+        assert.equal(res.width, 800);
+    });
+});
+
+describe("wsh web shot: the wiring (source pins)", () => {
+    const wsh = readFileSync(path.resolve(__dirname, "emain-wsh.ts"), "utf8");
+    const body = wsh.slice(wsh.indexOf("async handle_webshot"), wsh.indexOf("async handle_notify"));
+    test("the caller is asked first, then the record, then the sign-in rule, and only then the page is taken", () => {
+        const ask = body.indexOf("WebNavAuthorizeCommand");
+        const info = body.indexOf("BlockInfoCommand");
+        const rule = body.indexOf("webReadRefusal(info.block?.meta)");
+        const page = body.indexOf("getWebContentsByBlockId");
+        const run = body.indexOf("await webShot(");
+        assert.isAbove(ask, -1);
+        assert.isTrue(ask < info && info < rule && rule < page && page < run, `${ask} ${info} ${rule} ${page} ${run}`);
+        const second = body.indexOf("WebNavAuthorizeCommand", ask + 1);
+        assert.isTrue(page < second && second < run);
+    });
+    test("the picture is taken from the tile's web contents, never from the window", () => {
+        const nav = readFileSync(path.resolve(__dirname, "emain-webnav.ts"), "utf8");
+        const shot = nav.slice(nav.indexOf("export async function webShot"));
+        assert.include(shot, "wc.capturePage()");
+        assert.notInclude(shot, "BrowserWindow");
+        assert.notInclude(shot, "desktopCapturer");
     });
 });

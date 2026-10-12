@@ -138,6 +138,7 @@ type WshRpcInterface interface {
 	WebSelectorCommand(ctx context.Context, data CommandWebSelectorData) ([]string, error)
 	WebNavCommand(ctx context.Context, data CommandWebNavData) (*CommandWebNavRtnData, error)
 	WebTextCommand(ctx context.Context, data CommandWebTextData) (*CommandWebTextRtnData, error)
+	WebShotCommand(ctx context.Context, data CommandWebShotData) (*CommandWebShotRtnData, error)
 	WebNavAuthorizeCommand(ctx context.Context, data CommandWebNavAuthorizeData) error // asked by emain: may the caller of a web command act on this block?
 	NotifyCommand(ctx context.Context, notificationOptions WaveNotificationOptions) error
 	FocusWindowCommand(ctx context.Context, windowId string) error
@@ -507,6 +508,19 @@ type CommandWebTextData struct {
 type CommandWebTextRtnData struct {
 	Text      string `json:"text"`
 	Truncated bool   `json:"truncated"`
+}
+
+// A picture of one web tile (wsh web shot): the PNG of the tile's own web contents, not of the window.
+type CommandWebShotData struct {
+	WorkspaceId string `json:"workspaceid"`
+	BlockId     string `json:"blockid"`
+	TabId       string `json:"tabid"`
+}
+
+type CommandWebShotRtnData struct {
+	Png    string `json:"png"` // base64
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
 type BlockInfoData struct {

@@ -184,12 +184,12 @@ export interface WebTextResult {
 // which every web tile of Wave shares and which keeps cookies and logins across restarts: what such a tile shows may be a signed-in page of the owner.
 // Reading it is refused until the owner can allow a tile by name (an allow-list that does not exist yet). The check is on the record of the block, read
 // by the window itself, never on a value from the caller.
-export function webTextRefusal(meta: { [key: string]: any } | null | undefined): string {
+export function webReadRefusal(meta: { [key: string]: any } | null | undefined): string {
     const partition = meta?.["web:partition"];
     if (typeof partition === "string" && partition.trim() !== "") {
         return "";
     }
-    return "this web tile uses the shared default sign-in store of Wave, so its text is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
+    return "this web tile uses the shared default sign-in store of Wave, so what it shows is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
 }
 
 export function checkSelector(selector: unknown): string {
@@ -262,4 +262,50 @@ export async function webText(wc: WebTextTarget, selector: unknown, askedMaxByte
     }
     const capped = capUtf8(typeof res.text === "string" ? res.text : "", max);
     return { text: capped.text, truncated: capped.truncated || res.more === true };
+}
+
+// ---- wsh web shot ----
+
+// The most one picture holds, in bytes of PNG before base64 (the answer travels over the RPC as one message).
+export const MaxShotBytes = 4 * 1024 * 1024;
+// A picture above the cap is scaled down to this width once, and refused if it is still above the cap.
+export const ShrunkShotWidth = 1280;
+
+export interface ShotImage {
+    isEmpty(): boolean;
+    getSize(): { width: number; height: number };
+    toPNG(): Uint8Array;
+    resize(opts: { width: number }): ShotImage;
+}
+
+export interface ShotTarget {
+    capturePage(): Promise<ShotImage>;
+}
+
+export interface WebShotResult {
+    png: string;
+    width: number;
+    height: number;
+}
+
+// The picture of one tile: its own web contents, never the window. An empty picture (the tab is not shown, the page is not painted) is an error, not a
+// blank file.
+export async function webShot(wc: ShotTarget): Promise<WebShotResult> {
+    if (wc == null) {
+        throw new Error("no web contents");
+    }
+    let image = await wc.capturePage();
+    if (image == null || image.isEmpty()) {
+        throw new Error("the tile gave an empty picture (is its tab shown and its page painted?)");
+    }
+    let png = image.toPNG();
+    if (png.length > MaxShotBytes) {
+        image = image.resize({ width: ShrunkShotWidth });
+        png = image.toPNG();
+        if (image.isEmpty() || png.length > MaxShotBytes) {
+            throw new Error(`the picture is larger than ${MaxShotBytes} bytes even scaled down`);
+        }
+    }
+    const size = image.getSize();
+    return { png: Buffer.from(png).toString("base64"), width: size.width, height: size.height };
 }

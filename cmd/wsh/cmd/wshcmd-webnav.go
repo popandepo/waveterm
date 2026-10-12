@@ -17,6 +17,7 @@ import (
 )
 
 var webUrlJson bool
+var webInfoJson bool
 
 var webReloadCmd = &cobra.Command{
 	Use:   "reload [-b block]",
@@ -46,9 +47,20 @@ var webUrlCmd = &cobra.Command{
 	RunE:  func(cmd *cobra.Command, args []string) error { return webNavRun(wshrpc.WebNavAction_Url) },
 }
 
+var webInfoCmd = &cobra.Command{
+	Use:   "info [--json] [-b block]",
+	Short: "print the address, title, load state (loading, ready or failed) and history state of a web tile",
+	Long: `Reads only: nothing is navigated and nothing takes focus. The state is "loading" while the page is loading, "failed" when the
+tile shows the error page of a navigation that failed, otherwise "ready". It is the state at the moment of the call: ask again
+after reload, back or forward. Same limits as the other web commands: a tile of the caller's own workspace only.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error { return webNavRun(wshrpc.WebNavAction_Info) },
+}
+
 func init() {
+	webInfoCmd.Flags().BoolVar(&webInfoJson, "json", false, "print the address, title, state and history state as JSON")
 	webUrlCmd.Flags().BoolVar(&webUrlJson, "json", false, "print the address, title and history state as JSON")
-	webCmd.AddCommand(webReloadCmd, webBackCmd, webForwardCmd, webUrlCmd)
+	webCmd.AddCommand(webReloadCmd, webBackCmd, webForwardCmd, webUrlCmd, webInfoCmd)
 }
 
 // the one answer for a tile that the caller may not act on, whether it exists or not (the same text as the server's)
@@ -83,6 +95,22 @@ func makeWebNavRequest(info *wshrpc.BlockInfoData, blockId string, action string
 	return wshrpc.CommandWebNavData{WorkspaceId: info.WorkspaceId, TabId: info.TabId, BlockId: blockId, Action: action}, nil
 }
 
+// The state comes from the window, but only these three words are ever printed: anything else is "unknown".
+func webLoadStateOrUnknown(state string) string {
+	switch state {
+	case "loading", "ready", "failed", "":
+		return state
+	}
+	return "unknown"
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
 // formatWebNav is what the command prints: for url the address and then the title (or JSON); for the others a short line with the address the
 // tile had when the command was handled (the page loads after that: ask again with url).
 func formatWebNav(action string, res *wshrpc.CommandWebNavRtnData, asJson bool) (string, error) {
@@ -93,6 +121,7 @@ func formatWebNav(action string, res *wshrpc.CommandWebNavRtnData, asJson bool) 
 	shown := *res
 	shown.Url = safeText(res.Url, maxPrintedUrlRunes)
 	shown.Title = safeText(res.Title, maxPrintedTitleRunes)
+	shown.State = webLoadStateOrUnknown(res.State)
 	res = &shown
 	if asJson {
 		barr, err := json.MarshalIndent(res, "", "  ")
@@ -103,6 +132,9 @@ func formatWebNav(action string, res *wshrpc.CommandWebNavRtnData, asJson bool) 
 	}
 	if action == wshrpc.WebNavAction_Url {
 		return res.Url + "\n" + res.Title, nil
+	}
+	if action == wshrpc.WebNavAction_Info {
+		return fmt.Sprintf("address: %s\ntitle: %s\nstate: %s\nback: %s\nforward: %s", res.Url, res.Title, res.State, yesNo(res.CanGoBack), yesNo(res.CanGoForward)), nil
 	}
 	return fmt.Sprintf("%s requested (the tile showed %s)", strings.ToLower(action), res.Url), nil
 }
@@ -139,7 +171,7 @@ func webNavRun(action string) error {
 		}
 		return err
 	}
-	text, err := formatWebNav(action, res, webUrlJson && action == wshrpc.WebNavAction_Url)
+	text, err := formatWebNav(action, res, (webUrlJson && action == wshrpc.WebNavAction_Url) || (webInfoJson && action == wshrpc.WebNavAction_Info))
 	if err != nil {
 		return err
 	}

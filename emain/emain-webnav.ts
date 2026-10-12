@@ -3,7 +3,7 @@
 
 // The navigation commands of a web tile (wsh web reload, back, forward, url). They act on the tile's web contents and never focus anything.
 
-export type WebNavAction = "reload" | "back" | "forward" | "url";
+export type WebNavAction = "reload" | "back" | "forward" | "url" | "info";
 
 // The schemes that these commands navigate to (reload, back, forward). The tile itself also opens file: addresses and turns text that is not an address
 // into a search (frontend ensureUrlScheme); these commands only step through, and reload, http and https pages. A page of another scheme in the history
@@ -20,6 +20,8 @@ export interface WebNavTarget {
     getURL(): string;
     getTitle(): string;
     reload(): void;
+    isLoading?(): boolean;
+    mainFrame?: { url: string };
     navigationHistory: {
         canGoBack(): boolean;
         canGoForward(): boolean;
@@ -35,6 +37,23 @@ export interface WebNavResult {
     title: string;
     cangoback: boolean;
     cangoforward: boolean;
+    state?: WebLoadState;
+}
+
+export type WebLoadState = "loading" | "ready" | "failed";
+
+// Chromium shows a failed navigation as an error page at this address (the frame, not getURL, tells it).
+const ErrorPageScheme = "chrome-error:";
+
+// loading while the page is still loading; failed when the frame shows the error page of a navigation that failed; else ready. Read only.
+export function webLoadState(wc: WebNavTarget): WebLoadState {
+    if (wc.isLoading?.() === true) {
+        return "loading";
+    }
+    if (schemeOf(wc.mainFrame?.url) === ErrorPageScheme) {
+        return "failed";
+    }
+    return "ready";
 }
 
 export function schemeOf(url: unknown): string {
@@ -129,14 +148,19 @@ export function webNavigate(wc: WebNavTarget, action: string): WebNavResult {
             break;
         }
         case "url":
+        case "info":
             break;
         default:
-            throw new Error(`unknown web action ${JSON.stringify(action)} (reload, back, forward or url)`);
+            throw new Error(`unknown web action ${JSON.stringify(action)} (reload, back, forward, url or info)`);
     }
-    return {
+    const rtn: WebNavResult = {
         url: capText(withoutCredentials(wc.getURL()), MaxUrlLength),
         title: capText(wc.getTitle(), MaxTitleLength),
         cangoback: history.canGoBack(),
         cangoforward: history.canGoForward(),
     };
+    if (action === "info") {
+        rtn.state = webLoadState(wc);
+    }
+    return rtn;
 }

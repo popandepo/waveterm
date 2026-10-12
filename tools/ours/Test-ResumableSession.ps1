@@ -36,6 +36,11 @@ $packedJson = '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"so
 $packedToken = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($packedJson))
 $env:RESUMABLE_TEST_PACKED = $packedToken
 $env:RESUMABLE_TEST_WSHROOT = $root
+# The result must be the same inside a Wave tile as outside one: the WAVETERM_* values of a tile (a real JWT and block id) and its PATH entry for the real wsh
+# would leak into every child below and turn six checks red (seen on 12 Oct 2026, the first run from a tile). Each scenario sets what it needs itself.
+foreach ($v in @(Get-ChildItem env: | Where-Object { $_.Name -like 'WAVETERM*' })) { Remove-Item -LiteralPath ('Env:' + $v.Name) }
+function Test-HasWsh([string]$dir) { try { (Test-Path -LiteralPath (Join-Path $dir 'wsh.exe')) -or (Test-Path -LiteralPath (Join-Path $dir 'wsh.cmd')) } catch { $false } }
+$env:PATH = (@($env:PATH -split ';' | Where-Object { $_ -and -not (Test-HasWsh $_) }) -join ';')
 try {
     # ---- the choice between create and resume ----
     $firstOut = & $script -SessionId $id -ConfigDir $cfg -Model m1 -Effort low -PermissionMode auto -Name n1 -Prompt 'hello' -DryRun

@@ -874,3 +874,14 @@ content and below the modals and typeaheads (z-index 50). The colours go through
   events, z-index 50).
 - **NOT RUN, window check:** a workspace with a colour shows the outline round the whole window including the tab bar edge and the tile area, not over the title bar's buttons; the top bar stays unfilled; switching workspace
   changes it; a workspace without colour has none. Whether the Windows frame (title bar overlay, window corners) clips the border at the corners is not known.
+
+## 50. A blocked sub-resource no longer covers a web tile
+
+Seen on 12 Oct 2026 in the installed build: a page that had loaded (`wsh web get` read its fields) was covered by a black area with red text "Failed to load https://www.facebook.com/tr/: ERR_BLOCKED_BY_CSP". The web tile (`frontend/app/view/webview/webview.tsx`, `failLoadHandler`) listened to `did-fail-load` and showed the error for every event except `ERR_ABORTED` (-3). That event also fires for a frame inside the page and for a sub-frame's blocked request; the handler never looked at `isMainFrame`. Upstream has the same handler (read from `upstream/main`), so this is not our change.
+
+The fix: `isPageLoadFailure` (`loadfailure.ts`): only a main-frame failure is shown, an aborted navigation never, and an event with no frame field counts as the main frame (a failure is never hidden by a missing field). The tile also no longer calls `onFailLoad` (the caller that falls back to a search) for those.
+
+What `wsh web info` (PR 64) says for such a tile: before the fix `ready`, while the glass showed the error overlay, so the two disagreed. `info` reads the web contents (loading, or the main frame at an error page), not the overlay that the page of the window draws. After the fix the overlay is shown only for a main-frame failure, and Chromium then shows its own error page in the tile (address scheme `chrome-error:`), which is what `info` calls `failed`: the two agree for a main-frame failure. Not covered: a main-frame failure that Chromium does not turn into an error page (not seen), and the overlay is not cleared by a sub-frame navigation of a page that failed (unchanged).
+
+- **RAN (12 Oct 2026):** `npx vitest run frontend/app/view/webview` 3 files passed (six new tests in `loadfailure.test.ts`: main frame shown, sub-frame and blocked sub-resource not shown whatever the code, aborted never, missing frame field, source pins); `npx tsc --noEmit` the baseline 17 errors.
+- **NOT run:** a live tile (the page above), mutation checks.

@@ -164,3 +164,102 @@ export function webNavigate(wc: WebNavTarget, action: string): WebNavResult {
     }
     return rtn;
 }
+
+// ---- wsh web text ----
+
+// The most text one call returns, in bytes of UTF-8. The caller may ask for less.
+export const MaxWebTextBytes = 262144;
+export const MaxSelectorLength = 512;
+
+export interface WebTextTarget {
+    executeJavaScript(code: string): Promise<any>;
+}
+
+export interface WebTextResult {
+    text: string;
+    truncated: boolean;
+}
+
+// The tile must have its own partition (block meta web:partition, a non-empty text). A tile without one shows its pages in the default store of Wave,
+// which every web tile of Wave shares and which keeps cookies and logins across restarts: what such a tile shows may be a signed-in page of the owner.
+// Reading it is refused until the owner can allow a tile by name (an allow-list that does not exist yet). The check is on the record of the block, read
+// by the window itself, never on a value from the caller.
+export function webTextRefusal(meta: { [key: string]: any } | null | undefined): string {
+    const partition = meta?.["web:partition"];
+    if (typeof partition === "string" && partition.trim() !== "") {
+        return "";
+    }
+    return "this web tile uses the shared default sign-in store of Wave, so its text is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
+}
+
+export function checkSelector(selector: unknown): string {
+    if (selector == null || selector === "") {
+        return "";
+    }
+    if (typeof selector !== "string" || selector.length > MaxSelectorLength || /[\u0000-\u001f\u007f]/.test(selector)) {
+        throw new Error(`the selector must be text of at most ${MaxSelectorLength} characters without control characters`);
+    }
+    return selector;
+}
+
+// The script that runs in the page: innerText of the body or of the first match, cut in the page so that a huge page is not copied out whole.
+// The selector goes in as a JSON string, never joined into code.
+export function buildTextScript(selector: string, maxChars: number): string {
+    return `(() => {
+    try {
+        const sel = ${JSON.stringify(selector)};
+        const el = sel ? document.querySelector(sel) : document.body;
+        if (!el) { return { missing: true }; }
+        const t = typeof el.innerText === "string" ? el.innerText : "";
+        return { text: t.slice(0, ${Math.floor(maxChars)}), more: t.length > ${Math.floor(maxChars)} };
+    } catch (error) {
+        return { error: String(error && error.message ? error.message : error).slice(0, 200) };
+    }
+})()`;
+}
+
+// Cuts text to at most maxBytes of UTF-8 without splitting a character.
+export function capUtf8(text: string, maxBytes: number): WebTextResult {
+    const enc = new TextEncoder();
+    if (enc.encode(text).length <= maxBytes) {
+        return { text, truncated: false };
+    }
+    let out = "";
+    let bytes = 0;
+    for (const ch of text) {
+        const n = enc.encode(ch).length;
+        if (bytes + n > maxBytes) {
+            break;
+        }
+        out += ch;
+        bytes += n;
+    }
+    return { text: out, truncated: true };
+}
+
+export function effectiveMaxBytes(asked: unknown): number {
+    if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) {
+        return MaxWebTextBytes;
+    }
+    return Math.min(Math.floor(asked), MaxWebTextBytes);
+}
+
+export async function webText(wc: WebTextTarget, selector: unknown, askedMaxBytes: unknown): Promise<WebTextResult> {
+    if (wc == null) {
+        throw new Error("no web contents");
+    }
+    const sel = checkSelector(selector);
+    const max = effectiveMaxBytes(askedMaxBytes);
+    const res = await wc.executeJavaScript(buildTextScript(sel, max));
+    if (res == null || typeof res !== "object") {
+        throw new Error("the page gave no answer");
+    }
+    if (res.error) {
+        throw new Error(`the page refused the selector: ${String(res.error).slice(0, 200)}`);
+    }
+    if (res.missing) {
+        throw new Error("nothing on the page matches the selector");
+    }
+    const capped = capUtf8(typeof res.text === "string" ? res.text : "", max);
+    return { text: capped.text, truncated: capped.truncated || res.more === true };
+}

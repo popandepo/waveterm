@@ -1086,6 +1086,12 @@ export class RpcApiType {
         return client.wshRpcCall("webselector", data, opts);
     }
 
+    // command "webtext" [call]
+    WebTextCommand(client: WshClient, data: CommandWebTextData, opts?: RpcOpts): Promise<CommandWebTextRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "webtext", data, opts);
+        return client.wshRpcCall("webtext", data, opts);
+    }
+
     // command "workspacelist" [call]
     WorkspaceListCommand(client: WshClient, opts?: RpcOpts): Promise<WorkspaceInfoData[]> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "workspacelist", null, opts);

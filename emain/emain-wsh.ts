@@ -9,7 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
-import { authorizeWebNav, AuthorizeTimeoutMs, webNavigate } from "./emain-webnav";
+import { authorizeWebNav, AuthorizeTimeoutMs, webNavigate, webText, webTextRefusal } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
 export class ElectronWshClientType extends WshClient {
@@ -61,6 +61,37 @@ export class ElectronWshClientType extends WshClient {
         // the same question again right before acting (a belt: no code moves a block to another tab or workspace today, but the lookups above take time)
         await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
         return webNavigate(wc, data.action);
+    }
+
+    async handle_webtext(rh: RpcResponseHelper, data: CommandWebTextData): Promise<CommandWebTextRtnData> {
+        if (!data.tabid || !data.blockid || !data.workspaceid) {
+            throw new Error("tabid, blockid and workspaceid are required");
+        }
+        if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
+            throw new Error("blockid must be a full block id");
+        }
+        // the same order as handle_webnav: who is asking comes first, before any window, tab or web contents is looked at
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        if (!ww.allLoadedTabViews?.has(data.tabid)) {
+            throw new Error(`the tab ${data.tabid} is not loaded in its window (show it once, then ask again)`);
+        }
+        const info = await RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid);
+        authorizeWebNav(data, info);
+        // the tile's own record decides, before its page is touched: a tile on the shared default sign-in store is refused
+        const refusal = webTextRefusal(info.block?.meta);
+        if (refusal) {
+            throw new Error(refusal);
+        }
+        const wc = await getWebContentsByBlockId(ww, data.tabid, data.blockid);
+        if (wc == null) {
+            throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
+        }
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
+        return await webText(wc, data.selector, data.maxbytes);
     }
 
     async handle_notify(rh: RpcResponseHelper, notificationOptions: WaveNotificationOptions) {

@@ -137,6 +137,7 @@ type WshRpcInterface interface {
 	// emain
 	WebSelectorCommand(ctx context.Context, data CommandWebSelectorData) ([]string, error)
 	WebNavCommand(ctx context.Context, data CommandWebNavData) (*CommandWebNavRtnData, error)
+	WebTextCommand(ctx context.Context, data CommandWebTextData) (*CommandWebTextRtnData, error)
 	WebNavAuthorizeCommand(ctx context.Context, data CommandWebNavAuthorizeData) error // asked by emain: may the caller of a web command act on this block?
 	NotifyCommand(ctx context.Context, notificationOptions WaveNotificationOptions) error
 	FocusWindowCommand(ctx context.Context, windowId string) error
@@ -491,6 +492,21 @@ type CommandWebNavRtnData struct {
 	CanGoBack    bool   `json:"cangoback"`
 	CanGoForward bool   `json:"cangoforward"`
 	State        string `json:"state,omitempty"` // only for info: loading, ready or failed
+}
+
+// The text of a web tile (wsh web text): the visible text of the page or of the first element that matches Selector. MaxBytes is the
+// caller's own limit and can only lower the cap that emain applies.
+type CommandWebTextData struct {
+	WorkspaceId string `json:"workspaceid"`
+	BlockId     string `json:"blockid"`
+	TabId       string `json:"tabid"`
+	Selector    string `json:"selector,omitempty"`
+	MaxBytes    int    `json:"maxbytes,omitempty"`
+}
+
+type CommandWebTextRtnData struct {
+	Text      string `json:"text"`
+	Truncated bool   `json:"truncated"`
 }
 
 type BlockInfoData struct {

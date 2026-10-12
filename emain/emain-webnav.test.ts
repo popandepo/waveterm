@@ -4,7 +4,24 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { assert, describe, test } from "vitest";
-import { authorizeWebNav, MaxTitleLength, MaxUrlLength, schemeOf, webLoadState, webNavigate, WebNavTarget, withoutCredentials } from "./emain-webnav";
+import {
+    authorizeWebNav,
+    buildTextScript,
+    capUtf8,
+    checkSelector,
+    effectiveMaxBytes,
+    MaxSelectorLength,
+    MaxTitleLength,
+    MaxUrlLength,
+    MaxWebTextBytes,
+    schemeOf,
+    webLoadState,
+    webNavigate,
+    WebNavTarget,
+    webText,
+    webTextRefusal,
+    withoutCredentials,
+} from "./emain-webnav";
 
 function stub(opts: { back?: boolean; forward?: boolean; url?: string; title?: string; history?: string[]; index?: number } = {}) {
     const calls: string[] = [];
@@ -185,9 +202,10 @@ describe("round 5: the other web command, the answer's credentials, the time lim
     });
     test("the question has a time limit shorter than wsh's own", () => {
         assert.match(nav, /export const AuthorizeTimeoutMs = 3000;/);
+        // webselector 1, webnav 2, webtext 2
         const asks = wsh.split("WebNavAuthorizeCommand(").length - 1;
-        assert.equal(asks, 3);
-        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 3);
+        assert.equal(asks, 5);
+        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 5);
     });
     test("no handler focuses a window or switches the shown tab before the action", () => {
         const handlers = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_notify"));
@@ -252,5 +270,112 @@ describe("wsh web info: the load state of a tile", () => {
     test("the other actions do not carry a state, and the address of info loses its credentials", () => {
         assert.notProperty(webNavigate(infoStub({}).wc, "url"), "state");
         assert.equal(webNavigate(infoStub({ url: "https://u:secret@example.org/x" }).wc, "info").url, "https://example.org/x");
+    });
+});
+
+describe("wsh web text: what is read, and from which tiles", () => {
+    test("a tile with no partition of its own is refused, whatever the record holds in its place", () => {
+        for (const meta of [undefined, null, {}, { "web:partition": "" }, { "web:partition": "   " }, { "web:partition": 3 }, { "web:partition": null }, { "web:partition": ["persist:x"] }, { web: { partition: "x" } }]) {
+            assert.include(webTextRefusal(meta as any), "shared default sign-in store", JSON.stringify(meta));
+        }
+    });
+
+    test("a tile with a partition of its own is allowed", () => {
+        assert.equal(webTextRefusal({ "web:partition": "persist:agent-1" }), "");
+        assert.equal(webTextRefusal({ "web:partition": "agent-1", view: "web" }), "");
+    });
+
+    test("the selector goes into the script as a JSON string, never as code", () => {
+        const evil = `"); require("child_process"); ("`;
+        const script = buildTextScript(evil, 100);
+        assert.include(script, JSON.stringify(evil));
+        assert.notInclude(script.replace(JSON.stringify(evil), ""), "child_process");
+        assert.include(buildTextScript("", 100), 'const sel = "";');
+    });
+
+    test("the selector is limited and has no control characters", () => {
+        assert.equal(checkSelector(undefined), "");
+        assert.equal(checkSelector(""), "");
+        assert.equal(checkSelector("main > h1"), "main > h1");
+        assert.throws(() => checkSelector("a".repeat(MaxSelectorLength + 1)), /selector/);
+        assert.throws(() => checkSelector("a" + String.fromCharCode(10) + "b"), /selector/);
+        assert.throws(() => checkSelector("a" + String.fromCharCode(0) + "b"), /selector/);
+        assert.throws(() => checkSelector(12 as any), /selector/);
+    });
+
+    test("the cap is in bytes of UTF-8 and never splits a character", () => {
+        assert.deepEqual(capUtf8("abc", 3), { text: "abc", truncated: false });
+        assert.deepEqual(capUtf8("abcd", 3), { text: "abc", truncated: true });
+        const rocket = String.fromCodePoint(0x1f680);
+        assert.deepEqual(capUtf8(rocket + rocket, 7), { text: rocket, truncated: true });
+        assert.deepEqual(capUtf8(rocket, 3), { text: "", truncated: true });
+    });
+
+    test("the caller can lower the cap and never raise it", () => {
+        assert.equal(effectiveMaxBytes(undefined), MaxWebTextBytes);
+        assert.equal(effectiveMaxBytes(0), MaxWebTextBytes);
+        assert.equal(effectiveMaxBytes(-5), MaxWebTextBytes);
+        assert.equal(effectiveMaxBytes(NaN), MaxWebTextBytes);
+        assert.equal(effectiveMaxBytes("9" as any), MaxWebTextBytes);
+        assert.equal(effectiveMaxBytes(100), 100);
+        assert.equal(effectiveMaxBytes(MaxWebTextBytes * 10), MaxWebTextBytes);
+    });
+
+    test("the text of the page comes back cut, and a page that says more is marked", async () => {
+        const wc = { executeJavaScript: async (_code: string) => ({ text: "hello world", more: false }) };
+        assert.deepEqual(await webText(wc, "", 5), { text: "hello", truncated: true });
+        assert.deepEqual(await webText(wc, "", undefined), { text: "hello world", truncated: false });
+        const more = { executeJavaScript: async (_code: string) => ({ text: "x", more: true }) };
+        assert.deepEqual(await webText(more, "", undefined), { text: "x", truncated: true });
+    });
+
+    test("a selector that matches nothing, a selector the page refuses, and no answer are errors", async () => {
+        await webText({ executeJavaScript: async () => ({ missing: true }) }, "h9", undefined).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /nothing on the page matches/)
+        );
+        await webText({ executeJavaScript: async () => ({ error: "bad selector" }) }, "[[", undefined).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /refused the selector: bad selector/)
+        );
+        await webText({ executeJavaScript: async () => null }, "", undefined).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /no answer/)
+        );
+        await webText(null, "", undefined).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /no web contents/)
+        );
+    });
+
+    test("an invalid selector never reaches the page", async () => {
+        let ran = false;
+        const wc = { executeJavaScript: async () => ((ran = true), { text: "" }) };
+        await webText(wc, "a" + String.fromCharCode(10) + "b", undefined).then(
+            () => assert.fail("must throw"),
+            () => undefined
+        );
+        assert.isFalse(ran);
+    });
+});
+
+describe("wsh web text: the wiring (source pins)", () => {
+    const wsh = readFileSync(path.resolve(__dirname, "emain-wsh.ts"), "utf8");
+    const body = wsh.slice(wsh.indexOf("async handle_webtext"), wsh.indexOf("async handle_notify"));
+    test("the caller is asked first, then the record of the block, then the partition rule, and only then the page", () => {
+        const ask = body.indexOf("WebNavAuthorizeCommand");
+        const info = body.indexOf("BlockInfoCommand");
+        const rule = body.indexOf("webTextRefusal(");
+        const page = body.indexOf("getWebContentsByBlockId");
+        const run = body.indexOf("await webText(");
+        assert.isAbove(ask, -1);
+        assert.isTrue(ask < info && info < rule && rule < page && page < run, `${ask} ${info} ${rule} ${page} ${run}`);
+    });
+    test("the caller is asked again right before the page is read, and the rule uses the record, not the request", () => {
+        const first = body.indexOf("WebNavAuthorizeCommand");
+        const second = body.indexOf("WebNavAuthorizeCommand", first + 1);
+        assert.isAbove(second, body.indexOf("getWebContentsByBlockId"));
+        assert.include(body, "webTextRefusal(info.block?.meta)");
+        assert.notInclude(body, "data.partition");
     });
 });

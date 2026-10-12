@@ -1078,6 +1078,12 @@ func WebSelectorCommand(w *wshutil.WshRpc, data wshrpc.CommandWebSelectorData, o
 	return resp, err
 }
 
+// command "webtext", wshserver.WebTextCommand
+func WebTextCommand(w *wshutil.WshRpc, data wshrpc.CommandWebTextData, opts *wshrpc.RpcOpts) (*wshrpc.CommandWebTextRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandWebTextRtnData](w, "webtext", data, opts)
+	return resp, err
+}
+
 // command "workspacelist", wshserver.WorkspaceListCommand
 func WorkspaceListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshrpc.WorkspaceInfoData, error) {
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.WorkspaceInfoData](w, "workspacelist", nil, opts)

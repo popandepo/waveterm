@@ -97,3 +97,78 @@ The picture is drawn from the server's table, not from anything on the block, so
   profile directly, whatever the list says. Only the operating system's file rights can close that.
 - Until step 1 is built the stopgap rule can be walked around by naming an existing signed-in partition (see above).
 - A grant covers a host, not a page: an agent on a granted tile can read whatever that host shows, signed in or not.
+
+## Workspace walls: the manager sees everything, a session sees its own (design, not built)
+
+The owner's rule, in his words: "You can see everything, any agents or subsessions etc can only see their stuff or others if specifically
+handed it, then you can hand them things if they need it or just summarize if better." In the fork: the manager's session sees every
+workspace, tab and tile. Every other session sees only its own, plus what has been handed to it. The manager can hand a tile or a tab to a
+session, take it back, or just tell the session what it needs.
+
+### How the server knows who the manager is
+
+- The server holds one value, `managerblock`: the block id of the tile the owner named as the manager. Memory only, not meta, config or file.
+  It is empty after a restart, and the owner names it again (one menu item on the tile, see below).
+- Only the owner can set it: the call is accepted only from the stamped source route `electron` (the same rule as the allow-list), and Electron
+  sends it only from a menu item the owner clicks: "Make this tile the manager". An environment variable is never read for it. A session can copy
+  every variable it has, and none of them names the manager.
+- A request is the manager's when the identity the server already derived from its token (the block the JWT was minted for) equals
+  `managerblock`. A session cannot claim it: it cannot mint a token, and a copied token is still its own block's token.
+- Known limit: anything that runs inside the manager's tile is the manager (a program started in that tile, or a second session stacked on it).
+  The manager tile should stay one session only. The tile shows a badge so the owner sees which tile it is.
+- The owner's own windows (the UI, source route `electron` or the frontend) are not sessions and are not limited by the walls.
+
+### What "handed" is
+
+- A hand-over is an entry `{ to: <block id of the session>, what: <tile id or tab id>, until: <time> }` in a table in server memory.
+  No meta, no file: it does not survive a restart, unless the owner later asks for that (open point below).
+- Commands, all manager only (refused for anyone else as "not found", see below):
+  - `wsh share <tile-or-tab> --with <session-block> [--for 1h]` creates the entry. A tab means every tile in it now and later.
+  - `wsh share --list` shows the table. `wsh unshare <tile-or-tab> --with <session-block>` takes one back, `wsh unshare --all` clears it.
+- A hand-over gives the same reach the session has on its own tiles and no more: it does not carry an allow-list grant for a web tile. Acting on
+  a web tile still needs its own grant from the owner.
+- A hand-over ends by its time, by an unshare, by the receiving block being closed, and by a restart. Default one hour, maximum eight, the same
+  numbers as the allow-list.
+- How a shared tile shows it: a small "shared with <name>" chip in the tile header, drawn from the server's table (the same push the allow-list
+  badge uses), with a click to take it back. The name is the session's tile title, never a block id. The receiving session's own tile shows
+  "has <n> shared".
+- The manager can also just summarize: nothing needs building for that.
+
+### What a session's commands answer for things outside its own
+
+- The check lives in the server, in one place that every id-taking call goes through (`BlockInfo`, `SetMeta`, `GetMeta`, the block and tab
+  lists, the web commands, session commands), not in each command. It runs after the identity is derived and before the lookup.
+- Outside the session's own set and not handed: the answer is exactly the one for an id that does not exist, "not found", with the same text and
+  the same timing as a real miss. Never "refused", and never a message that names the workspace, tab or tile that was asked about, so a
+  session cannot learn that something exists by being told it may not touch it.
+- Lists (`wsh session list`, block and tab lists, the layout) only contain the session's own and the handed.
+- The session's own set is: the tile it runs in, every tile in the same tab, and nothing in other tabs or workspaces. (Open point: whether
+  "its own" should be the tab or only the tile. The tab is what the stack and `wsh session start` already work on.)
+
+### What breaks today that relies on seeing across
+
+From what I know of these tools, not re-read or run for this page. Each of these needs the manager's identity, or a hand-over, before the walls are turned on:
+
+- Attention marks: the status tiles and the "needs you" marks are set from other sessions' tiles with `SetMeta` on a block outside the caller's own.
+  The manager, which does this, is fine. A session that marks another session's tile is not, and would then use a hand-over or ask the manager.
+- The status map and its claim line: it reads tile titles and meta across tabs through the block list. Fine if it runs as the manager. As
+  a session it would see only itself.
+- `wsh session start`, `go-to` and `STATUS_TAB` (the MalfestioMaster tools): they open or find a tile in another tab. With the walls they work for
+  the manager only, or on a tile that was handed over.
+- `Open-WaveSession.ps1` (private tool) and `wsh session start --stack`: a session that starts another one creates it in its own tab (fine) or
+  stacks it on a target (the target must be its own or handed).
+- The news and status web tiles, and `wsh web get/text/shot/info` from a session: they must be handed or be in the session's own tab.
+- Tools I run from a worktree session (the dev window, `wsh session list`) see only my own tile and tab afterwards.
+
+### Order of building (about 400 lines, nothing started)
+
+1. `managerblock` plus the owner-only menu item and the badge, and the check function with the "not found" answer, behind a switch that is off.
+2. The hand-over table, `share` and `unshare`, and the chip.
+3. Turn the switch on only after the manager's own tools (attention marks, status map, go-to) have been run once as the manager and once as a
+   session, to see which ones answer "not found".
+
+### Open points
+
+- Whether hand-overs should be saved across restarts (proposed: no).
+- Own set = the tab or only the tile (proposed: the tab).
+- Whether a second "manager" is ever wanted, for example a work tile. The design allows one value only.

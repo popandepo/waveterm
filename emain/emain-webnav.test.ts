@@ -453,3 +453,26 @@ describe("wsh web shot: the wiring (source pins)", () => {
         assert.notInclude(shot, "desktopCapturer");
     });
 });
+
+describe("wsh web get: the sign-in rule", () => {
+    const wsh = readFileSync(path.resolve(__dirname, "emain-wsh.ts"), "utf8");
+    const body = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_webnav"));
+    test("the caller is asked first, then the block's record and the rule, and only then a window or the page is looked at", () => {
+        const ask = body.indexOf("WebNavAuthorizeCommand");
+        const info = body.indexOf("BlockInfoCommand");
+        const rule = body.indexOf("webReadRefusal(info.block.meta)");
+        const win = body.indexOf("getWaveWindowByWorkspaceId(");
+        const page = body.indexOf("getWebContentsByBlockId(");
+        const run = body.indexOf("webGetSelector(");
+        assert.isAbove(ask, -1);
+        assert.isTrue(ask < info && info < rule && rule < win && win < page && page < run, `${ask} ${info} ${rule} ${win} ${page} ${run}`);
+    });
+    test("the block id is a full id before it is looked up, and a block that cannot be read is refused", () => {
+        assert.isBelow(body.indexOf("blockid must be a full block id"), body.indexOf("BlockInfoCommand"));
+        assert.include(body, "the block could not be read");
+    });
+    test("the rule is the same function as for text and shot, and the request carries no partition", () => {
+        assert.notInclude(body, "data.partition");
+        assert.include(wsh, "webReadRefusal");
+    });
+});

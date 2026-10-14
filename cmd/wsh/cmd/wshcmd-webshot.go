@@ -13,6 +13,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,7 +33,7 @@ var webShotCmd = &cobra.Command{
 	Use:   "shot [-b block]",
 	Short: "save a picture of one web tile (own workspace, and only a tile with its own web:partition) to a new PNG file",
 	Long: `Saves a PNG of the web contents of ONE tile, not of the window, and prints its path. Reads only: nothing is navigated, clicked or
-focused. The file always goes into the tool's own folder (web-shots under the local application data folder, Wave\web-shots), with a new
+focused. The file always goes into the tool's own folder (AppData\Local\Wave\web-shots of your profile; the 50 newest are kept), with a new
 name made of the block id, the UTC time and a random part; the caller does not choose a folder or a name, and no file is ever written over.
 The tile must be shown (a tile in a tab that is not shown gives an empty picture, which is an error, not a blank file).
 
@@ -51,18 +53,55 @@ var (
 		return wshclient.WebShotCommand(RpcClient, data, &wshrpc.RpcOpts{Route: wshutil.ElectronRoute, Timeout: 15000})
 	}
 	// the folder the pictures go to: the tool's own, never one the caller names
-	webShotDir = func() (string, error) {
-		base, err := os.UserCacheDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(base, "Wave", "web-shots"), nil
-	}
+	webShotDir       = defaultWebShotDir
 	webShotWriteFile = func(f *os.File, data []byte) error {
 		_, err := f.Write(data)
 		return err
 	}
 )
+
+// How many pictures the folder keeps; older ones named like ours are removed after each new one.
+const webShotKeep = 50
+
+var webShotNameRe = regexp.MustCompile(`^[0-9a-fA-F-]{36}-\d{8}T\d{6}Z-[0-9a-f]{8}\.png$`)
+
+// The largest picture by its declared size: a small PNG can claim huge dimensions, and decoding allocates for what it claims.
+const (
+	maxWebShotSide   = 8192
+	maxWebShotPixels = 16 * 1024 * 1024
+)
+
+// pruneWebShots keeps the newest webShotKeep pictures in dir and removes older files named like ours; nothing else in the folder is touched. The
+// order is the UTC time in the name (then the whole name), not the file times, which anything can change.
+func pruneWebShots(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var ours []string
+	for _, e := range entries {
+		if e.Type().IsRegular() && webShotNameRe.MatchString(e.Name()) {
+			ours = append(ours, e.Name())
+		}
+	}
+	if len(ours) <= webShotKeep {
+		return nil
+	}
+	sort.Slice(ours, func(i, j int) bool {
+		ti, tj := ours[i][37:53], ours[j][37:53]
+		if ti != tj {
+			return ti < tj
+		}
+		return ours[i] < ours[j]
+	})
+	var firstErr error
+	for _, name := range ours[:len(ours)-webShotKeep] {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
 
 // webShotName is <blockid>-<utc time>-<random>.png: unique without looking at the folder, and nothing in it comes from the caller but the block id,
 // which is a checked full id by then.
@@ -91,6 +130,13 @@ func decodeWebShot(res *wshrpc.CommandWebShotRtnData) ([]byte, error) {
 	}
 	if !bytes.HasPrefix(data, pngSignature) {
 		return nil, fmt.Errorf("the picture from the window is not a PNG")
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("the picture from the window is not a PNG: %w", err)
+	}
+	if cfg.Width > maxWebShotSide || cfg.Height > maxWebShotSide || cfg.Width*cfg.Height > maxWebShotPixels {
+		return nil, fmt.Errorf("the picture claims %dx%d pixels, more than %d per side or %d in all", cfg.Width, cfg.Height, maxWebShotSide, maxWebShotPixels)
 	}
 	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
 		return nil, fmt.Errorf("the picture from the window is not a complete PNG: %w", err)
@@ -158,6 +204,10 @@ func webShotRun(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("the folder for pictures: %w", err)
 	}
+	// MkdirAll accepts a folder that is already there, whatever it is
+	if err := checkShotDir(dir); err != nil {
+		return err
+	}
 	name, err := webShotName(blockId, time.Now())
 	if err != nil {
 		return err
@@ -167,5 +217,8 @@ func webShotRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing the picture: %w", err)
 	}
 	WriteStdout("%s (%dx%d, %d bytes)\n", target, res.Width, res.Height, len(data))
+	if err := pruneWebShots(dir); err != nil {
+		WriteStderr("removing older pictures: %v\n", err)
+	}
 	return nil
 }

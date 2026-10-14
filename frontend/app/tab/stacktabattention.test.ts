@@ -113,11 +113,11 @@ describe("the wiring that no test can render", () => {
         assert.match(body, /const focusSwitched = focusSwitchedSince\(\s*\{ blockId: prevFocusedBlockIdRef\.current, documentHasFocus: prevDocHasFocusRef\.current },\s*\{ blockId: focusedBlockId, documentHasFocus }\s*\);/);
         assert.notInclude(badgeBody, "focusSwitchedSince");
         assert.include(badgeBody, "prevFocusedBlockIdRef.current !== focusedBlockId || prevDocHasFocusRef.current !== documentHasFocus");
-        // the window's sources go through the env that attentionwiring.test.ts tests, and the env clears with ClearAttentionMeta itself (not an empty object)
-        assert.match(body, /makeAttentionClearEnv\(\s*\{[\s\S]*?},\s*ClearAttentionMeta\s*\)/);
+        // the window's sources go through the env that attentionwiring.test.ts tests, and the clear is the server's compare-and-clear with the planned level and reason
+        assert.match(body, /makeAttentionClearEnv\(\s*\{[\s\S]*?clearIf: \(blockId, level, reason\) =>[\s\S]*?RpcApi\.ClearAttentionIfCommand\(TabRpcClient, \{ blockid: blockId, level, reason \}\)/);
+        assert.notInclude(body, "SetMetaCommand");
         // the plan is made again when ANY of these changes, the reason included
         assert.include(body, "}, [focusedBlockId, level, reason, documentHasFocus]);");
-        assert.include(body, 'WOS.makeORef("block", blockId)');
         assert.include(body, "readMeta: (blockId, key) => globalStore.get(getBlockMetaKeyAtom(blockId, key");
         // when the timer fires the focused block is read from the layout model right then, not the value of the render that made the plan
         assert.include(body, "focusedBlockId: () => globalStore.get(layoutModel.focusedNode)?.data?.blockId");

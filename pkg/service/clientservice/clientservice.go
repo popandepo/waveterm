@@ -70,6 +70,9 @@ func (cs *ClientService) TelemetryUpdate(ctx context.Context, telemetryEnabled b
 	meta := waveobj.MetaMapType{
 		wconfig.ConfigKey_TelemetryEnabled: telemetryEnabled,
 	}
+	if err := wconfig.CheckNoOwnerOnlyKeys(meta); err != nil {
+		return err
+	}
 	err := wconfig.SetBaseConfigValue(meta)
 	if err != nil {
 		return fmt.Errorf("error setting telemetry value: %w", err)

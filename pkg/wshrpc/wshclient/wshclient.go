@@ -101,6 +101,12 @@ func CheckGoVersionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Com
 	return resp, err
 }
 
+// command "clearattentionif", wshserver.ClearAttentionIfCommand
+func ClearAttentionIfCommand(w *wshutil.WshRpc, data wshrpc.CommandClearAttentionIfData, opts *wshrpc.RpcOpts) (bool, error) {
+	resp, err := sendRpcRequestCallHelper[bool](w, "clearattentionif", data, opts)
+	return resp, err
+}
+
 // command "connconnect", wshserver.ConnConnectCommand
 func ConnConnectCommand(w *wshutil.WshRpc, data wshrpc.ConnRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "connconnect", data, opts)

@@ -153,3 +153,38 @@ func TestASessionAskingInTheNameOfTheServerIsRefused(t *testing.T) {
 		t.Fatalf("a session asking about its own workspace is allowed whatever it claims: %v", err)
 	}
 }
+
+// A lookup that fails is never believed, even when it also returns a value: the value of a failed lookup is dropped, and the question fails closed.
+func TestAFailedWorkspaceLookupIsNeverBelievedEvenWithAValue(t *testing.T) {
+	oldBlock, oldWs, oldSource := webNavCallerBlockFn, webNavWorkspaceOfFn, webNavSourceFn
+	t.Cleanup(func() { webNavCallerBlockFn, webNavWorkspaceOfFn, webNavSourceFn = oldBlock, oldWs, oldSource })
+	webNavSourceFn = func(ctx context.Context) string { return wshutil.ElectronRoute }
+	webNavCallerBlockFn = func(route string) string { return "blockA" }
+	// every lookup answers "wsA" AND an error: the answers of both lookups would be equal, so a value that is believed would let the question pass
+	webNavWorkspaceOfFn = func(ctx context.Context, blockId string) (string, error) {
+		return "wsA", fmt.Errorf("lookup failed for %s", blockId)
+	}
+	ws := &WshServer{}
+	err := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inA", BlockId: "tileA"})
+	if err == nil {
+		t.Fatal("a failed lookup that returned a value must be refused")
+	}
+	webNavWorkspaceOfFn = func(ctx context.Context, blockId string) (string, error) {
+		if blockId == "blockA" {
+			return "wsA", nil
+		}
+		return "wsA", fmt.Errorf("lookup failed for %s", blockId)
+	}
+	if err := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inA", BlockId: "tileA"}); err == nil {
+		t.Fatal("a failed lookup of the TILE that returned the caller's workspace must be refused")
+	}
+	webNavWorkspaceOfFn = func(ctx context.Context, blockId string) (string, error) {
+		if blockId == "blockA" {
+			return "wsA", fmt.Errorf("lookup failed for %s", blockId)
+		}
+		return "wsA", nil
+	}
+	if err := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inA", BlockId: "tileA"}); err == nil {
+		t.Fatal("a failed lookup of the CALLER that returned the tile's workspace must be refused")
+	}
+}

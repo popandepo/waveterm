@@ -15,6 +15,12 @@ renaming one function while leaving the old declaration in a comment, and by add
 Not covered: a seam whose declaration is unchanged but whose behaviour changed. That is what the update review is for
 (`docs/ours/update-review.md`).
 
+## First-run screens (PR 56)
+
+| Seam | File | Symbol or text | We use it for |
+|---|---|---|---|
+| modals-renderer | `frontend/app/modals/modalsrenderer.tsx` | `const ModalsRenderer = () => {` | the one place that opens the first-run and upgrade screens, now only through onboardingToOpen |
+
 ## Tab colour and symbol (feature a)
 
 | Seam | File | Symbol or text | We use it for |
@@ -155,6 +161,17 @@ features. The run still exits 0; the update review decides, and an unresolved ov
 | upstream-confirm-close-tab | `confirmclosetab` in `frontend/app` | upstream added its own close-tab confirmation (open PR 2678) |
 | upstream-newtablayout | `newtablayout` in `pkg/wconfig` | upstream added a layout for new tabs (open PR 3117) |
 | upstream-tab-bar-icons | icon, symbol, emoji in `tabbar-model.ts` | tab bar model changed around icons |
+
+## No phone home (PR 58)
+
+| Seam | File | Symbol or text | We use it for |
+|---|---|---|---|
+| telemetry-send-gate | `pkg/wcloud/wcloud.go` | `if !telemetry.IsTelemetryEnabled() {` | the one place that stops every usage upload while telemetry is off |
+| setbaseconfig-writer | `pkg/wconfig/settingsconfig.go` | `func SetBaseConfigValue(toMerge waveobj.MetaMapType) error {` | the one function that writes the settings file; it refuses the owner-only keys first |
+| setconfig-command | `pkg/wshrpc/wshserver/wshserver.go` | `func (ws *WshServer) SetConfigCommand(ctx context.Context, data wshrpc.MetaSettingsType) error {` | what wsh setconfig calls; refuses the owner-only keys |
+| telemetry-update-service | `pkg/service/clientservice/clientservice.go` | `func (cs *ClientService) TelemetryUpdate(ctx context.Context, telemetryEnabled bool) error {` | the window's way to switch telemetry; refused in the fork |
+| record-tevent | `pkg/telemetry/telemetry.go` | `func RecordTEvent(ctx context.Context, tevent *telemetrydata.TEvent) error {` | usage events are dropped while telemetry is off |
+| app-menu-items | `emain/emain-menu.ts` | `function makeAppMenuItems(webContents: electron.WebContents): Electron.MenuItemConstructorOptions[] {` | the app menu has no Check for Updates item in the fork |
 
 Rehearsed by planting a tab command file and a `tab:icon` line in a throwaway commit and scanning that commit
 against its parent: both reported.

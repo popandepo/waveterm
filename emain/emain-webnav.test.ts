@@ -9,6 +9,8 @@ import {
     buildTextScript,
     capUtf8,
     printableErrorText,
+    readWebTile,
+    WebReadDeps,
     checkSelector,
     effectiveMaxBytes,
     MaxSelectorLength,
@@ -203,10 +205,10 @@ describe("round 5: the other web command, the answer's credentials, the time lim
     });
     test("the question has a time limit shorter than wsh's own", () => {
         assert.match(nav, /export const AuthorizeTimeoutMs = 3000;/);
-        // webselector 1, webnav 2, webtext 2
+        // webselector 1, webnav 2, and the one in webReadDeps that readWebTile calls twice
         const asks = wsh.split("WebNavAuthorizeCommand(").length - 1;
-        assert.equal(asks, 5);
-        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 5);
+        assert.equal(asks, 4);
+        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 4);
     });
     test("no handler focuses a window or switches the shown tab before the action", () => {
         const handlers = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_notify"));
@@ -275,15 +277,51 @@ describe("wsh web info: the load state of a tile", () => {
 });
 
 describe("wsh web text: what is read, and from which tiles", () => {
-    test("a tile with no partition of its own is refused, whatever the record holds in its place", () => {
+    const tileId = "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90";
+    const otherTile = "11111111-2222-4333-8444-555555555555";
+
+    test("a tile with no partition is refused, whatever the record holds in its place", () => {
         for (const meta of [undefined, null, {}, { "web:partition": "" }, { "web:partition": "   " }, { "web:partition": 3 }, { "web:partition": null }, { "web:partition": ["persist:x"] }, { web: { partition: "x" } }]) {
-            assert.include(webTextRefusal(meta as any), "shared default sign-in store", JSON.stringify(meta));
+            assert.include(webTextRefusal(tileId, meta as any), "shared default sign-in store", JSON.stringify(meta));
         }
     });
 
-    test("a tile with a partition of its own is allowed", () => {
-        assert.equal(webTextRefusal({ "web:partition": "persist:agent-1" }), "");
-        assert.equal(webTextRefusal({ "web:partition": "agent-1", view: "web" }), "");
+    test("a partition named exactly after the tile's own block id is the tile's own and allowed", () => {
+        assert.equal(webTextRefusal(tileId, { "web:partition": "persist:" + tileId }), "");
+        assert.equal(webTextRefusal(tileId, { "web:partition": tileId, view: "web" }), "");
+    });
+
+    test("any other name is refused: a session can point its tile at a store the owner is signed in to", () => {
+        for (const p of [
+            "persist:agent-1",
+            "agent-1",
+            "persist:gmail",
+            otherTile,
+            "persist:" + otherTile,
+            "persist:" + tileId + "-x",
+            "x-" + tileId,
+            "persist:" + tileId.toUpperCase(),
+            " persist:" + tileId,
+            "persist:" + tileId + " ",
+            "persist:persist:" + tileId,
+            "persist:",
+        ]) {
+            const why = webTextRefusal(tileId, { "web:partition": p });
+            assert.notEqual(why, "", p);
+            assert.include(why, tileId, "the refusal names the partition the tile needs: " + p);
+        }
+    });
+
+    test("a tile named like another tile's persist: form is refused for itself, and the other tile's own name stays its own", () => {
+        assert.notEqual(webTextRefusal(tileId, { "web:partition": "persist:" + otherTile }), "");
+        assert.equal(webTextRefusal(otherTile, { "web:partition": "persist:" + otherTile }), "");
+    });
+
+    test("no block id means nothing is the tile's own", () => {
+        for (const id of ["", undefined, null, "   "]) {
+            assert.notEqual(webTextRefusal(id as any, { "web:partition": "persist:" + id }), "", String(id));
+            assert.notEqual(webTextRefusal(id as any, { "web:partition": String(id) }), "", String(id));
+        }
     });
 
     test("the selector goes into the script as a JSON string, never as code", () => {
@@ -302,6 +340,17 @@ describe("wsh web text: what is read, and from which tiles", () => {
         assert.throws(() => checkSelector("a" + String.fromCharCode(10) + "b"), /selector/);
         assert.throws(() => checkSelector("a" + String.fromCharCode(0) + "b"), /selector/);
         assert.throws(() => checkSelector(12 as any), /selector/);
+    });
+
+    test("the selector limit counts characters, not UTF-16 units, and every C0 or C1 control is refused", () => {
+        const accented = String.fromCodePoint(0xe9);
+        const rocket = String.fromCodePoint(0x1f680);
+        assert.equal(checkSelector(accented.repeat(300)), accented.repeat(300));
+        assert.equal(checkSelector(rocket.repeat(MaxSelectorLength)), rocket.repeat(MaxSelectorLength), "512 emoji are 512 characters");
+        assert.throws(() => checkSelector(rocket.repeat(MaxSelectorLength + 1)), /selector/);
+        for (const c of [0x85, 0x9b, 0x80, 0x9f, 0x7f]) {
+            assert.throws(() => checkSelector("a" + String.fromCharCode(c) + "b"), /selector/, c.toString(16));
+        }
     });
 
     test("the cap is in bytes of UTF-8 and never splits a character", () => {
@@ -423,23 +472,110 @@ describe("wsh web text: what is read, and from which tiles", () => {
     });
 });
 
-describe("wsh web text: the wiring (source pins)", () => {
+describe("reading a web tile, run with stand-ins for the window, the store and Electron's sessions", () => {
+    const blockId = "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90";
+    const data = { workspaceid: "ws-1", tabid: "tab-1", blockid: blockId };
+
+    // Electron gives one session object per partition name; the stand-in does the same.
+    function sessions() {
+        const made = new Map<string, object>();
+        return (partition: string) => {
+            if (!made.has(partition)) {
+                made.set(partition, { partition });
+            }
+            return made.get(partition);
+        };
+    }
+
+    function setup(opts: { partition?: any; livePartition?: string; changeMetaTo?: any; authorizeFails?: number } = {}) {
+        const steps: string[] = [];
+        const sessionFor = sessions();
+        const meta: { [key: string]: any } = { view: "web" };
+        if (opts.partition !== undefined) {
+            meta["web:partition"] = opts.partition;
+        }
+        let asks = 0;
+        const deps: WebReadDeps = {
+            authorize: async () => {
+                asks++;
+                steps.push("authorize");
+                if (opts.authorizeFails === asks) {
+                    throw new Error("denied");
+                }
+            },
+            getWindow: () => (steps.push("window"), { allLoadedTabViews: new Map([["tab-1", {}]]) }),
+            blockInfo: async () => (steps.push("info"), { blockid: blockId, tabid: "tab-1", workspaceid: "ws-1", block: { meta } }),
+            getContents: async () => {
+                steps.push("contents");
+                if (opts.changeMetaTo !== undefined) {
+                    meta["web:partition"] = opts.changeMetaTo;
+                }
+                return { session: sessionFor(opts.livePartition ?? meta["web:partition"]) };
+            },
+            sessionFor,
+        };
+        const read = async (_wc: any) => (steps.push("read"), "page text");
+        return { deps, steps, read };
+    }
+
+    test("a tile on its own partition, live and recorded, is read after the caller is asked twice", async () => {
+        const { deps, steps, read } = setup({ partition: "persist:" + blockId });
+        assert.equal(await readWebTile(data, deps, read), "page text");
+        assert.deepEqual(steps, ["authorize", "window", "info", "contents", "authorize", "read"]);
+    });
+
+    test("a tile with no partition, or another tile's or a sign-in's, is refused before any page is touched", async () => {
+        for (const p of [undefined, "", "persist:gmail", "persist:11111111-2222-4333-8444-555555555555", "agent-1"]) {
+            const { deps, steps, read } = setup({ partition: p });
+            await readWebTile(data, deps, read).then(
+                () => assert.fail("must refuse " + p),
+                () => undefined
+            );
+            assert.notInclude(steps, "contents", String(p));
+            assert.notInclude(steps, "read", String(p));
+        }
+    });
+
+    test("a record changed to the tile's own name while the page is fetched does not let the old session be read", async () => {
+        // loaded on persist:gmail, the record says the tile's own name by the time it is read: the live session decides
+        const { deps, steps, read } = setup({ partition: "persist:" + blockId, livePartition: "persist:gmail" });
+        await readWebTile(data, deps, read).then(
+            () => assert.fail("the live session is not the tile's own"),
+            (e) => assert.match(String(e), /not on its own partition/)
+        );
+        assert.notInclude(steps, "read");
+    });
+
+    test("a record that loses its partition during the fetch is refused on the live session", async () => {
+        const { deps, steps, read } = setup({ partition: "persist:" + blockId, changeMetaTo: "", livePartition: "" });
+        await readWebTile(data, deps, read).then(
+            () => assert.fail("the default store must be refused"),
+            () => undefined
+        );
+        assert.notInclude(steps, "read");
+    });
+
+    test("the non-persistent own name is accepted live too", async () => {
+        const { deps, read } = setup({ partition: blockId });
+        assert.equal(await readWebTile(data, deps, read), "page text");
+    });
+
+    test("a caller refused the second time reads nothing", async () => {
+        const { deps, steps, read } = setup({ partition: "persist:" + blockId, authorizeFails: 2 });
+        await readWebTile(data, deps, read).then(
+            () => assert.fail("must refuse"),
+            () => undefined
+        );
+        assert.notInclude(steps, "read");
+    });
+});
+
+describe("wsh web text: the handler uses readWebTile with Electron's sessions", () => {
     const wsh = readFileSync(path.resolve(__dirname, "emain-wsh.ts"), "utf8");
     const body = wsh.slice(wsh.indexOf("async handle_webtext"), wsh.indexOf("async handle_notify"));
-    test("the caller is asked first, then the record of the block, then the partition rule, and only then the page", () => {
-        const ask = body.indexOf("WebNavAuthorizeCommand");
-        const info = body.indexOf("BlockInfoCommand");
-        const rule = body.indexOf("webTextRefusal(");
-        const page = body.indexOf("getWebContentsByBlockId");
-        const run = body.indexOf("await webText(");
-        assert.isAbove(ask, -1);
-        assert.isTrue(ask < info && info < rule && rule < page && page < run, `${ask} ${info} ${rule} ${page} ${run}`);
-    });
-    test("the caller is asked again right before the page is read, and the rule uses the record, not the request", () => {
-        const first = body.indexOf("WebNavAuthorizeCommand");
-        const second = body.indexOf("WebNavAuthorizeCommand", first + 1);
-        assert.isAbove(second, body.indexOf("getWebContentsByBlockId"));
-        assert.include(body, "webTextRefusal(info.block?.meta)");
+    test("the handler goes through readWebTile and gives it session.fromPartition", () => {
+        assert.include(body, "readWebTile(data, webReadDeps(rh, data)");
+        assert.include(wsh, "sessionFor: (partition) => session.fromPartition(partition)");
         assert.notInclude(body, "data.partition");
     });
 });

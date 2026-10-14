@@ -95,10 +95,10 @@ func makeWebNavRequest(info *wshrpc.BlockInfoData, blockId string, action string
 	return wshrpc.CommandWebNavData{WorkspaceId: info.WorkspaceId, TabId: info.TabId, BlockId: blockId, Action: action}, nil
 }
 
-// The state comes from the window, but only these three words are ever printed: anything else is "unknown".
+// The state comes from the window, but only these three words are ever printed: anything else, empty included, is "unknown".
 func webLoadStateOrUnknown(state string) string {
 	switch state {
-	case "loading", "ready", "failed", "":
+	case "loading", "ready", "failed":
 		return state
 	}
 	return "unknown"
@@ -121,7 +121,11 @@ func formatWebNav(action string, res *wshrpc.CommandWebNavRtnData, asJson bool) 
 	shown := *res
 	shown.Url = safeText(res.Url, maxPrintedUrlRunes)
 	shown.Title = safeText(res.Title, maxPrintedTitleRunes)
-	shown.State = webLoadStateOrUnknown(res.State)
+	// only info has a state; an empty or missing one is "unknown" there, in text and JSON alike
+	shown.State = ""
+	if action == wshrpc.WebNavAction_Info {
+		shown.State = webLoadStateOrUnknown(res.State)
+	}
 	res = &shown
 	if asJson {
 		barr, err := json.MarshalIndent(res, "", "  ")

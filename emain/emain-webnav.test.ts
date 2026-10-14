@@ -412,6 +412,24 @@ describe("wsh web text: what is read, and from which tiles", () => {
         assert.equal(runTextScript("", 10, { body: { innerText: "ab" + rocket } }).text, "ab" + rocket);
     });
 
+    test("the page script reads innerText once: a getter that changes or throws on a second read gets no second read", () => {
+        let reads = 0;
+        const doc = {
+            body: {
+                get innerText(): any {
+                    reads++;
+                    if (reads > 1) {
+                        throw new Error("read twice");
+                    }
+                    return "once";
+                },
+            },
+        };
+        const res = runTextScript("", 100, doc);
+        assert.equal(reads, 1);
+        assert.equal(res.text, "once");
+    });
+
     test("an error the page writes reaches the caller with no control or format characters", async () => {
         const nasty = ["\u001b]0;owned", "\u0007\u001b[2J", String.fromCharCode(0x202e), "gnp.exe\r\nfake$ ", String.fromCharCode(0x9b), "31m"].join("");
         const doc = {
@@ -575,6 +593,22 @@ describe("reading a web tile, run with stand-ins for the window, the store and E
             () => undefined
         );
         assert.notInclude(steps, "read");
+    });
+
+    test("the live session must be the one the record names exactly: persist and in-memory forms are not interchangeable", async () => {
+        // the record says the in-memory name, the contents are still on the persistent store of the same id (a signed-in page could stay there)
+        let s = setup({ partition: blockId, livePartition: "persist:" + blockId });
+        await readWebTile(data, s.deps, s.read).then(
+            () => assert.fail("record <id>, live persist:<id> must be refused"),
+            (e) => assert.match(String(e), /not on its own partition/)
+        );
+        assert.notInclude(s.steps, "read");
+        s = setup({ partition: "persist:" + blockId, livePartition: blockId });
+        await readWebTile(data, s.deps, s.read).then(
+            () => assert.fail("record persist:<id>, live <id> must be refused"),
+            (e) => assert.match(String(e), /not on its own partition/)
+        );
+        assert.notInclude(s.steps, "read");
     });
 
     test("the non-persistent own name is accepted live too", async () => {

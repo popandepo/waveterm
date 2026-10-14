@@ -197,13 +197,20 @@ export function webReadRefusal(blockId: string, meta: { [key: string]: any } | n
     return `this web tile's partition is not its own, so what it shows is not given out: set web:partition to ${id} or persist:${id} (a name another tile or a sign-in may use is refused)`;
 }
 
-// The same rule on the web contents that is about to be read: its live session must be the session of the tile's own partition name. The record
-// can change while the page is fetched, and a tile keeps the session it was loaded with, so the record alone is not enough. Session objects are
-// compared (Electron gives one object per partition name), never names.
-export function liveSessionRefusal(blockId: string, wc: { session?: unknown } | null | undefined, sessionFor: (partition: string) => unknown): string {
+// The same rule on the web contents that is about to be read: its live session must be the session of exactly the partition the record names, and
+// that name must be the tile's own (<id> or persist:<id>). A tile keeps the session it was loaded with, so the record alone is not enough, and the
+// two forms are different stores (a page signed in on persist:<id> stays there when the record is changed to <id>). Session objects are compared
+// (Electron gives one object per partition name), never names.
+export function liveSessionRefusal(
+    blockId: string,
+    recordPartition: unknown,
+    wc: { session?: unknown } | null | undefined,
+    sessionFor: (partition: string) => unknown
+): string {
     const id = typeof blockId === "string" ? blockId.trim() : "";
     const live = wc?.session;
-    if (id !== "" && live != null && (live === sessionFor(id) || live === sessionFor("persist:" + id))) {
+    const own = typeof recordPartition === "string" && id !== "" && (recordPartition === id || recordPartition === "persist:" + id);
+    if (own && live != null && live === sessionFor(recordPartition as string)) {
         return "";
     }
     return `this web tile's page is not on its own partition, so what it shows is not given out (the tile may have been loaded before its web:partition was set; reload it)`;
@@ -252,7 +259,7 @@ export async function readWebTile<T>(
         throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
     }
     await deps.authorize();
-    const live = liveSessionRefusal(data.blockid, wc, deps.sessionFor);
+    const live = liveSessionRefusal(data.blockid, info.block?.meta?.["web:partition"], wc, deps.sessionFor);
     if (live) {
         throw new Error(live);
     }
@@ -278,7 +285,8 @@ export function buildTextScript(selector: string, maxChars: number): string {
         const sel = ${JSON.stringify(selector)};
         const el = sel ? document.querySelector(sel) : document.body;
         if (!el) { return { missing: true }; }
-        const t = typeof el.innerText === "string" ? el.innerText : "";
+        const raw = el.innerText;
+        const t = typeof raw === "string" ? raw : "";
         let s = t.slice(0, ${Math.floor(maxChars)});
         const last = s.charCodeAt(s.length - 1);
         if (last >= 0xd800 && last <= 0xdbff) { s = s.slice(0, -1); }

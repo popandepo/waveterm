@@ -28,6 +28,9 @@ export type TabLayout = { tabWidth: number; scrollable: boolean; spaceForTabs: n
 // The tabs get only what is left, so they shrink to the minimum and then scroll; they never cover the right block.
 export function computeTabLayout(rowWidth: number, nonTabWidth: number, numberOfTabs: number): TabLayout {
     const spaceForTabs = rowWidth - nonTabWidth;
+    if (numberOfTabs <= 0) {
+        return { tabWidth: TabDefaultWidth, scrollable: false, spaceForTabs };
+    }
     const ideal = spaceForTabs / numberOfTabs;
     const tabWidth = Math.max(TabMinWidth, Math.min(ideal, TabDefaultWidth));
     return { tabWidth, scrollable: tabWidth * numberOfTabs > spaceForTabs, spaceForTabs };

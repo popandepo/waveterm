@@ -85,6 +85,9 @@ describe("the tabs never take the right block", () => {
         const l = computeTabLayout(wrapper, others + right, 0);
         assert.equal(l.tabWidth, TabDefaultWidth);
         assert.isFalse(l.scrollable);
+        const narrow = computeTabLayout(300, others + right, 0);
+        assert.equal(narrow.tabWidth, TabDefaultWidth, "controls wider than the row and no tabs");
+        assert.isFalse(narrow.scrollable, "nothing to scroll when there are no tabs");
     });
 });
 

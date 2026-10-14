@@ -6,6 +6,9 @@ package cmd
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
+	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -14,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -212,5 +216,80 @@ func TestWebShotAFailedWriteLeavesNoFile(t *testing.T) {
 	}
 	if got := filesIn(t, dir); len(got) != 0 {
 		t.Fatalf("the file must not be left behind: %v", got)
+	}
+}
+
+// pngDeclaring is a small valid PNG whose header claims w by h pixels (the IHDR is rewritten and its CRC fixed), the shape of a decompression bomb.
+func pngDeclaring(t *testing.T, w, h uint32) []byte {
+	t.Helper()
+	data := realPNG(t, 1, 1)
+	// signature (8), IHDR length (4), "IHDR" (4), then width and height
+	binary.BigEndian.PutUint32(data[16:20], w)
+	binary.BigEndian.PutUint32(data[20:24], h)
+	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
+	return data
+}
+
+func TestWebShotRefusesHugeDeclaredDimensionsBeforeDecoding(t *testing.T) {
+	for _, wh := range [][2]uint32{{60000, 60000}, {8193, 10}, {10, 8193}, {5000, 4000}} {
+		bomb := pngDeclaring(t, wh[0], wh[1])
+		if len(bomb) > 200 {
+			t.Fatalf("the test picture must be tiny, got %d bytes", len(bomb))
+		}
+		_, err := decodeWebShot(&wshrpc.CommandWebShotRtnData{Png: base64.StdEncoding.EncodeToString(bomb)})
+		if err == nil || !strings.Contains(err.Error(), "pixels") {
+			t.Fatalf("%dx%d must be refused on its declared size, got %v", wh[0], wh[1], err)
+		}
+	}
+	if _, err := decodeWebShot(&wshrpc.CommandWebShotRtnData{Png: base64.StdEncoding.EncodeToString(realPNG(t, 64, 48))}); err != nil {
+		t.Fatalf("an ordinary picture passes: %v", err)
+	}
+}
+
+// Only the newest webShotKeep pictures stay; older ones named like ours are removed, anything else in the folder is left alone.
+func TestWebShotKeepsTheNewestPicturesOnly(t *testing.T) {
+	dir, _, _ := stubWebShot(t)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var old []string
+	for i := 0; i < webShotKeep+5; i++ {
+		name := fmt.Sprintf("%s-%s-%08x.png", webBlockId, base.Add(time.Duration(i)*time.Minute).Format("20060102T150405Z"), i)
+		old = append(old, name)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, other := range []string{"notes.txt", "mine.png"} {
+		if err := os.WriteFile(filepath.Join(dir, other), []byte("keep"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := webShotCmd.RunE(webShotCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	names := filesIn(t, dir)
+	have := map[string]bool{}
+	ours := 0
+	for _, n := range names {
+		have[n] = true
+		if webShotNameRe.MatchString(n) {
+			ours++
+		}
+	}
+	if ours != webShotKeep {
+		t.Fatalf("want %d pictures kept, got %d", webShotKeep, ours)
+	}
+	if !have["notes.txt"] || !have["mine.png"] {
+		t.Fatal("files not named like ours stay")
+	}
+	for _, n := range old[:6] {
+		if have[n] {
+			t.Fatalf("the oldest pictures go first: %s is still there", n)
+		}
+	}
+	if !have[old[len(old)-1]] {
+		t.Fatal("the newest old picture stays")
 	}
 }

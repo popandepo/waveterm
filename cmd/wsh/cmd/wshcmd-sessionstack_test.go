@@ -58,6 +58,17 @@ func TestStackWithActivateStopsBeforeAnyRpc(t *testing.T) {
 	if called {
 		t.Fatal("a refused request must not look anything up or create anything")
 	}
+
+	// the same with the value set without Changed: the conflict is still caught
+	flag.Changed = false
+	sessionStack = "3"
+	err = sessionStartRun(sessionStartCmd, []string{"pwsh", "-NoProfile"})
+	if err == nil || !strings.Contains(err.Error(), "--activate") {
+		t.Fatalf("want the --activate refusal without Changed, got %v", err)
+	}
+	if called {
+		t.Fatal("a refused request must not look anything up or create anything")
+	}
 }
 
 func TestAnEmptyStackGivenOnTheCommandLineStopsBeforeAnyRpc(t *testing.T) {

@@ -73,19 +73,21 @@ const (
 )
 
 // pruneWebShots keeps the newest webShotKeep pictures in dir and removes older files named like ours; nothing else in the folder is touched. The
-// order is the UTC time in the name (then the whole name), not the file times, which anything can change.
-func pruneWebShots(dir string) error {
+// order is the UTC time in the name (then the whole name), not the file times, which anything can change. keep (the picture just saved) is never
+// removed, whatever the other names claim. Best effort: two shots at once can each count before the other writes, and leave one more than the limit.
+func pruneWebShots(dir string, keep string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 	var ours []string
 	for _, e := range entries {
-		if e.Type().IsRegular() && webShotNameRe.MatchString(e.Name()) {
+		if e.Type().IsRegular() && webShotNameRe.MatchString(e.Name()) && e.Name() != keep {
 			ours = append(ours, e.Name())
 		}
 	}
-	if len(ours) <= webShotKeep {
+	// the picture just saved is one of the webShotKeep
+	if len(ours) <= webShotKeep-1 {
 		return nil
 	}
 	sort.Slice(ours, func(i, j int) bool {
@@ -96,7 +98,7 @@ func pruneWebShots(dir string) error {
 		return ours[i] < ours[j]
 	})
 	var firstErr error
-	for _, name := range ours[:len(ours)-webShotKeep] {
+	for _, name := range ours[:len(ours)-(webShotKeep-1)] {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && firstErr == nil {
 			firstErr = err
 		}
@@ -166,7 +168,8 @@ func writeNewShotFile(path string, data []byte) error {
 }
 
 // ensureShotDir makes the shot folder and its parent (Wave) one at a time, each refused unless it is a plain folder, so neither an existing link at
-// Wave nor one at web-shots can lead the folder anywhere; nothing is made under a component that fails the check.
+// Wave nor one at web-shots can lead the folder anywhere; nothing is made under a component that fails the check. The folders above Wave (the
+// profile's AppData\Local, or the home's .cache) are trusted: they belong to the user, and a link there is the user's own doing.
 func ensureShotDir(dir string) error {
 	parent := filepath.Dir(dir)
 	if err := os.MkdirAll(filepath.Dir(parent), 0700); err != nil {
@@ -235,7 +238,7 @@ func webShotRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing the picture: %w", err)
 	}
 	WriteStdout("%s (%dx%d, %d bytes)\n", target, res.Width, res.Height, len(data))
-	if err := pruneWebShots(dir); err != nil {
+	if err := pruneWebShots(dir, name); err != nil {
 		WriteStderr("removing older pictures: %v\n", err)
 	}
 	return nil

@@ -358,12 +358,15 @@ describe("(b) the clear", () => {
         assert.deepEqual(f.cleared, ["b1"]);
     });
 
-    test("observation: an orange level that draws nothing (no reason, or a hidden character in it) is still planned and erased", () => {
-        const f = fakeEnv({ level: "need", reason: "", focused: "b1" });
-        assert.equal(stackTabAttention("need", "").kind, "none");
-        scheduleAttentionClear(req({ reason: "" }), f.env);
-        vi.advanceTimersByTime(600);
-        assert.deepEqual(f.cleared, ["b1"]);
+    test("an orange level that draws nothing (no reason, an empty one, a hidden character, a non-string) is not planned: nothing is cleared and nothing is sent", () => {
+        const bad: unknown[] = ["", undefined, null, 3, "a" + cp(0x200b) + "b", "x".repeat(121)];
+        for (const reason of bad) {
+            const f = fakeEnv({ level: "need", reason, focused: "b1" });
+            assert.equal(stackTabAttention("need", reason).kind, "none");
+            assert.isUndefined(scheduleAttentionClear(req({ reason }), f.env), JSON.stringify(reason));
+            vi.advanceTimersByTime(60_000);
+            assert.deepEqual(f.cleared, [], JSON.stringify(reason));
+        }
     });
 
     test("the write is both keys and null only", () => {

@@ -4,14 +4,19 @@
 import { ipcMain, webContents, WebContents } from "electron";
 import { WaveBrowserWindow } from "./emain-window";
 
-// The web contents of a web tile, asked of the page of its tab: the tab of the request when that tab is loaded in the window (shown or not),
-// else the shown tab (the old behaviour of the callers that pass a tab that is not loaded).
+// The web contents of a web tile, asked of the page of its tab: the tab of the request, which must be loaded in the window (shown or not). A tab that is
+// not loaded (it unloaded between a check and this call) gives null at once: the shown tab is never asked in its place. Only a call with no tab id at all
+// asks the shown tab.
 export function getWebContentsByBlockId(ww: WaveBrowserWindow, tabId: string, blockId: string): Promise<WebContents> {
     const prtn = new Promise<WebContents>((resolve, reject) => {
         const randId = Math.floor(Math.random() * 1000000000).toString();
         const respCh = `getWebContentsByBlockId-${randId}`;
-        const tabView = (tabId ? ww?.allLoadedTabViews?.get(tabId) : null) ?? ww?.activeTabView;
-        tabView?.webContents.send("webcontentsid-from-blockid", blockId, respCh);
+        const tabView = tabId ? ww?.allLoadedTabViews?.get(tabId) : ww?.activeTabView;
+        if (tabView == null) {
+            resolve(null);
+            return;
+        }
+        tabView.webContents.send("webcontentsid-from-blockid", blockId, respCh);
         ipcMain.once(respCh, (event, webContentsId) => {
             if (webContentsId == null) {
                 resolve(null);

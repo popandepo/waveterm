@@ -248,17 +248,16 @@ func CreateTab(ctx context.Context, workspaceId string, tabName string, activate
 		}
 	}
 
-	// No need to apply an initial layout for the initial launch, since the starter layout will get applied after onboarding modal dismissal
-	if !isInitialLaunch {
-		err = ApplyPortableLayout(ctx, tab.OID, GetNewTabLayout(), true)
-		if err != nil {
-			return tab.OID, fmt.Errorf("error applying new tab layout: %w", err)
-		}
-		tabBg := getTabBackground()
-		if tabBg != "" {
-			tabORef := waveobj.ORefFromWaveObj(tab)
-			wstore.UpdateObjectMeta(ctx, *tabORef, waveobj.MetaMapType{waveobj.MetaKey_TabBackground: tabBg}, false)
-		}
+	// Upstream skips the layout on the first launch because the welcome screen applied the starter layout when it was agreed to. This fork never opens that
+	// screen, so the first tab gets the ordinary new-tab layout (one terminal) like every other tab.
+	err = ApplyPortableLayout(ctx, tab.OID, GetNewTabLayout(), true)
+	if err != nil {
+		return tab.OID, fmt.Errorf("error applying new tab layout: %w", err)
+	}
+	tabBg := getTabBackground()
+	if tabBg != "" {
+		tabORef := waveobj.ORefFromWaveObj(tab)
+		wstore.UpdateObjectMeta(ctx, *tabORef, waveobj.MetaMapType{waveobj.MetaKey_TabBackground: tabBg}, false)
 	}
 	telemetry.GoUpdateActivityWrap(wshrpc.ActivityUpdate{NewTab: 1}, "createtab")
 	telemetry.GoRecordTEventWrap(&telemetrydata.TEvent{

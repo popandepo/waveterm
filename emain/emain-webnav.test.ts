@@ -15,14 +15,18 @@ import {
     effectiveMaxBytes,
     MaxSelectorLength,
     MaxTitleLength,
+    MaxShotBytes,
     MaxUrlLength,
     MaxWebTextBytes,
     schemeOf,
+    ShotImage,
+    ShrunkShotWidth,
     webLoadState,
     webNavigate,
     WebNavTarget,
     webText,
-    webTextRefusal,
+    webReadRefusal,
+    webShot,
     withoutCredentials,
 } from "./emain-webnav";
 
@@ -282,13 +286,13 @@ describe("wsh web text: what is read, and from which tiles", () => {
 
     test("a tile with no partition is refused, whatever the record holds in its place", () => {
         for (const meta of [undefined, null, {}, { "web:partition": "" }, { "web:partition": "   " }, { "web:partition": 3 }, { "web:partition": null }, { "web:partition": ["persist:x"] }, { web: { partition: "x" } }]) {
-            assert.include(webTextRefusal(tileId, meta as any), "shared default sign-in store", JSON.stringify(meta));
+            assert.include(webReadRefusal(tileId, meta as any), "shared default sign-in store", JSON.stringify(meta));
         }
     });
 
     test("a partition named exactly after the tile's own block id is the tile's own and allowed", () => {
-        assert.equal(webTextRefusal(tileId, { "web:partition": "persist:" + tileId }), "");
-        assert.equal(webTextRefusal(tileId, { "web:partition": tileId, view: "web" }), "");
+        assert.equal(webReadRefusal(tileId, { "web:partition": "persist:" + tileId }), "");
+        assert.equal(webReadRefusal(tileId, { "web:partition": tileId, view: "web" }), "");
     });
 
     test("any other name is refused: a session can point its tile at a store the owner is signed in to", () => {
@@ -306,21 +310,21 @@ describe("wsh web text: what is read, and from which tiles", () => {
             "persist:persist:" + tileId,
             "persist:",
         ]) {
-            const why = webTextRefusal(tileId, { "web:partition": p });
+            const why = webReadRefusal(tileId, { "web:partition": p });
             assert.notEqual(why, "", p);
             assert.include(why, tileId, "the refusal names the partition the tile needs: " + p);
         }
     });
 
     test("a tile named like another tile's persist: form is refused for itself, and the other tile's own name stays its own", () => {
-        assert.notEqual(webTextRefusal(tileId, { "web:partition": "persist:" + otherTile }), "");
-        assert.equal(webTextRefusal(otherTile, { "web:partition": "persist:" + otherTile }), "");
+        assert.notEqual(webReadRefusal(tileId, { "web:partition": "persist:" + otherTile }), "");
+        assert.equal(webReadRefusal(otherTile, { "web:partition": "persist:" + otherTile }), "");
     });
 
     test("no block id means nothing is the tile's own", () => {
         for (const id of ["", undefined, null, "   "]) {
-            assert.notEqual(webTextRefusal(id as any, { "web:partition": "persist:" + id }), "", String(id));
-            assert.notEqual(webTextRefusal(id as any, { "web:partition": String(id) }), "", String(id));
+            assert.notEqual(webReadRefusal(id as any, { "web:partition": "persist:" + id }), "", String(id));
+            assert.notEqual(webReadRefusal(id as any, { "web:partition": String(id) }), "", String(id));
         }
     });
 
@@ -632,6 +636,103 @@ describe("wsh web text: the handler uses readWebTile with Electron's sessions", 
         assert.include(body, "readWebTile(data, webReadDeps(rh, data)");
         assert.include(wsh, "sessionFor: (partition) => session.fromPartition(partition)");
         assert.notInclude(body, "data.partition");
+    });
+});
+
+describe("wsh web shot: the picture of one tile", () => {
+    function image(opts: { empty?: boolean; bytes?: number; width?: number; height?: number; shrunkBytes?: number } = {}): ShotImage {
+        const make = (bytes: number, width: number): ShotImage => ({
+            isEmpty: () => opts.empty === true,
+            getSize: () => ({ width, height: opts.height ?? 600 }),
+            toPNG: () => new Uint8Array(bytes).fill(7),
+            resize: (o: { width: number }) => make(opts.shrunkBytes ?? 100, o.width),
+        });
+        return make(opts.bytes ?? 100, opts.width ?? 800);
+    }
+
+    test("the picture of the tile comes back as base64 with its size", async () => {
+        const res = await webShot({ capturePage: async () => image({ bytes: 3 }) });
+        assert.deepEqual(res, { png: Buffer.from([7, 7, 7]).toString("base64"), width: 800, height: 600 });
+    });
+
+    test("an empty picture is an error, not a blank file", async () => {
+        await webShot({ capturePage: async () => image({ empty: true }) }).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /empty picture/)
+        );
+        await webShot({ capturePage: async () => null }).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /empty picture/)
+        );
+        await webShot(null).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /no web contents/)
+        );
+    });
+
+    test("a picture above the cap is scaled down once, and refused if it is still too large", async () => {
+        const res = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: 50, width: 3000 }) });
+        assert.equal(res.width, ShrunkShotWidth);
+        assert.equal(Buffer.from(res.png, "base64").length, 50);
+        // a picture already narrower than ShrunkShotWidth is made smaller, never scaled up
+        for (const width of [800, ShrunkShotWidth, 2]) {
+            const narrow = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: 50, width }) });
+            assert.isBelow(narrow.width, width, "from " + width);
+            assert.isAtLeast(narrow.width, 1, "from " + width);
+        }
+        await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: MaxShotBytes + 1 }) }).then(
+            () => assert.fail("must throw"),
+            (e) => assert.match(String(e), /larger than/)
+        );
+    });
+
+    test("a picture exactly at the cap is not scaled", async () => {
+        const res = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes }) });
+        assert.equal(res.width, 800);
+    });
+});
+
+describe("wsh web shot: the wiring (source pins)", () => {
+    const wsh = readFileSync(path.resolve(__dirname, "emain-wsh.ts"), "utf8");
+    const body = wsh.slice(wsh.indexOf("async handle_webshot"), wsh.indexOf("async handle_notify"));
+    test("the shot handler goes through readWebTile, as the text handler does", () => {
+        assert.include(body, "readWebTile(data, webReadDeps(rh, data), (wc) => webShot(wc))");
+    });
+
+    test("a tile whose live session is not its own when the page is fetched is not pictured", async () => {
+        const blockId = "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90";
+        const made = new Map<string, object>();
+        const sessionFor = (p: string) => {
+            if (!made.has(p)) {
+                made.set(p, { p });
+            }
+            return made.get(p);
+        };
+        const meta: { [key: string]: any } = { view: "web", "web:partition": "persist:" + blockId };
+        let captured = false;
+        const deps = {
+            authorize: async () => {},
+            getWindow: () => ({ allLoadedTabViews: new Map([["tab-1", {}]]) }),
+            blockInfo: async () => ({ blockid: blockId, tabid: "tab-1", workspaceid: "ws-1", block: { meta } }),
+            // the record still says the tile's own name, but the contents were loaded on another store
+            getContents: async () => ({
+                session: sessionFor("persist:gmail"),
+                capturePage: async () => ((captured = true), null),
+            }),
+            sessionFor,
+        };
+        await readWebTile({ workspaceid: "ws-1", tabid: "tab-1", blockid: blockId }, deps, (wc) => webShot(wc)).then(
+            () => assert.fail("must refuse"),
+            (e) => assert.match(String(e), /not on its own partition/)
+        );
+        assert.isFalse(captured, "capturePage must not run");
+    });
+    test("the picture is taken from the tile's web contents, never from the window", () => {
+        const nav = readFileSync(path.resolve(__dirname, "emain-webnav.ts"), "utf8");
+        const shot = nav.slice(nav.indexOf("export async function webShot"));
+        assert.include(shot, "wc.capturePage()");
+        assert.notInclude(shot, "BrowserWindow");
+        assert.notInclude(shot, "desktopCapturer");
     });
 });
 

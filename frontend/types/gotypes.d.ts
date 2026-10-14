@@ -851,6 +851,20 @@ declare global {
         opts?: WebSelectorOpts;
     };
 
+    // wshrpc.CommandWebShotData
+    type CommandWebShotData = {
+        workspaceid: string;
+        blockid: string;
+        tabid: string;
+    };
+
+    // wshrpc.CommandWebShotRtnData
+    type CommandWebShotRtnData = {
+        png: string;
+        width: number;
+        height: number;
+    };
+
     // wshrpc.CommandWebTextData
     type CommandWebTextData = {
         workspaceid: string;

@@ -1084,6 +1084,12 @@ func WebSelectorCommand(w *wshutil.WshRpc, data wshrpc.CommandWebSelectorData, o
 	return resp, err
 }
 
+// command "webshot", wshserver.WebShotCommand
+func WebShotCommand(w *wshutil.WshRpc, data wshrpc.CommandWebShotData, opts *wshrpc.RpcOpts) (*wshrpc.CommandWebShotRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandWebShotRtnData](w, "webshot", data, opts)
+	return resp, err
+}
+
 // command "webtext", wshserver.WebTextCommand
 func WebTextCommand(w *wshutil.WshRpc, data wshrpc.CommandWebTextData, opts *wshrpc.RpcOpts) (*wshrpc.CommandWebTextRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandWebTextRtnData](w, "webtext", data, opts)

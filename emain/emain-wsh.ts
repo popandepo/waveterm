@@ -9,7 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
-import { authorizeWebNav, AuthorizeTimeoutMs, FullBlockIdRe, readWebTile, WebReadDeps, webNavigate, webText } from "./emain-webnav";
+import { authorizeWebNav, AuthorizeTimeoutMs, FullBlockIdRe, readWebTile, WebReadDeps, webNavigate, webShot, webText } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
 // What readWebTile needs from the window, the store and Electron, for one request.
@@ -79,6 +79,11 @@ export class ElectronWshClientType extends WshClient {
     async handle_webtext(rh: RpcResponseHelper, data: CommandWebTextData): Promise<CommandWebTextRtnData> {
         // the order and the checks are in readWebTile: the caller, the record and its partition rule, the page, then the caller and the live session again
         return await readWebTile(data, webReadDeps(rh, data), (wc) => webText(wc, data.selector, data.maxbytes));
+    }
+
+    async handle_webshot(rh: RpcResponseHelper, data: CommandWebShotData): Promise<CommandWebShotRtnData> {
+        // the same order and checks as handle_webtext (readWebTile): the live session is checked right before capturePage
+        return await readWebTile(data, webReadDeps(rh, data), (wc) => webShot(wc));
     }
 
     async handle_notify(rh: RpcResponseHelper, notificationOptions: WaveNotificationOptions) {

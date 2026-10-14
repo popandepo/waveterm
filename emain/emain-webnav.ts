@@ -185,16 +185,16 @@ export interface WebTextResult {
 // a session can set web:partition, and a name the owner has signed in to elsewhere would hand that login to the tile. A name made of the tile's own
 // id cannot be one the owner uses for another tile. The check is on the record of the block, read by the window itself, never on a value from the
 // caller; the owner's allow-list (not built yet) is the planned second way past it.
-export function webTextRefusal(blockId: string, meta: { [key: string]: any } | null | undefined): string {
+export function webReadRefusal(blockId: string, meta: { [key: string]: any } | null | undefined): string {
     const partition = meta?.["web:partition"];
     if (typeof partition !== "string" || partition.trim() === "") {
-        return "this web tile uses the shared default sign-in store of Wave, so its text is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
+        return "this web tile uses the shared default sign-in store of Wave, so what it shows is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
     }
     const id = typeof blockId === "string" ? blockId.trim() : "";
     if (id !== "" && (partition === id || partition === "persist:" + id)) {
         return "";
     }
-    return `this web tile's partition is not its own, so its text is not given out: set web:partition to ${id} or persist:${id} (a name another tile or a sign-in may use is refused)`;
+    return `this web tile's partition is not its own, so what it shows is not given out: set web:partition to ${id} or persist:${id} (a name another tile or a sign-in may use is refused)`;
 }
 
 // The same rule on the web contents that is about to be read: its live session must be the session of exactly the partition the record names, and
@@ -213,7 +213,7 @@ export function liveSessionRefusal(
     if (own && live != null && live === sessionFor(recordPartition as string)) {
         return "";
     }
-    return `this web tile's page is not on its own partition, so its text is not given out (the tile may have been loaded before its web:partition was set; reload it)`;
+    return `this web tile's page is not on its own partition, so what it shows is not given out (the tile may have been loaded before its web:partition was set; reload it)`;
 }
 
 export interface WebReadDeps {
@@ -243,7 +243,7 @@ export async function readWebTile<T>(
     await deps.authorize();
     const info = await deps.blockInfo();
     authorizeWebNav(data, info);
-    const refusal = webTextRefusal(data.blockid, info.block?.meta);
+    const refusal = webReadRefusal(data.blockid, info.block?.meta);
     if (refusal) {
         throw new Error(refusal);
     }
@@ -361,4 +361,57 @@ export async function webText(wc: WebTextTarget, selector: unknown, askedMaxByte
     }
     const capped = capUtf8(typeof res.text === "string" ? res.text : "", max);
     return { text: capped.text, truncated: capped.truncated || res.more === true };
+}
+
+// ---- wsh web shot ----
+
+// The most one picture holds, in bytes of PNG before base64 (the answer travels over the RPC as one message).
+export const MaxShotBytes = 4 * 1024 * 1024;
+// A picture above the cap is scaled down once, to this width or to half its own width if it is already narrower, and refused if it is still above
+// the cap.
+export const ShrunkShotWidth = 1280;
+
+export interface ShotImage {
+    isEmpty(): boolean;
+    getSize(): { width: number; height: number };
+    toPNG(): Uint8Array;
+    resize(opts: { width: number }): ShotImage;
+}
+
+export interface ShotTarget {
+    capturePage(): Promise<ShotImage>;
+}
+
+export interface WebShotResult {
+    png: string;
+    width: number;
+    height: number;
+}
+
+// The picture of one tile: its own web contents, never the window. An empty picture (the tab is not shown, the page is not painted) is an error, not a
+// blank file.
+export async function webShot(wc: ShotTarget): Promise<WebShotResult> {
+    if (wc == null) {
+        throw new Error("no web contents");
+    }
+    let image = await wc.capturePage();
+    if (image == null || image.isEmpty()) {
+        throw new Error("the tile gave an empty picture (is its tab shown and its page painted?)");
+    }
+    let png = image.toPNG();
+    if (png.length > MaxShotBytes) {
+        // ShrunkShotWidth, or half the width for a picture that is already narrower: never scaled up
+        const width = image.getSize().width;
+        const smaller = Math.min(ShrunkShotWidth, Math.floor(width / 2));
+        if (!(smaller >= 1)) {
+            throw new Error(`the picture is larger than ${MaxShotBytes} bytes and cannot be scaled down`);
+        }
+        image = image.resize({ width: smaller });
+        png = image.toPNG();
+        if (image.isEmpty() || png.length > MaxShotBytes) {
+            throw new Error(`the picture is larger than ${MaxShotBytes} bytes even scaled down`);
+        }
+    }
+    const size = image.getSize();
+    return { png: Buffer.from(png).toString("base64"), width: size.width, height: size.height };
 }

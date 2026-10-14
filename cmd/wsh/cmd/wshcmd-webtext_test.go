@@ -70,7 +70,7 @@ func TestWebTextRefusesATileThatIsNotAWebTile(t *testing.T) {
 func TestWebTextTheWindowsRefusalComesBackAsItIs(t *testing.T) {
 	stubWebText(t)
 	webTextRPC = func(d wshrpc.CommandWebTextData) (*wshrpc.CommandWebTextRtnData, error) {
-		return nil, errString("this web tile uses the shared default sign-in store of Wave, so its text is not given out")
+		return nil, errString("this web tile uses the shared default sign-in store of Wave, so what it shows is not given out")
 	}
 	if err := webTextCmd.RunE(webTextCmd, nil); err == nil || !strings.Contains(err.Error(), "shared default sign-in store") {
 		t.Fatalf("got %v", err)

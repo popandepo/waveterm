@@ -57,3 +57,14 @@ func discardShotFile(f *os.File, path string) error {
 	f.Close()
 	return os.Remove(path)
 }
+
+// keepShotFile closes a file whose picture is written and flushed; a close that fails removes it as discardShotFile does.
+func keepShotFile(f *os.File, path string) error {
+	if err := f.Close(); err != nil {
+		if rerr := os.Remove(path); rerr != nil {
+			return fmt.Errorf("closing %s: %w (and it could not be removed: %v)", path, err, rerr)
+		}
+		return fmt.Errorf("closing %s: %w (the file was removed)", path, err)
+	}
+	return nil
+}

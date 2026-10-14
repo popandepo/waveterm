@@ -293,3 +293,17 @@ func TestWebShotKeepsTheNewestPicturesOnly(t *testing.T) {
 		t.Fatal("the newest old picture stays")
 	}
 }
+
+// A flush that fails after the write must not leave a file behind either.
+func TestWebShotAFailedFlushLeavesNoFile(t *testing.T) {
+	dir, _, _ := stubWebShot(t)
+	old := webShotSyncFile
+	t.Cleanup(func() { webShotSyncFile = old })
+	webShotSyncFile = func(f *os.File) error { return errString("flush failed") }
+	if err := webShotCmd.RunE(webShotCmd, nil); err == nil || !strings.Contains(err.Error(), "flush failed") {
+		t.Fatalf("the failure must be reported, got %v", err)
+	}
+	if got := filesIn(t, dir); len(got) != 0 {
+		t.Fatalf("the file must not be left behind: %v", got)
+	}
+}

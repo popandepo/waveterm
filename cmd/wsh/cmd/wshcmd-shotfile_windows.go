@@ -38,8 +38,16 @@ func checkShotDir(dir string) error {
 	return nil
 }
 
-// createShotFile makes a new file (CREATE_NEW: never an existing one) opened with the right to delete it, so a failed write can remove it through
-// this same handle.
+func setDeletePending(h windows.Handle, pending bool) error {
+	v := byte(0)
+	if pending {
+		v = 1
+	}
+	return windows.SetFileInformationByHandle(h, windows.FileDispositionInfo, &v, 1)
+}
+
+// createShotFile makes a new file (CREATE_NEW: never an existing one) opened with the right to delete it, and marks it delete-pending at once: it
+// disappears when its handle closes unless keepShotFile clears the mark after the whole picture is written and flushed.
 func createShotFile(path string) (*os.File, error) {
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -49,16 +57,32 @@ func createShotFile(path string) (*os.File, error) {
 	if err != nil {
 		return nil, &os.PathError{Op: "create", Path: path, Err: err}
 	}
+	if err := setDeletePending(h, true); err != nil {
+		windows.CloseHandle(h)
+		return nil, fmt.Errorf("the new file %s cannot be marked for removal on failure (an empty file may remain): %w", path, err)
+	}
 	return os.NewFile(uintptr(h), path), nil
 }
 
-// discardShotFile marks the file for deletion through its own handle and closes it; the deletion happens on that close.
+// discardShotFile closes the delete-pending file, which removes it, and makes sure the mark is set first.
 func discardShotFile(f *os.File, path string) error {
-	deleteFile := byte(1)
-	err := windows.SetFileInformationByHandle(windows.Handle(f.Fd()), windows.FileDispositionInfo, &deleteFile, 1)
+	err := setDeletePending(windows.Handle(f.Fd()), true)
 	cerr := f.Close()
 	if err != nil {
 		return err
 	}
 	return cerr
+}
+
+// keepShotFile clears the delete-pending mark of a file whose picture is written and flushed, and closes it. If the mark cannot be cleared the
+// close removes the file, and that is reported.
+func keepShotFile(f *os.File, path string) error {
+	if err := setDeletePending(windows.Handle(f.Fd()), false); err != nil {
+		f.Close()
+		return fmt.Errorf("keeping %s: %w (the file was removed)", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("closing %s: %w (the picture was written and flushed before the close)", path, err)
+	}
+	return nil
 }

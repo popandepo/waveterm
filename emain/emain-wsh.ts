@@ -31,33 +31,8 @@ export class ElectronWshClientType extends WshClient {
     }
 
     async handle_webselector(rh: RpcResponseHelper, data: CommandWebSelectorData): Promise<string[]> {
-        if (!data.tabid || !data.blockid || !data.workspaceid) {
-            throw new Error("tabid and blockid are required");
-        }
-        // the same question as for the web commands (wsh web get reads the page of a tile): the caller may act only on a tile of its own workspace
-        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
-        // the sign-in rule of wsh web text and wsh web shot: a tile on the shared default store (no web:partition of its own) is not read. The tile's own record decides.
-        if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
-            throw new Error("blockid must be a full block id");
-        }
-        const info = await RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid);
-        if (info?.block == null) {
-            throw new Error("the block could not be read");
-        }
-        const refusal = webReadRefusal(info.block.meta);
-        if (refusal) {
-            throw new Error(refusal);
-        }
-        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
-        if (ww == null) {
-            throw new Error(`no window found with workspace ${data.workspaceid}`);
-        }
-        const wc = await getWebContentsByBlockId(ww, data.tabid, data.blockid);
-        if (wc == null) {
-            throw new Error(`no webcontents found with blockid ${data.blockid}`);
-        }
-        const rtn = await webGetSelector(wc, data.selector, data.opts);
-        return rtn;
+        // wsh web get reads the page of a tile: the same order and checks as wsh web text and wsh web shot (readWebTile), the live session included
+        return await readWebTile(data, webReadDeps(rh, data), (wc) => webGetSelector(wc, data.selector, data.opts));
     }
 
     async handle_webnav(rh: RpcResponseHelper, data: CommandWebNavData): Promise<CommandWebNavRtnData> {

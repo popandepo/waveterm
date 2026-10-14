@@ -255,16 +255,29 @@ function ConvertFrom-WshAssignment([string]$line) {
     return @{ Name = $m.Groups[1].Value; Value = $value }
 }
 
-$SwapCodes = @('ok', 'no-token', 'token-shape', 'wsh-folder', 'wsh-missing', 'start-failed', 'timeout', 'too-large', 'no-lines')
+$SwapCodes = @('ok', 'no-token', 'token-shape', 'wsh-folder', 'wsh-missing', 'start-failed', 'timeout', 'too-large', 'no-lines', 'no-access')
 $script:SwapNames = @()
 
-# The packed token that Wave puts in WAVETERM_SWAPTOKEN: base64 (standard alphabet) of a JSON object {"token": <uuid>, "rpccontext": {"sockname": ...}}
-# (shellutil.PackSwapToken). It is judged by its form and by what it decodes to, and nothing of it is ever printed or logged.
+# The packed token that Wave puts in WAVETERM_SWAPTOKEN: base64 (standard alphabet) of a JSON object {"token": <uuid>, "rpccontext": {...}}
+# (shellutil TokenSwapEntry.PackForClient). It is judged by its form and by what it decodes to, and nothing of it is ever printed or logged: exactly the
+# two keys, the token a lower-case canonical uuid, and rpccontext only the fields of wshrpc.RpcContext with their types, sockname not empty and routeid
+# present (it has no omitempty, so Wave always writes it, often empty).
+$SwapContextTypes = @{ sockname = [string]; routeid = [string]; procroute = [bool]; blockid = [string]; conn = [string]; isrouter = [bool] }
 function Test-PackedSwapToken([string]$token) {
     if ($token -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9_+/=-]{7,8191}\z') { return $false }
     try {
         $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($token)) | ConvertFrom-Json -NoEnumerate -ErrorAction Stop
-        return [bool]((($json -is [System.Management.Automation.PSCustomObject]) -and $json.token -is [string]) -and $json.token -and ($json.rpccontext.sockname -is [string]) -and $json.rpccontext.sockname)
+        if ($json -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+        $top = @($json.PSObject.Properties.Name)
+        if ($top.Count -ne 2 -or $top -cnotcontains 'token' -or $top -cnotcontains 'rpccontext') { return $false }
+        if ($json.token -isnot [string] -or $json.token -cnotmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') { return $false }
+        $ctx = $json.rpccontext
+        if ($ctx -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+        foreach ($prop in $ctx.PSObject.Properties) {
+            if (-not $SwapContextTypes.ContainsKey($prop.Name) -or $prop.Value -isnot $SwapContextTypes[$prop.Name]) { return $false }
+        }
+        $names = @($ctx.PSObject.Properties.Name)
+        return [bool](($names -ccontains 'sockname') -and $ctx.sockname -and ($names -ccontains 'routeid'))
     } catch { return $false }
 }
 
@@ -313,6 +326,8 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
             if ($parsed) { $found += $parsed }
         }
         if ($found.Count -eq 0) { return 'no-lines' }
+        # wsh in this session needs WAVETERM_JWT; without it the exchange gave no access, so it is no success and nothing is set
+        if (-not ($found | Where-Object { $_.Name -ceq 'WAVETERM_JWT' -and $_.Value })) { return 'no-access' }
         foreach ($parsed in $found) { Set-Item -Path "env:$($parsed.Name)" -Value $parsed.Value }
         $script:SwapNames = @($found | ForEach-Object { $_.Name })
         return 'ok'

@@ -32,13 +32,13 @@ $made.Add($swapLog)
 $env:RESUMABLE_TEST_LOG = $swapLog
 $env:RESUMABLE_TEST_LOGROOT = $root
 # a token made the way Wave makes it (shellutil PackSwapToken): base64 of JSON {"token": uuid, "rpccontext": {...}}, here with bytes that give + / and =
-$packedJson = '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"C:\\Users\\x\\AppData\\Local\\Temp\\wave-1234\\wave.sock","routeid":"proc:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","blockid":"22222222-aaaa-bbbb-cccc-333333333333","conn":">>>???>>>???x"}}'
+$packedJson = '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"C:\\Users\\x\\AppData\\Local\\Temp\\wave-1234\\wave.sock","routeid":"","procroute":true,"blockid":"22222222-aaaa-bbbb-cccc-333333333333","conn":">>>???>>>???x"}}'
 $packedToken = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($packedJson))
 $env:RESUMABLE_TEST_PACKED = $packedToken
 $env:RESUMABLE_TEST_WSHROOT = $root
 # The result must be the same inside a Wave tile as outside one: the WAVETERM_* values of a tile (a real JWT and block id) and its PATH entry for the real wsh
 # would leak into every child below and turn six checks red (seen on 12 Oct 2026, the first run from a tile). Each scenario sets what it needs itself.
-foreach ($v in @(Get-ChildItem env: | Where-Object { $_.Name -like 'WAVETERM*' })) { Remove-Item -LiteralPath ('Env:' + $v.Name) }
+foreach ($v in @(Get-ChildItem env: | Where-Object { $_.Name -like 'WAVETERM*' -or $_.Name -eq 'TERM_PROGRAM' })) { Remove-Item -LiteralPath ('Env:' + $v.Name) }
 function Test-HasWsh([string]$dir) { try { (Test-Path -LiteralPath (Join-Path $dir 'wsh.exe')) -or (Test-Path -LiteralPath (Join-Path $dir 'wsh.cmd')) } catch { $false } }
 $env:PATH = (@($env:PATH -split ';' | Where-Object { $_ -and -not (Test-HasWsh $_) }) -join ';')
 try {
@@ -253,7 +253,16 @@ class P {
     Check 'wsh was called once with exactly: token <the token> pwsh' ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq ('token ' + $packedToken + ' pwsh')) ((Get-Content -LiteralPath $swapArgs -Raw))
     Check 'an injected command line did not run (the file it names is still there)' (Test-Path -LiteralPath $swapOut) ''
     # a token that is not a plain token never reaches wsh (a space, a quote, a leading dash, too short, too long, a semicolon)
-    foreach ($badToken in 'tok 123 extra', 'tok"123', "tok'123", ('-' + $packedToken), ($packedToken + ';calc'), ($packedToken + [string][char]10), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('[{"token":"x","rpccontext":{"sockname":"s"}}]'))), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{"sockname":"s"},"pad":"' + ('p' * 7000) + '"}'))), 'short', ('a' * 80), ('a' * 8200), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('hello this is not json at all')), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{}}')), '11111111-aaaa-bbbb-cccc-222222222222') {
+    foreach ($badToken in @(@('tok 123 extra', 'tok"123', "tok'123", ('-' + $packedToken), ($packedToken + ';calc'), ($packedToken + [string][char]10), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('[{"token":"x","rpccontext":{"sockname":"s"}}]'))), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{"sockname":"s"},"pad":"' + ('p' * 7000) + '"}'))), 'short', ('a' * 80), ('a' * 8200), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('hello this is not json at all')), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{}}')), '11111111-aaaa-bbbb-cccc-222222222222') + @(foreach ($j in @(
+            '{"token":"x","rpccontext":{"sockname":"s","routeid":""}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s"}}',
+            '{"token":"11111111-AAAA-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":""}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","procroute":"yes"}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":0}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","evil":"x"}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":""},"extra":1}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":"s"}'
+        )) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($j)) }))) {
         Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
         $env:RESUMABLE_TEST_SWAPTOKEN = $badToken
         $r = Run-Child 'swap' $cfg '' '' $swapDir
@@ -261,6 +270,41 @@ class P {
         Check "the same token is logged as swap=token-shape and the Note carries the code" (((Get-Content -LiteralPath $swapLog -Tail 1) -match " swap=token-shape$") -and ($r.Text -match "\(swap=token-shape\)")) (Get-Content -LiteralPath $swapLog -Tail 1)
     }
     Remove-Item Env:RESUMABLE_TEST_SWAPTOKEN -ErrorAction SilentlyContinue
+    # ---- the real format: a token packed by Wave's own code (tools/ours/packswaptoken, TokenSwapEntry.PackForClient), and the real wsh ----
+    $go = if ($env:RESUMABLE_TEST_GO) { $env:RESUMABLE_TEST_GO } else { (Get-Command go -ErrorAction SilentlyContinue).Source }
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    if (-not $go) {
+        "SKIP  the real-format checks: no go (set RESUMABLE_TEST_GO to go.exe)"
+    } else {
+        $fakeSock = Join-Path $root 'no-such-wave.sock'
+        Push-Location $repoRoot
+        try {
+            $realToken = (& $go run ./tools/ours/packswaptoken $fakeSock 2>$null | Out-String).Trim()
+            $realWsh = Join-Path $root 'realwsh\wsh.exe'
+            & $go build -o $realWsh ./cmd/wsh 2>$null | Out-Null
+            $made.Add($realWsh)
+        } finally { Pop-Location }
+        Check 'a token packed by Wave itself was made' ($realToken.Length -gt 40) "[$realToken]"
+        Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
+        $env:RESUMABLE_TEST_SWAPTOKEN = $realToken
+        $r = Run-Child 'swap' $cfg '' '' $swapDir
+        Check 'a token packed by Wave itself passes the shape check and reaches wsh' ((Test-Path -LiteralPath $swapArgs) -and ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq ('token ' + $realToken + ' pwsh'))) "args=$(Test-Path -LiteralPath $swapArgs) $(Get-Content -LiteralPath $swapLog -Tail 1)"
+        Remove-Item Env:RESUMABLE_TEST_SWAPTOKEN -ErrorAction SilentlyContinue
+        Check 'the real wsh was built' (Test-Path -LiteralPath $realWsh) 'no real wsh'
+        if (Test-Path -LiteralPath $realWsh) {
+            $errOut = Join-Path $root 'realwsh-err.txt'
+            $p = Start-Process -FilePath $realWsh -ArgumentList @('token', $realToken, 'pwsh') -NoNewWindow -Wait -PassThru -RedirectStandardError $errOut -RedirectStandardOutput (Join-Path $root 'realwsh-out.txt')
+            $made.Add($errOut); $made.Add((Join-Path $root 'realwsh-out.txt'))
+            $wshErr = Get-Content -LiteralPath $errOut -Raw
+            Check 'the real wsh unpacks the token and fails only on the missing socket (no server here)' (($p.ExitCode -ne 0) -and -not ($wshErr -match 'unpacking token|no rpccontext|no sockname') -and ($wshErr -match 'domain socket')) "exit=$($p.ExitCode) $wshErr"
+            # through the starter with the real wsh: the call is made and its failure is a closed code; the success path needs a running Wave
+            $realDir = Split-Path -Parent $realWsh
+            $env:RESUMABLE_TEST_SWAPTOKEN = $realToken
+            $r = Run-Child 'swap' $cfg '' '' $realDir
+            Remove-Item Env:RESUMABLE_TEST_SWAPTOKEN -ErrorAction SilentlyContinue
+            Check 'the starter with the real wsh and no server: swap=exit-code:1, the session starts, nothing is set' (((Get-Content -LiteralPath $swapLog -Tail 1) -match ' swap=exit-code:1$') -and ($r.Code -eq 0) -and -not ($r.Text -match 'ENV: WAVETERM_JWT')) "$(Get-Content -LiteralPath $swapLog -Tail 1) $($r.Text)"
+        }
+    }
     # wsh prints good lines and then exits with an error: nothing is taken
     $env:SWAP_FAIL_AFTER = '1'
     $r = Run-Child 'swap' $cfg '' '' $swapDir
@@ -268,10 +312,22 @@ class P {
     Remove-Item Env:SWAP_FAIL_AFTER -ErrorAction SilentlyContinue
     # a value with a control character (tab, bell) is refused
     $ctl = Join-Path $root 'swap-control.txt'
-    Make-File $ctl ([string]::Join([string][char]10, @(('$env:WAVETERM_JWT = "a' + [char]9 + 'b"'), ('$env:WAVETERM_TABID = "x' + [char]7 + 'y"'), '$env:WAVETERM_BLOCKID = "block-ok"')))
+    Make-File $ctl ([string]::Join([string][char]10, @(('$env:WAVETERM_CLIENTID = "a' + [char]9 + 'b"'), ('$env:WAVETERM_TABID = "x' + [char]7 + 'y"'), '$env:WAVETERM_BLOCKID = "block-ok"', '$env:WAVETERM_JWT = "jwt-ok"')))
     $env:SWAP_OUTPUT = $ctl
     $r = Run-Child 'swap' $cfg '' '' $swapDir
-    Check 'a value with a control character is refused, the line next to it is still taken' (-not ($r.Text -match 'WAVETERM_JWT') -and -not ($r.Text -match 'WAVETERM_TABID') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-ok')) $r.Text
+    Check 'a value with a control character is refused, the line next to it is still taken' (-not ($r.Text -match 'WAVETERM_CLIENTID') -and -not ($r.Text -match 'WAVETERM_TABID') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-ok')) $r.Text
+    # no WAVETERM_JWT among the lines taken: wsh access is not there, so it is no success and nothing is set
+    foreach ($case in @(
+            @('only TERM_PROGRAM', @('$env:TERM_PROGRAM = "waveterm"')),
+            @('a block id and no JWT', @('$env:WAVETERM_BLOCKID = "block-nojwt"', '$env:TERM_PROGRAM = "waveterm"')),
+            @('a JWT that was refused', @(('$env:WAVETERM_JWT = "a' + [char]9 + 'b"'), '$env:WAVETERM_BLOCKID = "block-nojwt"'))
+        )) {
+        $noJwt = Join-Path $root 'swap-nojwt.txt'
+        Make-File $noJwt ([string]::Join([string][char]10, $case[1]))
+        $env:SWAP_OUTPUT = $noJwt
+        $r = Run-Child 'swap' $cfg '' '' $swapDir
+        Check ("wsh output with " + $case[0] + " is swap=no-access: nothing is set and the session starts") (((Get-Content -LiteralPath $swapLog -Tail 1) -match ' swap=no-access$') -and ($r.Text -match '\(swap=no-access\)') -and -not ($r.Text -match 'block-nojwt') -and -not ($r.Text -match 'ENV: TERM_PROGRAM') -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0) "$(Get-Content -LiteralPath $swapLog -Tail 1) $($r.Text)"
+    }
     $env:SWAP_OUTPUT = $swapOut
     $env:SWAP_FAIL = '1'
     $r = Run-Child 'swap' $cfg '' '' $swapDir
@@ -442,10 +498,10 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Remove-Item Env:RESUMABLE_TEST_SWAPTIMEOUT -ErrorAction SilentlyContinue
     # a line above 16 KB is ignored, the lines next to it are taken
     $bigFile = Join-Path $root 'swap-big.txt'
-    Make-File $bigFile ([string]::Join([string][char]10, @(('$env:WAVETERM_JWT = "' + ('x' * 20000) + '"'), '$env:WAVETERM_BLOCKID = "block-big"')))
+    Make-File $bigFile ([string]::Join([string][char]10, @(('$env:WAVETERM_CLIENTID = "' + ('x' * 20000) + '"'), '$env:WAVETERM_BLOCKID = "block-big"', '$env:WAVETERM_JWT = "jwt-big"')))
     $env:SWAP_OUTPUT = $bigFile
     $r = Run-Child 'swap' $cfg '' '' $swapDir
-    Check 'a line with a value above 16 KB is ignored, the next line is still taken' (-not ($r.Text -match 'WAVETERM_JWT') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-big')) $r.Text.Substring(0, [Math]::Min(300, $r.Text.Length))
+    Check 'a line with a value above 16 KB is ignored, the next line is still taken' (-not ($r.Text -match 'WAVETERM_CLIENTID') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-big')) $r.Text.Substring(0, [Math]::Min(300, $r.Text.Length))
     $env:SWAP_OUTPUT = $swapOut
     # inherited access: removed when an exchange was tried and failed, replaced on success, left alone when there was no token at all
     $env:RESUMABLE_TEST_INHERIT = '1'

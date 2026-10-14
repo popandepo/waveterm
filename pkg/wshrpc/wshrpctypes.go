@@ -308,6 +308,9 @@ type CommandCreateBlockData struct {
 	Focused       bool                 `json:"focused,omitempty"`
 	TargetBlockId string               `json:"targetblockid,omitempty"`
 	TargetAction  string               `json:"targetaction,omitempty"` // "replace", "splitright", "splitdown", "splitleft", "splitup", "stack"
+	// NodeSize is the weight of the new tile in the layout (a tile that nobody resized has 10). It counts only when the block becomes a new tile
+	// (inserted or split in), not for "replace" and "stack".
+	NodeSize *uint `json:"nodesize,omitempty"`
 }
 
 // StackBlockAction_* in wshrpctypes_const.go. Focused is false unless asked for: a layout change never takes

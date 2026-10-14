@@ -69,4 +69,17 @@ describe("the layout model applies the weight of a queued backend action", () =>
         });
         assert.deepEqual(weights(model), [DefaultNodeSize, DefaultNodeSize]);
     });
+
+    // the plain insert is where the weight used to be dropped (the handler built the node without it)
+    test("a plain insert with nodesize 4 gives the new tile weight 4", async () => {
+        const model: any = modelWithOneTile();
+        await model.handleBackendAction({ actiontype: "insert", actionid: "a3", blockid: "added", nodesize: 4 });
+        assert.deepEqual(weights(model), [DefaultNodeSize, 4]);
+    });
+
+    test("a plain insert without a nodesize gives the default weight", async () => {
+        const model: any = modelWithOneTile();
+        await model.handleBackendAction({ actiontype: "insert", actionid: "a4", blockid: "added" });
+        assert.deepEqual(weights(model), [DefaultNodeSize, DefaultNodeSize]);
+    });
 });

@@ -33,7 +33,7 @@ var webShotCmd = &cobra.Command{
 	Use:   "shot [-b block]",
 	Short: "save a picture of one web tile (own workspace, and only a tile with its own web:partition) to a new PNG file",
 	Long: `Saves a PNG of the web contents of ONE tile, not of the window, and prints its path. Reads only: nothing is navigated, clicked or
-focused. The file always goes into the tool's own folder (web-shots under the local application data folder, Wave\web-shots), with a new
+focused. The file always goes into the tool's own folder (AppData\Local\Wave\web-shots of your profile; the 50 newest are kept), with a new
 name made of the block id, the UTC time and a random part; the caller does not choose a folder or a name, and no file is ever written over.
 The tile must be shown (a tile in a tab that is not shown gives an empty picture, which is an error, not a blank file).
 

@@ -41,9 +41,9 @@ var sessionCreateBlock = func(data wshrpc.CommandCreateBlockData) (string, error
 
 // validateSessionStackOptions refuses what cannot go together with --stack before anything is looked up or created. A stacked session is a tile in
 // a tab that already exists, so there is no new tab to switch to. stackGiven is whether --stack was on the command line: an empty value given
-// there is refused, never read as no --stack (that would quietly create a tab instead).
+// there is refused, never read as no --stack (that would quietly create a tab instead). A value is checked however it arrived.
 func validateSessionStackOptions(stackGiven bool, stack string, activate bool) error {
-	if !stackGiven {
+	if !stackGiven && stack == "" {
 		return nil
 	}
 	if strings.TrimSpace(stack) == "" {

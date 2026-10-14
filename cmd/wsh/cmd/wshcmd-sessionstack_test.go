@@ -18,6 +18,9 @@ func TestStackAndActivateAreRefusedTogetherBeforeAnything(t *testing.T) {
 	if err := validateSessionStackOptions(true, "3", true); err == nil || !strings.Contains(err.Error(), "--activate") {
 		t.Fatalf("want a --activate refusal, got %v", err)
 	}
+	if err := validateSessionStackOptions(false, "3", true); err == nil || !strings.Contains(err.Error(), "--activate") {
+		t.Fatalf("a stack value is checked however it arrived, got %v", err)
+	}
 	if err := validateSessionStackOptions(true, "3", false); err != nil {
 		t.Fatalf("a stack without activate is the normal case: %v", err)
 	}

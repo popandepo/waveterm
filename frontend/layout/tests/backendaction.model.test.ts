@@ -12,9 +12,14 @@ vi.mock("@/app/store/global", () => {
         WOS: { makeORef: (t: string, id: string) => `${t}:${id}`, getWaveObjectAtom: () => atom(undefined) },
     };
 });
-vi.mock("@/app/store/wos", () => ({ makeORef: (t: string, id: string) => `${t}:${id}`, getWaveObjectAtom: () => undefined }));
+vi.mock("@/app/store/wos", () => ({
+    makeORef: (t: string, id: string) => `${t}:${id}`,
+    getWaveObjectAtom: () => undefined,
+}));
 vi.mock("@/app/store/services", () => ({ BlockService: {}, ObjectService: {} }));
-vi.mock("@/app/store/focusManager", () => ({ FocusManager: { getInstance: () => ({ requestNodeFocus: () => {}, setBlockFocus: () => {} }) } }));
+vi.mock("@/app/store/focusManager", () => ({
+    FocusManager: { getInstance: () => ({ requestNodeFocus: () => {}, setBlockFocus: () => {} }) },
+}));
 
 import { LayoutModel } from "../lib/layoutModel";
 import { newLayoutNode } from "../lib/layoutNode";
@@ -41,14 +46,27 @@ describe("the layout model applies the weight of a queued backend action", () =>
     for (const actiontype of ["splithorizontal", "splitvertical"]) {
         test(`${actiontype} with nodesize 4 gives the new tile weight 4 next to a default tile`, async () => {
             const model: any = modelWithOneTile();
-            await model.handleBackendAction({ actiontype, actionid: "a1", blockid: "added", targetblockid: "left", position: "after", nodesize: 4 });
+            await model.handleBackendAction({
+                actiontype,
+                actionid: "a1",
+                blockid: "added",
+                targetblockid: "left",
+                position: "after",
+                nodesize: 4,
+            });
             assert.deepEqual(weights(model), [DefaultNodeSize, 4]);
         });
     }
 
     test("without a nodesize the new tile has the default weight", async () => {
         const model: any = modelWithOneTile();
-        await model.handleBackendAction({ actiontype: "splithorizontal", actionid: "a2", blockid: "added", targetblockid: "left", position: "after" });
+        await model.handleBackendAction({
+            actiontype: "splithorizontal",
+            actionid: "a2",
+            blockid: "added",
+            targetblockid: "left",
+            position: "after",
+        });
         assert.deepEqual(weights(model), [DefaultNodeSize, DefaultNodeSize]);
     });
 });

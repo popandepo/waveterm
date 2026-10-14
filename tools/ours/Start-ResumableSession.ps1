@@ -17,8 +17,10 @@ param(
     [switch]$ThrowawayConfig,
     [string[]]$PluginDir = @(),
     [string]$Command = 'claude',
-    [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 5,
+    [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 15,
     [string]$WshRoot = (Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin'),
+    [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
+    [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -147,7 +149,7 @@ function Resolve-WshFolder([string]$dir) {
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $null }
     $final = Get-FinalPath $dir
     $homeFinal = Get-FinalPath $env:USERPROFILE
-    $rootFinal = if ($WshRoot -match '^[A-Za-z]:[\\/]') { Get-FinalPath $WshRoot } else { $null }
+    $rootFinal = if ($WshRoot -match '^[A-Za-z]:[\\/]' -and -not (Test-PlainlyForbidden $WshRoot)) { Get-FinalPath $WshRoot } else { $null }
     if (-not $final -or -not $homeFinal -or -not $rootFinal) { return $null }
     foreach ($bad in '.claude', '.claude-work') { if (Test-Under $final "$homeFinal\$bad") { return $null } }
     if (-not (Test-Under $final $rootFinal)) { return $null }
@@ -224,9 +226,12 @@ try {
 #    from, so it gets the same gates as the config and plugin folders: fully qualified; a plain-spelling refusal of .claude and .claude-work before any file
 #    system call; then its FINAL path must be at or below -WshRoot (default %LOCALAPPDATA%\WaveFork\profile\data\bin: what Wave sets, its data folder plus
 #    "bin"; a test names its own root) and never at or below .claude or .claude-work. The same folder is checked before it goes on the PATH.
-#  - The token must be a plain token (Wave mints a UUID): letters, digits, dash, underscore, 8 to 64 characters, no leading dash; anything else is no token
-#    and wsh is not called. It goes in as an argument list element, never joined into a string.
-#  - One deadline (-SwapTimeoutSeconds, default 5) covers the whole exchange: the read of the output and the exit. At the deadline wsh is killed and the
+#  - The token is the PACKED form Wave puts in the environment (base64 of JSON with the real token and the socket name, a few hundred characters): base64
+#    alphabet only, 8 to 8192 characters, no leading dash, and it must decode to JSON with a token and a rpccontext.sockname (nothing of it is printed);
+#    anything else is no token and wsh is not called. It goes in as ONE argument list element, never joined into a string.
+#  - The outcome is ONE code from a closed list (ok, no-token, token-shape, wsh-folder, wsh-missing, start-failed, timeout, too-large, no-lines, exit-code:<n>),
+#    never wsh's own words. It is on the Note line and in one line of a small log (-LogPath, default %LOCALAPPDATA%\WaveFork\logs\starter.log, 200 lines).
+#  - One deadline (-SwapTimeoutSeconds, default 15) covers the whole exchange: the read of the output and the exit. At the deadline wsh is killed and the
 #    session goes on. The output is read in pieces and refused above 256 KB; a line above 16 KB is ignored.
 #  - What it prints is PARSED, never run: only lines of the exact form  $env:NAME = "value"  with NAME on the fixed list below are taken; every other line is
 #    ignored (a command, a subexpression, an assignment to PATH or to another name, a line with more after the value). Inside the value Wave escapes a double
@@ -250,16 +255,42 @@ function ConvertFrom-WshAssignment([string]$line) {
     return @{ Name = $m.Groups[1].Value; Value = $value }
 }
 
+$SwapCodes = @('ok', 'no-token', 'token-shape', 'wsh-folder', 'wsh-missing', 'start-failed', 'timeout', 'too-large', 'no-lines', 'no-access')
+$script:SwapNames = @()
+
+# The packed token that Wave puts in WAVETERM_SWAPTOKEN: base64 (standard alphabet) of a JSON object {"token": <uuid>, "rpccontext": {...}}
+# (shellutil TokenSwapEntry.PackForClient). It is judged by its form and by what it decodes to, and nothing of it is ever printed or logged: exactly the
+# two keys, the token a lower-case canonical uuid, and rpccontext only the fields of wshrpc.RpcContext with their types, sockname not empty and routeid
+# present (it has no omitempty, so Wave always writes it, often empty).
+$SwapContextTypes = @{ sockname = [string]; routeid = [string]; procroute = [bool]; blockid = [string]; conn = [string]; isrouter = [bool] }
+function Test-PackedSwapToken([string]$token) {
+    if ($token -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9_+/=-]{7,8191}\z') { return $false }
+    try {
+        $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($token)) | ConvertFrom-Json -NoEnumerate -ErrorAction Stop
+        if ($json -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+        $top = @($json.PSObject.Properties.Name)
+        if ($top.Count -ne 2 -or $top -cnotcontains 'token' -or $top -cnotcontains 'rpccontext') { return $false }
+        if ($json.token -isnot [string] -or $json.token -cnotmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') { return $false }
+        $ctx = $json.rpccontext
+        if ($ctx -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+        foreach ($prop in $ctx.PSObject.Properties) {
+            # field names are matched exactly (a hashtable lookup ignores case, so BLOCKID would pass as blockid)
+            if (@($SwapContextTypes.Keys) -cnotcontains $prop.Name -or $prop.Value -isnot $SwapContextTypes[$prop.Name]) { return $false }
+        }
+        $names = @($ctx.PSObject.Properties.Name)
+        return [bool](($names -ccontains 'sockname') -and $ctx.sockname -and ($names -ccontains 'routeid'))
+    } catch { return $false }
+}
+
+# Returns ONE code from the closed list in $SwapCodes, or 'exit-code:<n>'. Never wsh's own words (its error text can hold a path, a socket name or the token).
 function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
     $token = $env:WAVETERM_SWAPTOKEN
-    if (-not $token) { return $false }
-    # Wave mints a UUID (36 characters: hex digits and dashes). Anything that is not a plain token (a space, a quote, a leading dash, a very long text) is no
-    # token: wsh is not called, so a token can never become extra arguments of the call.
-    if ($token -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9_-]{7,63}$') { return $false }
+    if (-not $token) { return 'no-token' }
+    if (-not (Test-PackedSwapToken $token)) { return 'token-shape' }
     $binDir = Resolve-WshFolder $env:WAVETERM_WSHBINDIR
-    if (-not $binDir) { return $false }
+    if (-not $binDir) { return 'wsh-folder' }
     $wsh = Join-Path $binDir 'wsh.exe'
-    if (-not (Test-Path -LiteralPath $wsh -PathType Leaf)) { return $false }
+    if (-not (Test-Path -LiteralPath $wsh -PathType Leaf)) { return 'wsh-missing' }
     $proc = $null
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -271,7 +302,7 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
         $psi.CreateNoWindow = $true
         $clock = [System.Diagnostics.Stopwatch]::StartNew()
         $deadlineMs = $timeoutSeconds * 1000
-        $proc = [System.Diagnostics.Process]::Start($psi)
+        try { $proc = [System.Diagnostics.Process]::Start($psi) } catch { return 'start-failed' }
         $null = $proc.StandardError.ReadToEndAsync()
         # one deadline for the read and the exit: the output is read in pieces (a wsh whose child keeps the pipe open, or one that never ends, ends at the
         # deadline), and above the size limit it is refused
@@ -280,37 +311,80 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
         $reader = $proc.StandardOutput
         while ($true) {
             $left = $deadlineMs - $clock.ElapsedMilliseconds
-            if ($left -le 0) { try { $proc.Kill($true) } catch { }; return $false }
+            if ($left -le 0) { try { $proc.Kill($true) } catch { }; return 'timeout' }
             $read = $reader.ReadAsync($buffer, 0, $buffer.Length)
-            if (-not $read.Wait([int]$left)) { try { $proc.Kill($true) } catch { }; return $false }
+            if (-not $read.Wait([int]$left)) { try { $proc.Kill($true) } catch { }; return 'timeout' }
             if ($read.Result -le 0) { break }
             [void]$text.Append($buffer, 0, $read.Result)
-            if ($text.Length -gt $SwapMaxOutputChars) { try { $proc.Kill($true) } catch { }; return $false }
+            if ($text.Length -gt $SwapMaxOutputChars) { try { $proc.Kill($true) } catch { }; return 'too-large' }
         }
         $left = $deadlineMs - $clock.ElapsedMilliseconds
-        if ($left -le 0 -or -not $proc.WaitForExit([int]$left)) { try { $proc.Kill($true) } catch { }; return $false }
-        if ($proc.ExitCode -ne 0) { return $false }
-        $taken = 0
+        if ($left -le 0 -or -not $proc.WaitForExit([int]$left)) { try { $proc.Kill($true) } catch { }; return 'timeout' }
+        if ($proc.ExitCode -ne 0) { return ('exit-code:' + [int]$proc.ExitCode) }
+        $found = @()
         foreach ($line in ($text.ToString() -split "`r?`n")) {
             $parsed = ConvertFrom-WshAssignment $line
-            if ($parsed) { Set-Item -Path "env:$($parsed.Name)" -Value $parsed.Value; $taken++ }
+            if ($parsed) { $found += $parsed }
         }
-        return ($taken -gt 0)
+        if ($found.Count -eq 0) { return 'no-lines' }
+        # wsh in this session needs WAVETERM_JWT; without it the exchange gave no access, so it is no success and nothing is set
+        if (-not ($found | Where-Object { $_.Name -ceq 'WAVETERM_JWT' -and $_.Value })) { return 'no-access' }
+        foreach ($parsed in $found) { Set-Item -Path "env:$($parsed.Name)" -Value $parsed.Value }
+        $script:SwapNames = @($found | ForEach-Object { $_.Name })
+        return 'ok'
     } catch {
-        return $false
+        return 'start-failed'
     } finally {
         if ($proc) { $proc.Dispose() }
     }
 }
 
+# One line "<time> <session name> swap=<code>" (on success also the NAMES of the variables set, never a value) in a small log, capped at 200 lines by
+# rewriting. Only fixed codes and names that passed the parser go in. A log that cannot be written is ignored.
+function Write-SwapLog([string]$code, [string[]]$names) {
+    try {
+        if (-not $LogPath -or $DryRun) { return }
+        if ($LogPath -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogPath)) { return }
+        $who = $(if ($Name) { $Name } else { $SessionId }) -replace '[^A-Za-z0-9_.-]', '_'
+        if ($who.Length -gt 40) { $who = $who.Substring(0, 40) }
+        $line = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $who + ' swap=' + $code
+        if ($names -and $names.Count -gt 0) { $line += ' set=' + ($names -join ',') }
+        $dir = Split-Path -Parent $LogPath
+        # the log's FINAL folder (the deepest existing ancestor resolved, as for every other folder) must be at or below -LogRoot and never at or below .claude or
+        # .claude-work: judged BEFORE any folder is made or the file is opened. A log file that is itself a link is not written.
+        if ($LogRoot -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogRoot)) { return }
+        $finalDir = Get-FinalPath $dir
+        $rootFinal = Get-FinalPath $LogRoot
+        $homeFinal = Get-FinalPath $env:USERPROFILE
+        if (-not $finalDir -or -not $rootFinal -or -not $homeFinal -or -not (Test-Under $finalDir $rootFinal)) { return }
+        foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { return } }
+        if ((Test-Path -LiteralPath $LogPath) -and ((Get-Item -LiteralPath $LogPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
+        # The existing log is only READ (its tail). The new content goes into a new file beside it (random name, exclusive create) and then replaces the
+        # directory entry, so an existing log that is a HARD link to some other file is never written to: the other name keeps its content.
+        # Remaining window, in plain words: between the checks above and this write a program running as the same user could swap the folder for a link in
+        # that instant; nothing in the starter can close that (it needs such a program to be running already).
+        $old = @(); if (Test-Path -LiteralPath $LogPath -PathType Leaf) { $old = @(Get-Content -LiteralPath $LogPath -Tail 199) }
+        $tmp = Join-Path $finalDir ('.starter-log-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.tmp')
+        try {
+            $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes((((@($old) + $line) -join [Environment]::NewLine) + [Environment]::NewLine)); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+            [IO.File]::Move($tmp, (Join-Path $finalDir (Split-Path -Leaf $LogPath)), $true)
+        } catch {
+            try { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } } catch { }
+        }
+    } catch { }
+}
+
 if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
-    $swapped = $false
-    try { $swapped = Invoke-WaveTokenSwap $SwapTimeoutSeconds } catch { }
+    $swapCode = 'start-failed'
+    try { $swapCode = Invoke-WaveTokenSwap $SwapTimeoutSeconds } catch { }
     Remove-Item Env:WAVETERM_SWAPTOKEN -ErrorAction SilentlyContinue
-    if (-not $swapped) {
+    Write-SwapLog $swapCode $script:SwapNames
+    if ($swapCode -ne 'ok') {
         # a failed exchange leaves nothing that looks like access: whatever was inherited is removed
         foreach ($n in 'WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID') { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
-        [Console]::Error.WriteLine('Note: the Wave token could not be exchanged, so this session starts without wsh access (restart the block to get it).')
+        [Console]::Error.WriteLine("Note: the Wave token could not be exchanged (swap=$swapCode), so this session starts without wsh access. Restarting the block gives a new token.")
     }
 }
 $claudeArgs = @(Get-ClaudeArgs)

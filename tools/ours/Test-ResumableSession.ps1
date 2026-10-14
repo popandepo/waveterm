@@ -22,7 +22,25 @@ $workDir = Join-Path $profileDir '.claude-work'
 $throw = Join-Path $root 'throwaway'
 foreach ($d in $root, $profileDir, $personal, $cfg, $oldDir, $workDir, $throw, (Join-Path $cfg 'projects'), (Join-Path $cfg 'projects\some-folder')) { Make-Dir $d }
 $env:USERPROFILE = $profileDir
+$realLocal = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = Join-Path $root 'localappdata'
+Make-Dir $env:LOCALAPPDATA
+$logDir = Join-Path $root 'logs'
+Make-Dir $logDir
+$swapLog = Join-Path $logDir 'starter.log'
+$made.Add($swapLog)
+$env:RESUMABLE_TEST_LOG = $swapLog
+$env:RESUMABLE_TEST_LOGROOT = $root
+# a token made the way Wave makes it (shellutil PackSwapToken): base64 of JSON {"token": uuid, "rpccontext": {...}}, here with bytes that give + / and =
+$packedJson = '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"C:\\Users\\x\\AppData\\Local\\Temp\\wave-1234\\wave.sock","routeid":"","procroute":true,"blockid":"22222222-aaaa-bbbb-cccc-333333333333","conn":">>>???>>>???x"}}'
+$packedToken = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($packedJson))
+$env:RESUMABLE_TEST_PACKED = $packedToken
 $env:RESUMABLE_TEST_WSHROOT = $root
+# The result must be the same inside a Wave tile as outside one: the WAVETERM_* values of a tile (a real JWT and block id) and its PATH entry for the real wsh
+# would leak into every child below and turn six checks red (seen on 12 Oct 2026, the first run from a tile). Each scenario sets what it needs itself.
+foreach ($v in @(Get-ChildItem env: | Where-Object { $_.Name -like 'WAVETERM*' -or $_.Name -eq 'TERM_PROGRAM' })) { Remove-Item -LiteralPath ('Env:' + $v.Name) }
+function Test-HasWsh([string]$dir) { try { (Test-Path -LiteralPath (Join-Path $dir 'wsh.exe')) -or (Test-Path -LiteralPath (Join-Path $dir 'wsh.cmd')) } catch { $false } }
+$env:PATH = (@($env:PATH -split ';' | Where-Object { $_ -and -not (Test-HasWsh $_) }) -join ';')
 try {
     # ---- the choice between create and resume ----
     $firstOut = & $script -SessionId $id -ConfigDir $cfg -Model m1 -Effort low -PermissionMode auto -Name n1 -Prompt 'hello' -DryRun
@@ -80,12 +98,14 @@ switch ($PathMode) {
     'other' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = $env:RESUMABLE_TEST_OTHERDIR + $sep + $env:PATH }
     'path-huge' { $env:WAVETERM_WSHBINDIR = $WshDir; $env:PATH = ('x' + $sep) * 16380; $env:RESUMABLE_TEST_NOWSH = '1' }
     'unset' { Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
-    'swap' { $env:WAVETERM_SWAPTOKEN = $(if ($env:RESUMABLE_TEST_SWAPTOKEN) { $env:RESUMABLE_TEST_SWAPTOKEN } else { '11111111-aaaa-bbbb-cccc-222222222222' }); $env:WAVETERM_WSHBINDIR = $SwapDir }
-    'swap-nowsh' { $env:WAVETERM_SWAPTOKEN = '11111111-aaaa-bbbb-cccc-222222222222'; Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
-    'swap-nodir' { $env:WAVETERM_SWAPTOKEN = '11111111-aaaa-bbbb-cccc-222222222222'; $env:WAVETERM_WSHBINDIR = $WshDir }
+    'swap' { $env:WAVETERM_SWAPTOKEN = $(if ($env:RESUMABLE_TEST_SWAPTOKEN) { $env:RESUMABLE_TEST_SWAPTOKEN } else { $env:RESUMABLE_TEST_PACKED }); $env:WAVETERM_WSHBINDIR = $SwapDir }
+    'swap-nowsh' { $env:WAVETERM_SWAPTOKEN = $env:RESUMABLE_TEST_PACKED; Remove-Item Env:WAVETERM_WSHBINDIR -ErrorAction SilentlyContinue }
+    'swap-nodir' { $env:WAVETERM_SWAPTOKEN = $env:RESUMABLE_TEST_PACKED; $env:WAVETERM_WSHBINDIR = $WshDir }
 }
 $extra = @{}
 if ($env:RESUMABLE_TEST_WSHROOT) { $extra.WshRoot = $env:RESUMABLE_TEST_WSHROOT }
+if ($env:RESUMABLE_TEST_LOG) { $extra.LogPath = $env:RESUMABLE_TEST_LOG }
+if ($env:RESUMABLE_TEST_LOGROOT) { $extra.LogRoot = $env:RESUMABLE_TEST_LOGROOT }
 if ($env:RESUMABLE_TEST_INHERIT) { $env:WAVETERM_JWT = 'inherited-jwt'; $env:WAVETERM_BLOCKID = 'inherited-block'; $env:WAVETERM_TABID = 'inherited-tab'; $env:WAVETERM_WORKSPACEID = 'inherited-ws' }
 if ($env:RESUMABLE_TEST_DECOYDIR) { $env:PATH = $env:RESUMABLE_TEST_DECOYDIR + $sep + $env:PATH }
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
@@ -186,9 +206,10 @@ class P {
         if (File.Exists(Path.Combine(Path.GetDirectoryName(self), "decoy.marker"))) argsFile = Environment.GetEnvironmentVariable("RESUMABLE_TEST_DECOYARGS");
         if (argsFile != null) File.WriteAllText(argsFile, string.Join(" ", a));
         if (Environment.GetEnvironmentVariable("SWAP_HANG") == "1") Thread.Sleep(20000);
+        if (Environment.GetEnvironmentVariable("SWAP_ECHO_ERR") == "1") { Console.Error.WriteLine("wsh says: " + string.Join(" ", a)); return 1; }
         if (Environment.GetEnvironmentVariable("SWAP_FAIL") == "1") return 1;
         string o = Environment.GetEnvironmentVariable("SWAP_OUTPUT");
-        if (Environment.GetEnvironmentVariable("SWAP_FLOOD") == "1") { for (int i = 0; i < 400; i++) Console.Out.WriteLine("$env:EVIL = \"" + new string('x', 1000) + "\""); return 0; }
+        if (Environment.GetEnvironmentVariable("SWAP_FLOOD") == "1") { for (int i = 0; i < 400; i++) Console.Out.WriteLine("$env:EVIL = \"" + new string('x', 1000) + "\""); Console.Out.WriteLine("$env:WAVETERM_BLOCKID = \"block-flood\""); return 0; }
         if (o != null) Console.Out.Write(File.ReadAllText(o));
         if (Environment.GetEnvironmentVariable("SWAP_CHILD_PIPE") == "1") { Console.Out.Flush(); var si = new System.Diagnostics.ProcessStartInfo("ping", "-n 15 127.0.0.1"); si.UseShellExecute = false; System.Diagnostics.Process.Start(si); return 0; }
         if (Environment.GetEnvironmentVariable("SWAP_FAIL_AFTER") == "1") return 1;
@@ -228,17 +249,66 @@ class P {
     Check 'a value with an escaped quote, dollar sign and backtick arrives as Wave meant it' ($jwt -eq ('jwt"quoted$value' + $bt + 'end')) "got [$jwt]"
     Check 'a name that is not on the list, a PATH assignment (either case), a line with more after the value, a subexpression and plain commands have no effect' (-not ($r.Text -match 'EVIL_VAR') -and -not ($r.Text -match 'WAVETERM_WORKSPACEID') -and -not ($r.Text -match 'WAVETERM=') -and ($r.Lines -contains 'ENV: TERM_PROGRAM=waveterm') -and ($r.Lines | Where-Object { $_ -like 'PATHLAST:*' }) -notcontains 'PATHLAST: C:\evil') $r.Text
     Check 'a value with an escaped newline or another backtick sequence is refused' (-not ($r.Text -match 'WAVETERM_VERSION') -and -not ($r.Text -match 'WAVETERM_CONN')) $r.Text
-    Check 'the swap token is gone from the environment of the program and never printed' (-not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match '11111111-aaaa-bbbb-cccc-222222222222')) $r.Text
-    Check 'wsh was called once with exactly: token <the token> pwsh' ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq 'token 11111111-aaaa-bbbb-cccc-222222222222 pwsh') ((Get-Content -LiteralPath $swapArgs -Raw))
+    Check 'the swap token is gone from the environment of the program and never printed' (-not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not $r.Text.Contains($packedToken) -and -not $r.Text.Contains($uuid)) $r.Text
+    Check 'wsh was called once with exactly: token <the token> pwsh' ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq ('token ' + $packedToken + ' pwsh')) ((Get-Content -LiteralPath $swapArgs -Raw))
     Check 'an injected command line did not run (the file it names is still there)' (Test-Path -LiteralPath $swapOut) ''
     # a token that is not a plain token never reaches wsh (a space, a quote, a leading dash, too short, too long, a semicolon)
-    foreach ($badToken in 'tok 123 extra', 'tok"123', "tok'123", '-11111111-aaaa-bbbb-cccc-22222222222245', '11111111-aaaa-bbbb-cccc-222222222222;calc', 'short', ('a' * 80)) {
+    foreach ($badToken in @(@('tok 123 extra', 'tok"123', "tok'123", ('-' + $packedToken), ($packedToken + ';calc'), ($packedToken + [string][char]10), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('[{"token":"x","rpccontext":{"sockname":"s"}}]'))), ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{"sockname":"s"},"pad":"' + ('p' * 7000) + '"}'))), 'short', ('a' * 80), ('a' * 8200), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('hello this is not json at all')), [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('{"token":"x","rpccontext":{}}')), '11111111-aaaa-bbbb-cccc-222222222222') + @(foreach ($j in @(
+            '{"token":"x","rpccontext":{"sockname":"s","routeid":""}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s"}}',
+            '{"token":"11111111-AAAA-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":""}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","procroute":"yes"}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":0}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","evil":"x"}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":""},"extra":1}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":"s"}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","BLOCKID":"x"}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","ProcRoute":true}}'
+        )) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($j)) }))) {
         Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
         $env:RESUMABLE_TEST_SWAPTOKEN = $badToken
         $r = Run-Child 'swap' $cfg '' '' $swapDir
         Check ("a token '" + $badToken.Substring(0, [Math]::Min(12, $badToken.Length)) + "' is no token: wsh is not called, the session starts, one plain line says so") ((-not (Test-Path -LiteralPath $swapArgs)) -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and ($r.Text -match 'could not be exchanged') -and -not ($r.Text -match 'WAVETERM_BLOCKID')) "exit=$($r.Code) args=$(Test-Path -LiteralPath $swapArgs) $($r.Text)"
+        Check "the same token is logged as swap=token-shape and the Note carries the code" (((Get-Content -LiteralPath $swapLog -Tail 1) -match " swap=token-shape$") -and ($r.Text -match "\(swap=token-shape\)")) (Get-Content -LiteralPath $swapLog -Tail 1)
     }
     Remove-Item Env:RESUMABLE_TEST_SWAPTOKEN -ErrorAction SilentlyContinue
+    # ---- the real format: a token packed by Wave's own code (tools/ours/packswaptoken, TokenSwapEntry.PackForClient), and the real wsh ----
+    $go = if ($env:RESUMABLE_TEST_GO) { $env:RESUMABLE_TEST_GO } else { (Get-Command go -ErrorAction SilentlyContinue).Source }
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $script:realFormatRan = $false
+    if (-not $go) {
+        "SKIP  the real-format checks: no go (set RESUMABLE_TEST_GO to go.exe)"
+    } else {
+        $script:realFormatRan = $true
+        $fakeSock = Join-Path $root 'no-such-wave.sock'
+        Push-Location $repoRoot
+        try {
+            $realToken = (& $go run ./tools/ours/packswaptoken $fakeSock 2>$null | Out-String).Trim()
+            $realWsh = Join-Path $root 'realwsh\wsh.exe'
+            & $go build -o $realWsh ./cmd/wsh 2>$null | Out-Null
+            $made.Add($realWsh)
+        } finally { Pop-Location }
+        Check 'a token packed by Wave itself was made' ($realToken.Length -gt 40) "[$realToken]"
+        Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
+        $env:RESUMABLE_TEST_SWAPTOKEN = $realToken
+        $r = Run-Child 'swap' $cfg '' '' $swapDir
+        Check 'a token packed by Wave itself passes the shape check and reaches wsh' ((Test-Path -LiteralPath $swapArgs) -and ((Get-Content -LiteralPath $swapArgs -Raw).Trim() -eq ('token ' + $realToken + ' pwsh'))) "args=$(Test-Path -LiteralPath $swapArgs) $(Get-Content -LiteralPath $swapLog -Tail 1)"
+        Remove-Item Env:RESUMABLE_TEST_SWAPTOKEN -ErrorAction SilentlyContinue
+        Check 'the real wsh was built' (Test-Path -LiteralPath $realWsh) 'no real wsh'
+        if (Test-Path -LiteralPath $realWsh) {
+            $errOut = Join-Path $root 'realwsh-err.txt'
+            $p = Start-Process -FilePath $realWsh -ArgumentList @('token', $realToken, 'pwsh') -NoNewWindow -Wait -PassThru -RedirectStandardError $errOut -RedirectStandardOutput (Join-Path $root 'realwsh-out.txt')
+            $made.Add($errOut); $made.Add((Join-Path $root 'realwsh-out.txt'))
+            $wshErr = Get-Content -LiteralPath $errOut -Raw
+            Check 'the real wsh unpacks the token and fails only on the missing socket (no server here)' (($p.ExitCode -ne 0) -and -not ($wshErr -match 'unpacking token|no rpccontext|no sockname') -and ($wshErr -match 'domain socket')) "exit=$($p.ExitCode) $wshErr"
+            # through the starter with the real wsh: the call is made and its failure is a closed code; the success path needs a running Wave
+            $realDir = Split-Path -Parent $realWsh
+            $env:RESUMABLE_TEST_SWAPTOKEN = $realToken
+            $r = Run-Child 'swap' $cfg '' '' $realDir
+            Remove-Item Env:RESUMABLE_TEST_SWAPTOKEN -ErrorAction SilentlyContinue
+            Check 'the starter with the real wsh and no server: swap=exit-code:1, the session starts, nothing is set' (((Get-Content -LiteralPath $swapLog -Tail 1) -match ' swap=exit-code:1$') -and ($r.Code -eq 0) -and -not ($r.Text -match 'ENV: WAVETERM_JWT')) "$(Get-Content -LiteralPath $swapLog -Tail 1) $($r.Text)"
+        }
+    }
     # wsh prints good lines and then exits with an error: nothing is taken
     $env:SWAP_FAIL_AFTER = '1'
     $r = Run-Child 'swap' $cfg '' '' $swapDir
@@ -246,14 +316,26 @@ class P {
     Remove-Item Env:SWAP_FAIL_AFTER -ErrorAction SilentlyContinue
     # a value with a control character (tab, bell) is refused
     $ctl = Join-Path $root 'swap-control.txt'
-    Make-File $ctl ([string]::Join([string][char]10, @(('$env:WAVETERM_JWT = "a' + [char]9 + 'b"'), ('$env:WAVETERM_TABID = "x' + [char]7 + 'y"'), '$env:WAVETERM_BLOCKID = "block-ok"')))
+    Make-File $ctl ([string]::Join([string][char]10, @(('$env:WAVETERM_CLIENTID = "a' + [char]9 + 'b"'), ('$env:WAVETERM_TABID = "x' + [char]7 + 'y"'), '$env:WAVETERM_BLOCKID = "block-ok"', '$env:WAVETERM_JWT = "jwt-ok"')))
     $env:SWAP_OUTPUT = $ctl
     $r = Run-Child 'swap' $cfg '' '' $swapDir
-    Check 'a value with a control character is refused, the line next to it is still taken' (-not ($r.Text -match 'WAVETERM_JWT') -and -not ($r.Text -match 'WAVETERM_TABID') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-ok')) $r.Text
+    Check 'a value with a control character is refused, the line next to it is still taken' (-not ($r.Text -match 'WAVETERM_CLIENTID') -and -not ($r.Text -match 'WAVETERM_TABID') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-ok')) $r.Text
+    # no WAVETERM_JWT among the lines taken: wsh access is not there, so it is no success and nothing is set
+    foreach ($case in @(
+            @('only TERM_PROGRAM', @('$env:TERM_PROGRAM = "waveterm"')),
+            @('a block id and no JWT', @('$env:WAVETERM_BLOCKID = "block-nojwt"', '$env:TERM_PROGRAM = "waveterm"')),
+            @('a JWT that was refused', @(('$env:WAVETERM_JWT = "a' + [char]9 + 'b"'), '$env:WAVETERM_BLOCKID = "block-nojwt"'))
+        )) {
+        $noJwt = Join-Path $root 'swap-nojwt.txt'
+        Make-File $noJwt ([string]::Join([string][char]10, $case[1]))
+        $env:SWAP_OUTPUT = $noJwt
+        $r = Run-Child 'swap' $cfg '' '' $swapDir
+        Check ("wsh output with " + $case[0] + " is swap=no-access: nothing is set and the session starts") (((Get-Content -LiteralPath $swapLog -Tail 1) -match ' swap=no-access$') -and ($r.Text -match '\(swap=no-access\)') -and -not ($r.Text -match 'block-nojwt') -and -not ($r.Text -match 'ENV: TERM_PROGRAM') -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0) "$(Get-Content -LiteralPath $swapLog -Tail 1) $($r.Text)"
+    }
     $env:SWAP_OUTPUT = $swapOut
     $env:SWAP_FAIL = '1'
     $r = Run-Child 'swap' $cfg '' '' $swapDir
-    Check 'a failing wsh does not stop the session, the token is removed, nothing is set, one plain line says so' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged') -and -not ($r.Text -match '11111111-aaaa-bbbb-cccc-222222222222')) "exit=$($r.Code) $($r.Text)"
+    Check 'a failing wsh does not stop the session, the token is removed, nothing is set, one plain line says so' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged') -and -not $r.Text.Contains($packedToken)) "exit=$($r.Code) $($r.Text)"
     Remove-Item Env:SWAP_FAIL -ErrorAction SilentlyContinue
     $env:SWAP_HANG = '1'; $env:RESUMABLE_TEST_SWAPTIMEOUT = '1'
     $t0 = Get-Date
@@ -265,6 +347,116 @@ class P {
     Check 'a token and no wsh folder does not stop the session, and the token is removed' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text)"
     $r = Run-Child 'swap-nodir' $cfg '' '' $swapDir
     Check 'a token and a wsh folder without a wsh.exe does not stop the session' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_SWAPTOKEN')) "exit=$($r.Code) $($r.Text)"
+    $uuidOfToken = '11111111-aaaa-bbbb-cccc-222222222222'
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$null, [ref]$null)
+    $timeoutParam = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'SwapTimeoutSeconds' }
+    Check 'the default time limit of the exchange is 15 seconds' ($timeoutParam.DefaultValue.Extent.Text -eq '15') $timeoutParam.DefaultValue.Extent.Text
+    # ---- the outcome is one code from a closed list: on the Note line and in the log, never wsh's words or any token ----
+    function Last-Log { if (Test-Path -LiteralPath $swapLog) { return [string](Get-Content -LiteralPath $swapLog -Tail 1) } else { return '' } }
+    $r = Run-Child 'swap' $cfg '' 'logname' $swapDir
+    Check 'a good exchange logs swap=ok with the NAMES of the variables set and no value' (((Last-Log) -match ' logname swap=ok set=') -and ((Last-Log) -match 'WAVETERM_BLOCKID') -and -not ((Last-Log) -cmatch 'block-1|jwt|quoted')) (Last-Log)
+    Check 'a log line starts with a date and time' ((Last-Log) -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} logname ') (Last-Log)
+    $before = @(Get-Content -LiteralPath $swapLog).Count
+    $r = Run-Child 'set'
+    Check 'no swap token at all writes no log line and prints no Note' ((@(Get-Content -LiteralPath $swapLog).Count -eq $before) -and -not ($r.Text -match 'could not be exchanged')) "$(Last-Log) $($r.Text)"
+    $r = Run-Child 'swap-nowsh' $cfg '' '' $swapDir
+    Check 'a token and no wsh folder is swap=wsh-folder' (((Last-Log) -match ' swap=wsh-folder$') -and ($r.Text -match '\(swap=wsh-folder\)')) "$(Last-Log) $($r.Text)"
+    $r = Run-Child 'swap-nodir' $cfg '' '' $swapDir
+    Check 'a wsh folder without a wsh.exe is swap=wsh-missing' (((Last-Log) -match ' swap=wsh-missing$') -and ($r.Text -match '\(swap=wsh-missing\)')) "$(Last-Log) $($r.Text)"
+    $badBin = Join-Path $root 'badbin'
+    Make-Dir $badBin
+    Make-File (Join-Path $badBin 'wsh.exe') 'this is not a program'
+    $r = Run-Child 'swap' $cfg '' '' $badBin
+    Check 'a wsh.exe that cannot be started is swap=start-failed and the session starts' (((Last-Log) -match ' swap=start-failed$') -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0) "exit=$($r.Code) $(Last-Log) $($r.Text)"
+    $env:SWAP_FAIL = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a wsh that exits with 1 is swap=exit-code:1' (((Last-Log) -match ' swap=exit-code:1$') -and ($r.Text -match '\(swap=exit-code:1\)')) "$(Last-Log) $($r.Text)"
+    Remove-Item Env:SWAP_FAIL -ErrorAction SilentlyContinue
+    $env:SWAP_HANG = '1'; $env:RESUMABLE_TEST_SWAPTIMEOUT = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a wsh that hangs is swap=timeout' (((Last-Log) -match ' swap=timeout$') -and ($r.Text -match '\(swap=timeout\)')) "$(Last-Log) $($r.Text)"
+    Remove-Item Env:SWAP_HANG, Env:RESUMABLE_TEST_SWAPTIMEOUT -ErrorAction SilentlyContinue
+    $env:SWAP_FLOOD = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'an output above the limit is swap=too-large' (((Last-Log) -match ' swap=too-large$') -and ($r.Text -match '\(swap=too-large\)')) "$(Last-Log) $($r.Text.Substring(0, [Math]::Min(300, $r.Text.Length)))"
+    Remove-Item Env:SWAP_FLOOD -ErrorAction SilentlyContinue
+    $noLines = Join-Path $root 'swap-nolines.txt'
+    Make-File $noLines "just some text`n`$env:EVIL = `"x`""
+    $env:SWAP_OUTPUT = $noLines
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'an output with no usable line is swap=no-lines' (((Last-Log) -match ' swap=no-lines$') -and ($r.Text -match '\(swap=no-lines\)') -and -not ($r.Text -match 'WAVETERM_BLOCKID')) "$(Last-Log) $($r.Text)"
+    $env:SWAP_OUTPUT = $swapOut
+    # a wsh that echoes its arguments (the token) on stderr: the words are not in the log and not on the screen
+    $env:SWAP_ECHO_ERR = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    $logAll = Get-Content -LiteralPath $swapLog -Raw
+    Check 'a wsh that echoes the token on stderr leaves no token and none of its words in the log or on the screen' (((Last-Log) -match ' swap=exit-code:1$') -and -not $logAll.Contains($packedToken) -and -not $r.Text.Contains($packedToken) -and -not $logAll.Contains('wsh says') -and -not $r.Text.Contains('wsh says') -and -not $logAll.Contains($uuidOfToken)) "$(Last-Log) $($r.Text)"
+    Remove-Item Env:SWAP_ECHO_ERR -ErrorAction SilentlyContinue
+    Check 'the Note says that restarting the block gives a new token' ($r.Text -match 'Restarting the block gives a new token') $r.Text
+    # the log is capped at 200 lines by rewriting
+    Make-File $swapLog ([string]::Join([string][char]10, @(1..250 | ForEach-Object { "old line $_" })))
+    $r = Run-Child 'swap' $cfg '' 'capname' $swapDir
+    $logLines = @(Get-Content -LiteralPath $swapLog)
+    Check 'the log keeps 200 lines at most, the newest last, the oldest dropped' (($logLines.Count -eq 200) -and ($logLines[-1] -match ' capname swap=ok') -and ($logLines[0] -eq 'old line 52')) "count=$($logLines.Count) first=$($logLines[0]) last=$($logLines[-1])"
+    $r = Run-Child 'swap' $cfg '' 'a b;c"d' $swapDir
+    Check 'a session name is cleaned to letters, digits, dot, dash and underscore in the log' ((Last-Log) -match ' a_b_c_d swap=ok') (Last-Log)
+    # the log path is judged like every other path: under .claude it is not written
+    $env:RESUMABLE_TEST_LOG = Join-Path $oldDir 'logs\starter.log'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a log path below .claude is refused: nothing is written there, the session still starts' ((-not (Test-Path -LiteralPath (Join-Path $oldDir 'logs'))) -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0) "exit=$($r.Code)"
+    $env:RESUMABLE_TEST_LOG = $swapLog
+    # the log's FINAL folder is judged: a junction under the allowed root that leads into .claude gets no log and no new folder; a folder outside the root gets none
+    $logJunc = Join-Path $root 'log-to-old'
+    $null = New-Item -ItemType Junction -Path $logJunc -Target $oldDir; $made.Add($logJunc)
+    foreach ($lc in @(@('a junction into .claude (existing folder)', ($logJunc + '\x.log'), (Join-Path $oldDir 'x.log')), @('a junction into .claude (new folder below it)', ($logJunc + '\newdir\x.log'), (Join-Path $oldDir 'newdir')), @('a folder outside the log root', (Join-Path $env:TEMP ('log-outside-' + [guid]::NewGuid().ToString('N') + '\x.log')), $null))) {
+        $env:RESUMABLE_TEST_LOG = $lc[1]
+        $r = Run-Child 'swap' $cfg '' '' $swapDir
+        $made_there = if ($lc[2]) { Test-Path -LiteralPath $lc[2] } else { Test-Path -LiteralPath (Split-Path -Parent $lc[1]) }
+        Check ("a log path in " + $lc[0] + " is refused: nothing is created or written, the session starts") ((-not $made_there) -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code) created=$made_there"
+    }
+    # a log that cannot be written never stops the start: a folder where the file should be, a read-only file
+    $logAsDir = Join-Path $logDir 'dir-as-log'
+    Make-Dir $logAsDir
+    $env:RESUMABLE_TEST_LOG = $logAsDir
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a folder in place of the log file does not stop the start' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code) $($r.Text)"
+    $roLog = Join-Path $logDir 'readonly.log'
+    Make-File $roLog 'kept'
+    Set-ItemProperty -LiteralPath $roLog -Name IsReadOnly -Value $true
+    $env:RESUMABLE_TEST_LOG = $roLog
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    $roKept = ((Get-Content -LiteralPath $roLog -Raw).Trim() -eq 'kept')
+    Set-ItemProperty -LiteralPath $roLog -Name IsReadOnly -Value $false
+    Check 'a read-only log file does not stop the start and is left as it was' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and $roKept -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code) kept=$roKept $($r.Text)"
+    $env:RESUMABLE_TEST_LOG = $swapLog
+    # an existing log that is a HARD link to another file is never written into: the other name keeps its content, the log name gets a new file
+    $decoy = Join-Path $profileDir 'decoy-target.txt'
+    Make-File $decoy 'decoy content'
+    $hardLog = Join-Path $logDir 'hardlinked.log'
+    $null = New-Item -ItemType HardLink -Path $hardLog -Target $decoy; $made.Add($hardLog)
+    $env:RESUMABLE_TEST_LOG = $hardLog
+    $r = Run-Child 'swap' $cfg '' 'hardname' $swapDir
+    Check 'a log that is a hard link to another file leaves that file unchanged' ((((Get-Content -LiteralPath $decoy -Raw).Trim()) -eq 'decoy content') -and ($r.Code -eq 0) -and $r.Lines.Count -gt 0) "decoy=[$((Get-Content -LiteralPath $decoy -Raw).Trim())] exit=$($r.Code)"
+    Check 'the log name itself got the new line (a new file took its place)' ((Get-Content -LiteralPath $hardLog -Raw) -match ' hardname swap=ok') (Get-Content -LiteralPath $hardLog -Raw)
+    Check 'no temporary file is left beside the log' (@(Get-ChildItem -LiteralPath $logDir -Filter '.starter-log-*.tmp' -Force).Count -eq 0) ''
+    # -LogRoot at a fake .claude: nothing is written or created there (the plain gate comes before the final path of the root is asked)
+    $env:RESUMABLE_TEST_LOG = (Join-Path $logDir 'rooted-elsewhere.log')
+    $env:RESUMABLE_TEST_LOGROOT = $oldDir
+    $oldCount = @(Get-ChildItem -LiteralPath $oldDir -Force).Count
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'a -LogRoot at .claude gives no log, nothing is created there, the session starts' ((-not (Test-Path -LiteralPath $env:RESUMABLE_TEST_LOG)) -and (@(Get-ChildItem -LiteralPath $oldDir -Force).Count -eq $oldCount) -and ($r.Code -eq 0) -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1')) "exit=$($r.Code)"
+    $env:RESUMABLE_TEST_LOGROOT = $root
+    $env:RESUMABLE_TEST_LOG = $swapLog
+    # the order is pinned in the text: the plain gate is asked about -LogRoot and -WshRoot before their final path is (a file system call)
+    $ast2 = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$null, [ref]$null)
+    foreach ($pair in @(@('Write-SwapLog', 'LogRoot'), @('Resolve-WshFolder', 'WshRoot'))) {
+        $fn = $ast2.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $pair[0] }, $true)
+        $text = $fn.Body.Extent.Text
+        $gate = $text.IndexOf('Test-PlainlyForbidden $' + $pair[1])
+        $final = $text.IndexOf('Get-FinalPath $' + $pair[1])
+        Check ("in " + $pair[0] + " the plain gate for -" + $pair[1] + " comes before Get-FinalPath of it") (($gate -ge 0) -and ($final -gt $gate)) "gate=$gate final=$final"
+    }
+$env:RESUMABLE_TEST_LOGROOT = $root
     # ---- round 2 of the review of the swap: where wsh is run from, one deadline, no inherited access, sizes ----
     # a folder under .claude, one outside the allowed root, a junction under the root that leads to .claude: wsh.exe in them is never run
     $evilBin = Join-Path $oldDir 'bin'
@@ -303,13 +495,17 @@ class P {
     $r = Run-Child 'swap' $cfg '' '' $swapDir
     Check 'an output above 256 KB is refused as a whole (nothing from it is taken)' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text.Substring(0, [Math]::Min(300, $r.Text.Length)))"
     Remove-Item Env:SWAP_FLOOD -ErrorAction SilentlyContinue
+    $starterSrc = Get-Content -LiteralPath $script -Raw
+    $fnStart = $starterSrc.IndexOf('function Resolve-WshFolder')
+    $fnBody = $starterSrc.Substring($fnStart, $starterSrc.IndexOf('# ---- the rest', $fnStart) - $fnStart)
+    Check 'the folder of wsh is refused by its plain spelling BEFORE any file system call (order pinned in the source: the equivalent final-path result cannot show it)' (($fnBody.IndexOf('Test-PlainlyForbidden') -ge 0) -and ($fnBody.IndexOf('Test-PlainlyForbidden') -lt $fnBody.IndexOf('Test-Path')) -and ($fnBody.IndexOf('Test-Path') -lt $fnBody.IndexOf('Get-FinalPath'))) ''
     Remove-Item Env:RESUMABLE_TEST_SWAPTIMEOUT -ErrorAction SilentlyContinue
     # a line above 16 KB is ignored, the lines next to it are taken
     $bigFile = Join-Path $root 'swap-big.txt'
-    Make-File $bigFile ([string]::Join([string][char]10, @(('$env:WAVETERM_JWT = "' + ('x' * 20000) + '"'), '$env:WAVETERM_BLOCKID = "block-big"')))
+    Make-File $bigFile ([string]::Join([string][char]10, @(('$env:WAVETERM_CLIENTID = "' + ('x' * 20000) + '"'), '$env:WAVETERM_BLOCKID = "block-big"', '$env:WAVETERM_JWT = "jwt-big"')))
     $env:SWAP_OUTPUT = $bigFile
     $r = Run-Child 'swap' $cfg '' '' $swapDir
-    Check 'a line with a value above 16 KB is ignored, the next line is still taken' (-not ($r.Text -match 'WAVETERM_JWT') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-big')) $r.Text.Substring(0, [Math]::Min(300, $r.Text.Length))
+    Check 'a line with a value above 16 KB is ignored, the next line is still taken' (-not ($r.Text -match 'WAVETERM_CLIENTID') -and ($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-big')) $r.Text.Substring(0, [Math]::Min(300, $r.Text.Length))
     $env:SWAP_OUTPUT = $swapOut
     # inherited access: removed when an exchange was tried and failed, replaced on success, left alone when there was no token at all
     $env:RESUMABLE_TEST_INHERIT = '1'
@@ -428,6 +624,8 @@ class P {
     Check 'the folder handed on is the resolved full path' ($dry[1] -eq "config=$cfg") ($dry -join ' | ')
 } finally {
     $env:USERPROFILE = $realProfile
+    $env:LOCALAPPDATA = $realLocal
+    Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue
     Remove-Item Env:RESUMABLE_TEST_OTHERDIR -ErrorAction SilentlyContinue
     Remove-Item Env:RESUMABLE_TEST_RECORD -ErrorAction SilentlyContinue
     Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
@@ -441,4 +639,6 @@ class P {
     }
 }
 "failures: $fail"
+# without go the real packer and the real wsh did not run: the run is not called green then, whatever the count
+if ($fail -eq 0 -and -not $script:realFormatRan) { "PARTIAL: the real packer and the real wsh were not run (set RESUMABLE_TEST_GO to go.exe)" } elseif ($fail -eq 0) { "GREEN: all checks ran" }
 exit $(if ($fail -gt 0) { 1 } else { 0 })

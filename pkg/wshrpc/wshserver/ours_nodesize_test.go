@@ -18,8 +18,9 @@ func TestCheckNodeSize(t *testing.T) {
 	if got, err := checkNodeSize(nil); got != nil || err != nil {
 		t.Fatalf("absent means the default: %v %v", got, err)
 	}
-	if got, err := checkNodeSize(uintp(0)); got != nil || err != nil {
-		t.Fatalf("0 means the default: %v %v", got, err)
+	// only an absent field is the default; a client that sends 0 sent a weight, and 0 is outside 2 to 50
+	if got, err := checkNodeSize(uintp(0)); err == nil || got != nil {
+		t.Fatalf("a supplied 0 must be refused: %v %v", got, err)
 	}
 	for _, good := range []uint{2, 7, 10, 50} {
 		got, err := checkNodeSize(uintp(good))

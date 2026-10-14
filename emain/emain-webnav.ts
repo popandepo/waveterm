@@ -222,8 +222,9 @@ export function buildTextScript(selector: string, maxChars: number): string {
 }
 
 // The characters that never reach a terminal from a page: controls (Cc), every format character (Cf: bidi, zero-width, soft hyphen, tags ...), line
-// and paragraph separators, and lone surrogates (Cs). The same classes as safeText in the CLI.
-const unprintableRe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u;
+// and paragraph separators, lone surrogates (Cs), and the default-ignorable code points (variation selectors, Hangul fillers ...), which draw
+// nothing. The same classes as safeText in the CLI.
+const unprintableRe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Default_Ignorable_Code_Point}]/u;
 
 // An error message the page wrote (a getter can throw anything) goes to a terminal: every unprintable character becomes "?", and it is cut at
 // maxChars characters.

@@ -5,12 +5,33 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
+
+// Default-ignorable code points draw nothing, so they can hide text the same way format characters do; both cleaners show them.
+var defaultIgnorablesForTest = []rune{0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x180F, 0x3164,
+	0xFE00, 0xFE0E, 0xFE0F, 0xFFA0, 0xE0100, 0xE01EF, 0x061C, 0x00AD, 0x2060, 0xFEFF}
+
+func TestBothCleanersShowDefaultIgnorables(t *testing.T) {
+	for _, r := range defaultIgnorablesForTest {
+		in := "a" + string(r) + "b"
+		want := fmt.Sprintf("a<U+%04X>b", r)
+		if got := safeTextBlock(in); got != want {
+			t.Errorf("safeTextBlock U+%04X: got %q", r, got)
+		}
+		if got := safeText(in, 100); got != want {
+			t.Errorf("safeText U+%04X: got %q", r, got)
+		}
+	}
+	if got := safeTextBlock("caf\u00e9 \U0001F680 ok"); got != "caf\u00e9 \U0001F680 ok" {
+		t.Errorf("ordinary letters and emoji stay: %q", got)
+	}
+}
 
 // An error from the window can carry text the page wrote (a throwing innerText getter); it reaches the terminal only made printable.
 func TestWebTextAnErrorFromTheWindowIsPrintedSafely(t *testing.T) {

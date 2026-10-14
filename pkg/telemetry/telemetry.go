@@ -274,6 +274,10 @@ func RecordTEvent(ctx context.Context, tevent *telemetrydata.TEvent) error {
 	if tevent == nil {
 		return nil
 	}
+	// With telemetry off there is nothing to send and nothing to keep: the event is dropped before it is written.
+	if !IsTelemetryEnabled() {
+		return nil
+	}
 	if tevent.Uuid == "" {
 		tevent.Uuid = uuid.New().String()
 	}

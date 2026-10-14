@@ -106,3 +106,9 @@ wsh-setmeta
 wsh-setmeta-rpc
 wsh-swaptoken-var
 wsh-tab-cmd
+telemetry-send-gate
+setbaseconfig-writer
+setconfig-command
+telemetry-update-service
+record-tevent
+app-menu-items

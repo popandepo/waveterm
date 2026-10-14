@@ -142,7 +142,13 @@ $seams = @(
     @('conn-config-atom', 'frontend/app/store/global.ts', 'function getConnConfigKeyAtom<T extends keyof ConnKeywords>(connName: string, key: T): Atom<ConnKeywords[T]> {', 'reads per-connection config such as display:accent'),
     @('workspace-atom', 'frontend/app/store/global-atoms.ts', 'const workspaceAtom: Atom<Workspace> = atom((get) => {', 'workspace object for the accent fallback'),
     @('conn-keywords', 'pkg/wconfig/settingsconfig.go', 'type ConnKeywords struct {', 'where display:accent is declared'),
-    @('telemetry-setting', 'pkg/wconfig/settingsconfig.go', 'TelemetryEnabled bool `json:"telemetry:enabled,omitempty"`', 'dev app runs with telemetry off')
+    @('telemetry-setting', 'pkg/wconfig/settingsconfig.go', 'TelemetryEnabled bool `json:"telemetry:enabled,omitempty"`', 'dev app runs with telemetry off'),
+    @('telemetry-send-gate', 'pkg/wcloud/wcloud.go', 'if !telemetry.IsTelemetryEnabled() {', 'the one place that stops every usage upload while telemetry is off'),
+    @('setbaseconfig-writer', 'pkg/wconfig/settingsconfig.go', 'func SetBaseConfigValue(toMerge waveobj.MetaMapType) error {', 'the one function that writes the settings file; it refuses the owner-only keys first'),
+    @('setconfig-command', 'pkg/wshrpc/wshserver/wshserver.go', 'func (ws *WshServer) SetConfigCommand(ctx context.Context, data wshrpc.MetaSettingsType) error {', 'what wsh setconfig calls; refuses the owner-only keys'),
+    @('telemetry-update-service', 'pkg/service/clientservice/clientservice.go', 'func (cs *ClientService) TelemetryUpdate(ctx context.Context, telemetryEnabled bool) error {', 'the window''s way to switch telemetry; refused in the fork'),
+    @('record-tevent', 'pkg/telemetry/telemetry.go', 'func RecordTEvent(ctx context.Context, tevent *telemetrydata.TEvent) error {', 'usage events are dropped while telemetry is off'),
+    @('app-menu-items', 'emain/emain-menu.ts', 'function makeAppMenuItems(webContents: electron.WebContents): Electron.MenuItemConstructorOptions[] {', 'the app menu has no Check for Updates item in the fork')
 )
 
 # Watch list. type grep: id, 'grep', pathspec, regex, meaning (hits new in BaseRef..Ref). type newfile: id, 'newfile', path regex, meaning.

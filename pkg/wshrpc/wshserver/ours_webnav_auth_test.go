@@ -178,4 +178,13 @@ func TestAFailedWorkspaceLookupIsNeverBelievedEvenWithAValue(t *testing.T) {
 	if err := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inA", BlockId: "tileA"}); err == nil {
 		t.Fatal("a failed lookup of the TILE that returned the caller's workspace must be refused")
 	}
+	webNavWorkspaceOfFn = func(ctx context.Context, blockId string) (string, error) {
+		if blockId == "blockA" {
+			return "wsA", fmt.Errorf("lookup failed for %s", blockId)
+		}
+		return "wsA", nil
+	}
+	if err := ws.WebNavAuthorizeCommand(context.Background(), wshrpc.CommandWebNavAuthorizeData{CallerRoute: "proc:inA", BlockId: "tileA"}); err == nil {
+		t.Fatal("a failed lookup of the CALLER that returned the tile's workspace must be refused")
+	}
 }

@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { assert, describe, test } from "vitest";
-import { authorizeWebNav, MaxTitleLength, MaxUrlLength, schemeOf, webNavigate, WebNavTarget, withoutCredentials } from "./emain-webnav";
+import { authorizeWebNav, MaxTitleLength, MaxUrlLength, schemeOf, webLoadState, webNavigate, WebNavTarget, withoutCredentials } from "./emain-webnav";
 
 function stub(opts: { back?: boolean; forward?: boolean; url?: string; title?: string; history?: string[]; index?: number } = {}) {
     const calls: string[] = [];
@@ -204,6 +204,54 @@ describe("round 5: the other web command, the answer's credentials, the time lim
         const res = webNavigate(stub({ url: "http://u:p@h.example/" }).wc, "url");
         assert.equal(res.url, "http://h.example/");
         assert.notInclude(JSON.stringify(res), "p@");
+    });
+});
+
+describe("wsh web info: the load state of a tile", () => {
+    function infoStub(opts: { loading?: boolean; frameUrl?: string; noState?: boolean; url?: string }) {
+        const s = stub({ url: opts.url ?? "https://example.org/", back: true });
+        const wc: any = s.wc;
+        if (!opts.noState) {
+            wc.isLoading = () => opts.loading === true;
+            wc.mainFrame = { url: opts.frameUrl ?? opts.url ?? "https://example.org/" };
+        }
+        return { wc: wc as WebNavTarget, calls: s.calls };
+    }
+
+    test("a loaded page is ready, and info reports address, title, history and state without navigating", () => {
+        const s = infoStub({});
+        assert.deepEqual(webNavigate(s.wc, "info"), {
+            url: "https://example.org/",
+            title: "Page",
+            cangoback: true,
+            cangoforward: false,
+            state: "ready",
+        });
+        assert.deepEqual(s.calls, []);
+    });
+
+    test("a page that is still loading is loading, even when its frame shows the error page of an earlier try", () => {
+        assert.equal(webNavigate(infoStub({ loading: true }).wc, "info").state, "loading");
+        assert.equal(webNavigate(infoStub({ loading: true, frameUrl: "chrome-error://chromewebdata/" }).wc, "info").state, "loading");
+    });
+
+    test("the error page of a failed navigation is failed", () => {
+        assert.equal(webNavigate(infoStub({ frameUrl: "chrome-error://chromewebdata/" }).wc, "info").state, "failed");
+        assert.equal(webLoadState(infoStub({ frameUrl: "CHROME-ERROR://chromewebdata/" }).wc), "failed");
+    });
+
+    test("a page that only looks like an error page is ready", () => {
+        assert.equal(webNavigate(infoStub({ frameUrl: "https://example.org/chrome-error:" }).wc, "info").state, "ready");
+        assert.equal(webNavigate(infoStub({ frameUrl: "" }).wc, "info").state, "ready");
+    });
+
+    test("a web contents that cannot tell is ready, not an error", () => {
+        assert.equal(webNavigate(infoStub({ noState: true }).wc, "info").state, "ready");
+    });
+
+    test("the other actions do not carry a state, and the address of info loses its credentials", () => {
+        assert.notProperty(webNavigate(infoStub({}).wc, "url"), "state");
+        assert.equal(webNavigate(infoStub({ url: "https://u:secret@example.org/x" }).wc, "info").url, "https://example.org/x");
     });
 });
 

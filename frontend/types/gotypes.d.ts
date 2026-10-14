@@ -839,6 +839,7 @@ declare global {
         title: string;
         cangoback: boolean;
         cangoforward: boolean;
+        state?: string;
     };
 
     // wshrpc.CommandWebSelectorData

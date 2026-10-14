@@ -62,4 +62,5 @@ const (
 	WebNavAction_Back    = "back"
 	WebNavAction_Forward = "forward"
 	WebNavAction_Url     = "url"
+	WebNavAction_Info    = "info"
 )

@@ -488,7 +488,7 @@ type CommandWebNavData struct {
 	WorkspaceId string `json:"workspaceid"`
 	BlockId     string `json:"blockid"`
 	TabId       string `json:"tabid"`
-	Action      string `json:"action"` // reload, back, forward or url
+	Action      string `json:"action"` // reload, back, forward, url or info
 }
 
 // CallerRoute is the source route that the router stamped on the web command (emain reads it from the message, the sender cannot choose it).
@@ -502,6 +502,7 @@ type CommandWebNavRtnData struct {
 	Title        string `json:"title"`
 	CanGoBack    bool   `json:"cangoback"`
 	CanGoForward bool   `json:"cangoforward"`
+	State        string `json:"state,omitempty"` // only for info: loading, ready or failed
 }
 
 type BlockInfoData struct {

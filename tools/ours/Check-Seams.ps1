@@ -92,6 +92,7 @@ $seams = @(
     @('stack-rpc-interface', 'pkg/wshrpc/wshrpctypes.go', 'StackBlockCommand(ctx context.Context, data CommandStackBlockData) error', 'wsh group add, remove, activate and stack move'),
     @('stack-layout-queue', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackInsert', 'back-end layout actions for stacks'),
     @('stack-move-layout-action', 'pkg/wcore/layout.go', 'LayoutActionDataType_StackMove', 'wsh stack move queues this action'),
+    @('web-nav-handler', 'emain/emain-wsh.ts', 'async handle_webnav(', 'the window answers wsh web reload, back, forward and url'),
     @('attention-meta-keys', 'pkg/waveobj/wtypemeta.go', 'AttentionLevel  string', 'the block meta keys attention:level and attention:reason'),
     @('ephemeral-replace-asks', 'frontend/layout/lib/layoutModel.ts', 'replaceEphemeral(previous.data.blockId', 'a new ephemeral block asks before it closes the old one'),
     @('attention-clearing', 'frontend/app/app.tsx', '<AttentionAutoClearing />', 'the window clears the focused block attention mark'),

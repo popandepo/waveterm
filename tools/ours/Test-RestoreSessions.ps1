@@ -94,6 +94,9 @@ Check 'execute starts exactly the sessions that are not running (7 here)' ($star
 Check 'execute never starts the running session' (-not (($starts -join "`n") -match $idRunning)) ($starts -join ' | ')
 Check 'every start is a --restart start with the session id in its meta' (@($starts | Where-Object { $_ -match '--restart' -and $_ -match 'session:id=' }).Count -eq $starts.Count) ($starts -join ' | ')
 Check 'no call carries a skip-permissions or bypass flag' (-not (($r.Calls -join "`n") -match 'SkipPermissions|dangerously|bypass')) ($r.Calls -join ' | ')
+$rp = Run @('-PluginDir', $env:TEMP)
+Check 'a given plugin folder is part of every planned start command' (([regex]::Matches($rp.Out, '-PluginDir ' + [regex]::Escape($env:TEMP))).Count -ge 7) $rp.Out
+Check 'every start carries -ConfigDir with a full path in its stored command (Wave itself has no CLAUDE_CONFIG_DIR)' (@($starts | Where-Object { $_ -match '-ConfigDir [A-Za-z]:[\\/]' }).Count -eq $starts.Count) ($starts -join ' | ')
 $adds = @($r.Calls | Where-Object { $_ -like 'group add*' })
 Check 'both free members of the stack join the running anchor block' ($adds.Count -eq 2 -and @($adds | Where-Object { $_ -match '--to blk-run$' }).Count -eq 2) ($adds -join ' | ')
 

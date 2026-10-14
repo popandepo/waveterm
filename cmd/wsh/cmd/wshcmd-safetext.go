@@ -1,0 +1,37 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package cmd
+
+import (
+	"fmt"
+	"strings"
+	"unicode"
+)
+
+const (
+	maxPrintedTitleRunes = 200
+	maxPrintedUrlRunes   = 2048
+)
+
+// safeText makes text from a web page (its title and address) fit to be printed to a terminal and read by a script: every control character (the escape
+// that starts a terminal sequence, the C1 controls, NUL, line breaks), format character and separator is shown as <U+XXXX> instead of being sent to the
+// terminal, and text longer than max characters is cut and ends in "...". A program that wrote the title controls it completely, so none of it is
+// printed as it is.
+func safeText(s string, max int) string {
+	var b strings.Builder
+	count := 0
+	for _, r := range s {
+		if count >= max {
+			b.WriteString("...")
+			break
+		}
+		count++
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) || r == unicode.ReplacementChar {
+			b.WriteString(fmt.Sprintf("<U+%04X>", r))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}

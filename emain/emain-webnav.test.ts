@@ -199,20 +199,17 @@ describe("the caller of a web command (source pin: the handler needs a window)",
 describe("round 5: the other web command, the answer's credentials, the time limit, and no focus", () => {
     const wsh = readFileSync(path.join(__dirname, "emain-wsh.ts"), "utf8");
     const nav = readFileSync(path.join(__dirname, "emain-webnav.ts"), "utf8");
-    test("wsh web get (webselector) asks the same question before it looks at any window", () => {
+    test("wsh web get (webselector) goes through readWebTile, so the caller is asked before any window is looked at", () => {
         const body = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_webnav"));
-        const ask = body.indexOf("WebNavAuthorizeCommand");
-        assert.isAbove(ask, -1);
-        assert.isAbove(body.indexOf("getWaveWindowByWorkspaceId("), ask);
-        assert.isAbove(body.indexOf("getWebContentsByBlockId("), ask);
-        assert.include(body, "callerroute: rh.getSource()");
+        assert.include(body, "readWebTile(data, webReadDeps(rh, data), (wc) => webGetSelector(wc, data.selector, data.opts))");
+        assert.include(wsh, "callerroute: rh.getSource()");
     });
     test("the question has a time limit shorter than wsh's own", () => {
         assert.match(nav, /export const AuthorizeTimeoutMs = 3000;/);
-        // webselector 1, webnav 2, and the one in webReadDeps that readWebTile calls twice
+        // webnav 2, and the one in webReadDeps that readWebTile calls twice (text, shot and get)
         const asks = wsh.split("WebNavAuthorizeCommand(").length - 1;
-        assert.equal(asks, 4);
-        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 4);
+        assert.equal(asks, 3);
+        assert.equal(wsh.split("{ timeout: AuthorizeTimeoutMs }").length - 1, 3);
     });
     test("no handler focuses a window or switches the shown tab before the action", () => {
         const handlers = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_notify"));
@@ -733,6 +730,41 @@ describe("wsh web shot: the wiring (source pins)", () => {
         assert.include(shot, "wc.capturePage()");
         assert.notInclude(shot, "BrowserWindow");
         assert.notInclude(shot, "desktopCapturer");
+    });
+});
+
+describe("wsh web get: the sign-in rule", () => {
+    const wsh = readFileSync(path.resolve(__dirname, "emain-wsh.ts"), "utf8");
+    const body = wsh.slice(wsh.indexOf("async handle_webselector"), wsh.indexOf("async handle_webnav"));
+    test("the handler goes through readWebTile, the same path as text and shot, and the request carries no partition", () => {
+        assert.include(body, "readWebTile(data, webReadDeps(rh, data)");
+        assert.notInclude(body, "data.partition");
+    });
+
+    test("a tile whose live session is not its own when the page is fetched is not read by web get", async () => {
+        const blockId = "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90";
+        const made = new Map<string, object>();
+        const sessionFor = (p: string) => {
+            if (!made.has(p)) {
+                made.set(p, { p });
+            }
+            return made.get(p);
+        };
+        const meta: { [key: string]: any } = { view: "web", "web:partition": "persist:" + blockId };
+        let selected = false;
+        const deps = {
+            authorize: async () => {},
+            getWindow: () => ({ allLoadedTabViews: new Map([["tab-1", {}]]) }),
+            blockInfo: async () => ({ blockid: blockId, tabid: "tab-1", workspaceid: "ws-1", block: { meta } }),
+            getContents: async () => ({ session: sessionFor("persist:gmail") }),
+            sessionFor,
+        };
+        const getSelector = async (_wc: any) => ((selected = true), ["<html>"]);
+        await readWebTile({ workspaceid: "ws-1", tabid: "tab-1", blockid: blockId }, deps, getSelector).then(
+            () => assert.fail("must refuse"),
+            (e) => assert.match(String(e), /not on its own partition/)
+        );
+        assert.isFalse(selected, "the selector must not run");
     });
 });
 

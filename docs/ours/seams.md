@@ -15,6 +15,12 @@ renaming one function while leaving the old declaration in a comment, and by add
 Not covered: a seam whose declaration is unchanged but whose behaviour changed. That is what the update review is for
 (`docs/ours/update-review.md`).
 
+## First-run screens (PR 56)
+
+| Seam | File | Symbol or text | We use it for |
+|---|---|---|---|
+| modals-renderer | `frontend/app/modals/modalsrenderer.tsx` | `const ModalsRenderer = () => {` | the one place that opens the first-run and upgrade screens, now only through onboardingToOpen |
+
 ## Tab colour and symbol (feature a)
 
 | Seam | File | Symbol or text | We use it for |

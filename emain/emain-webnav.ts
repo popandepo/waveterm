@@ -217,8 +217,11 @@ export interface WebReadDeps {
     sessionFor(partition: string): unknown;
 }
 
-// The order every read of a tile's page follows: the caller first; the window and its loaded tab; the record of the block (the one named, a web tile)
-// and its partition rule; only then the page; then the caller again and the live session of the contents, right before the read.
+// A block id as Wave writes it: a lower-case canonical uuid.
+export const FullBlockIdRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// The order every read of a tile's page follows: the caller first; the record of the block (the one named, a web tile) and its partition rule; the
+// window and its loaded tab; only then the page; then the caller again and the live session of the contents, right before the read.
 export async function readWebTile<T>(
     data: { blockid?: string; tabid?: string; workspaceid?: string },
     deps: WebReadDeps,
@@ -227,22 +230,22 @@ export async function readWebTile<T>(
     if (!data.tabid || !data.blockid || !data.workspaceid) {
         throw new Error("tabid, blockid and workspaceid are required");
     }
-    if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
+    if (!FullBlockIdRe.test(data.blockid)) {
         throw new Error("blockid must be a full block id");
     }
     await deps.authorize();
+    const info = await deps.blockInfo();
+    authorizeWebNav(data, info);
+    const refusal = webReadRefusal(data.blockid, info.block?.meta);
+    if (refusal) {
+        throw new Error(refusal);
+    }
     const ww = deps.getWindow();
     if (ww == null) {
         throw new Error(`no window found with workspace ${data.workspaceid}`);
     }
     if (!ww.allLoadedTabViews?.has(data.tabid)) {
         throw new Error(`the tab ${data.tabid} is not loaded in its window (show it once, then ask again)`);
-    }
-    const info = await deps.blockInfo();
-    authorizeWebNav(data, info);
-    const refusal = webReadRefusal(data.blockid, info.block?.meta);
-    if (refusal) {
-        throw new Error(refusal);
     }
     const wc = await deps.getContents(ww);
     if (wc == null) {

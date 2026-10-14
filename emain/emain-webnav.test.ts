@@ -98,7 +98,7 @@ describe("the wiring that no test can run without a window", () => {
         assert.include(body, "allLoadedTabViews?.has(data.tabid)");
         assert.include(body, "getWebContentsByBlockId(ww, data.tabid, data.blockid)");
         assert.include(body, "webNavigate(wc, data.action)");
-        assert.include(body, "[0-9a-f-]{36}");
+        assert.include(body, "FullBlockIdRe.test(data.blockid)");
         const web = readFileSync(path.join(__dirname, "emain-web.ts"), "utf8");
         assert.include(web, "ww?.allLoadedTabViews?.get(tabId)");
     });
@@ -525,7 +525,28 @@ describe("reading a web tile, run with stand-ins for the window, the store and E
     test("a tile on its own partition, live and recorded, is read after the caller is asked twice", async () => {
         const { deps, steps, read } = setup({ partition: "persist:" + blockId });
         assert.equal(await readWebTile(data, deps, read), "page text");
-        assert.deepEqual(steps, ["authorize", "window", "info", "contents", "authorize", "read"]);
+        assert.deepEqual(steps, ["authorize", "info", "window", "contents", "authorize", "read"]);
+    });
+
+    test("the record and its partition rule come before the window: an unloaded tab still gets the partition answer", async () => {
+        const { deps, steps, read } = setup({ partition: "persist:gmail" });
+        deps.getWindow = () => (steps.push("window"), { allLoadedTabViews: new Map() });
+        await readWebTile(data, deps, read).then(
+            () => assert.fail("must refuse"),
+            (e) => assert.match(String(e), /partition is not its own/)
+        );
+        assert.notInclude(steps, "window", "the window is not looked at for a tile the rule refuses");
+    });
+
+    test("only a canonical block id is accepted, before anything is asked", async () => {
+        for (const bad of ["-".repeat(36), "0b6f3c1e4f1a4d7e9a432f1d5c7b8e90abcd", "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e9", "0B6F3C1E-4F1A-4D7E-9A43-2F1D5C7B8E90", "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e9g"]) {
+            const { deps, steps, read } = setup({ partition: "persist:" + bad });
+            await readWebTile({ ...data, blockid: bad }, deps, read).then(
+                () => assert.fail("must refuse " + bad),
+                (e) => assert.match(String(e), /full block id/)
+            );
+            assert.deepEqual(steps, [], bad);
+        }
     });
 
     test("a tile with no partition, or another tile's or a sign-in's, is refused before any page is touched", async () => {

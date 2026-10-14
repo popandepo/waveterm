@@ -73,11 +73,13 @@ func (ws *WshServer) WebNavAuthorizeCommand(ctx context.Context, data wshrpc.Com
 		callerWorkspace, werr = webNavWorkspaceOfFn(ctx, callerBlock)
 		if werr != nil {
 			log.Printf("webnav authorize: workspace of the caller's block %s: %v", callerBlock, werr)
+			callerWorkspace = ""
 		}
 	}
 	targetWorkspace, terr := webNavWorkspaceOfFn(ctx, data.BlockId)
 	if terr != nil {
 		log.Printf("webnav authorize: workspace of block %s: %v", data.BlockId, terr)
+		targetWorkspace = ""
 	}
 	return checkWebNavCaller(data.CallerRoute, callerBlock, callerWorkspace, targetWorkspace)
 }

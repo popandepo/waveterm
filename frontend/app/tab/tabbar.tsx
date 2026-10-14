@@ -15,11 +15,16 @@ import { debounce } from "throttle-debounce";
 import { Tab } from "./tab";
 import "./tabbar.scss";
 import { TabBarEnv } from "./tabbarenv";
+import {
+    TabDefaultWidth,
+    computeTabLayout,
+    getWindowDragRightWidth,
+    tabsContentWidth,
+    tabsEndScrollLeft,
+} from "./tabbarlayout";
 import { UpdateStatusBanner } from "./updatebanner";
 import { WorkspaceSwitcher } from "./workspaceswitcher";
 
-const TabDefaultWidth = 130;
-const TabMinWidth = 100;
 const MacOSTrafficLightsWidth = 74;
 const MacOSTahoeTrafficLightsWidth = 80;
 
@@ -199,18 +204,11 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
             appMenuButtonWidth +
             workspaceSwitcherWidth +
             waveAIButtonWidth;
-        const spaceForTabs = tabbarWrapperWidth - nonTabElementsWidth;
-
-        const numberOfTabs = tabIds.length;
-
-        // Compute the ideal width per tab by dividing the available space by the number of tabs
-        let idealTabWidth = spaceForTabs / numberOfTabs;
-
-        // Apply min/max constraints
-        idealTabWidth = Math.max(TabMinWidth, Math.min(idealTabWidth, TabDefaultWidth));
-
-        // Determine if the tab bar needs to be scrollable
-        const newScrollable = idealTabWidth * numberOfTabs > spaceForTabs;
+        const { tabWidth: idealTabWidth, scrollable: newScrollable } = computeTabLayout(
+            tabbarWrapperWidth,
+            nonTabElementsWidth,
+            tabIds.length
+        );
 
         // Apply the calculated width and position to all tabs
         tabRefs.current.forEach((ref, index) => {
@@ -517,7 +515,7 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
         debounce(30, () => {
             if (scrollableRef.current) {
                 const { viewport } = osInstanceRef.current.elements();
-                viewport.scrollLeft = tabIds.length * tabWidthRef.current;
+                viewport.scrollLeft = tabsEndScrollLeft(tabIds.length, tabWidthRef.current);
             }
         }),
         [tabIds]
@@ -570,7 +568,7 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
         env.electron.showWorkspaceAppMenu(workspace.oid);
     }
 
-    const tabsWrapperWidth = tabIds.length * tabWidthRef.current;
+    const tabsWrapperWidth = tabsContentWidth(tabIds.length, tabWidthRef.current);
     const showAppMenuButton = env.isWindows() || (!env.isMacOS() && !showMenuBar);
 
     // Calculate window drag left width based on platform and state
@@ -586,15 +584,9 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
         }
     }
 
-    // Calculate window drag right width
-    let windowDragRightWidth = 12;
-    if (env.isWindows()) {
-        if (zoomFactor > 0) {
-            windowDragRightWidth = 139 / zoomFactor;
-        } else {
-            windowDragRightWidth = 139;
-        }
-    }
+    // The block at the right end: the room of the window buttons (Windows) and a grab strip left of them. It is measured with the right container
+    // in setSizeAndPosition, so the tabs shrink and then scroll instead of taking the strip.
+    const windowDragRightWidth = getWindowDragRightWidth(env.isWindows(), zoomFactor);
 
     return (
         <div ref={tabbarWrapperRef} className="tab-bar-wrapper">

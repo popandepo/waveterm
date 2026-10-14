@@ -197,11 +197,71 @@ export function webTextRefusal(blockId: string, meta: { [key: string]: any } | n
     return `this web tile's partition is not its own, so its text is not given out: set web:partition to ${id} or persist:${id} (a name another tile or a sign-in may use is refused)`;
 }
 
+// The same rule on the web contents that is about to be read: its live session must be the session of the tile's own partition name. The record
+// can change while the page is fetched, and a tile keeps the session it was loaded with, so the record alone is not enough. Session objects are
+// compared (Electron gives one object per partition name), never names.
+export function liveSessionRefusal(blockId: string, wc: { session?: unknown } | null | undefined, sessionFor: (partition: string) => unknown): string {
+    const id = typeof blockId === "string" ? blockId.trim() : "";
+    const live = wc?.session;
+    if (id !== "" && live != null && (live === sessionFor(id) || live === sessionFor("persist:" + id))) {
+        return "";
+    }
+    return `this web tile's page is not on its own partition, so its text is not given out (the tile may have been loaded before its web:partition was set; reload it)`;
+}
+
+export interface WebReadDeps {
+    authorize(): Promise<void>;
+    getWindow(): { allLoadedTabViews?: { has(tabId: string): boolean } } | null | undefined;
+    blockInfo(): Promise<any>;
+    getContents(ww: any): Promise<any>;
+    sessionFor(partition: string): unknown;
+}
+
+// The order every read of a tile's page follows: the caller first; the window and its loaded tab; the record of the block (the one named, a web tile)
+// and its partition rule; only then the page; then the caller again and the live session of the contents, right before the read.
+export async function readWebTile<T>(
+    data: { blockid?: string; tabid?: string; workspaceid?: string },
+    deps: WebReadDeps,
+    read: (wc: any) => Promise<T>
+): Promise<T> {
+    if (!data.tabid || !data.blockid || !data.workspaceid) {
+        throw new Error("tabid, blockid and workspaceid are required");
+    }
+    if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
+        throw new Error("blockid must be a full block id");
+    }
+    await deps.authorize();
+    const ww = deps.getWindow();
+    if (ww == null) {
+        throw new Error(`no window found with workspace ${data.workspaceid}`);
+    }
+    if (!ww.allLoadedTabViews?.has(data.tabid)) {
+        throw new Error(`the tab ${data.tabid} is not loaded in its window (show it once, then ask again)`);
+    }
+    const info = await deps.blockInfo();
+    authorizeWebNav(data, info);
+    const refusal = webTextRefusal(data.blockid, info.block?.meta);
+    if (refusal) {
+        throw new Error(refusal);
+    }
+    const wc = await deps.getContents(ww);
+    if (wc == null) {
+        throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
+    }
+    await deps.authorize();
+    const live = liveSessionRefusal(data.blockid, wc, deps.sessionFor);
+    if (live) {
+        throw new Error(live);
+    }
+    return await read(wc);
+}
+
 export function checkSelector(selector: unknown): string {
     if (selector == null || selector === "") {
         return "";
     }
-    if (typeof selector !== "string" || selector.length > MaxSelectorLength || /[\u0000-\u001f\u007f]/.test(selector)) {
+    // characters, as the CLI counts them, not UTF-16 units; every C0 and C1 control is refused
+    if (typeof selector !== "string" || [...selector].length > MaxSelectorLength || /\p{Cc}/u.test(selector)) {
         throw new Error(`the selector must be text of at most ${MaxSelectorLength} characters without control characters`);
     }
     return selector;

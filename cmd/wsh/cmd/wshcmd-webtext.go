@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -52,7 +53,8 @@ func checkWebTextOptions(selector string, maxBytes int) error {
 	if maxBytes < 1 || maxBytes > maxWebTextBytes {
 		return fmt.Errorf("--max-bytes must be between 1 and %d", maxWebTextBytes)
 	}
-	if len(selector) > 512 {
+	// characters, as emain counts them, not bytes
+	if utf8.RuneCountInString(selector) > 512 {
 		return fmt.Errorf("--selector is at most 512 characters")
 	}
 	for _, r := range selector {

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 // The folder comes from the Known Folder API, not from LOCALAPPDATA, which the caller's environment controls.
@@ -69,5 +71,24 @@ func TestWebShotRefusesAJunctionAtTheParentFolder(t *testing.T) {
 	}
 	if got := filesIn(t, target); len(got) != 0 {
 		t.Fatalf("nothing may be made through the junction, not even web-shots: %v", got)
+	}
+}
+
+// The new file cannot be marked for removal on failure: it is removed at once, and no empty PNG-named file stays behind.
+func TestWebShotAFailedDeletePendingMarkLeavesNoFile(t *testing.T) {
+	dir, _, _ := stubWebShot(t)
+	old := shotSetDeletePending
+	t.Cleanup(func() { shotSetDeletePending = old })
+	shotSetDeletePending = func(h windows.Handle, pending bool) error {
+		if pending {
+			return errString("mark refused")
+		}
+		return old(h, pending)
+	}
+	if err := webShotCmd.RunE(webShotCmd, nil); err == nil || !strings.Contains(err.Error(), "mark refused") {
+		t.Fatalf("the failure must be reported, got %v", err)
+	}
+	if got := filesIn(t, dir); len(got) != 0 {
+		t.Fatalf("no file may be left behind: %v", got)
 	}
 }

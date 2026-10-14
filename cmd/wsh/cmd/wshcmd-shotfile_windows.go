@@ -39,6 +39,11 @@ func checkShotDir(dir string) error {
 }
 
 func setDeletePending(h windows.Handle, pending bool) error {
+	return shotSetDeletePending(h, pending)
+}
+
+// seam for tests
+var shotSetDeletePending = func(h windows.Handle, pending bool) error {
 	v := byte(0)
 	if pending {
 		v = 1
@@ -58,8 +63,12 @@ func createShotFile(path string) (*os.File, error) {
 		return nil, &os.PathError{Op: "create", Path: path, Err: err}
 	}
 	if err := setDeletePending(h, true); err != nil {
+		// the mark is not there, so the close keeps the (empty) file: it is removed by name, in the tool's own folder under a random name
 		windows.CloseHandle(h)
-		return nil, fmt.Errorf("the new file %s cannot be marked for removal on failure (an empty file may remain): %w", path, err)
+		if rerr := os.Remove(path); rerr != nil {
+			return nil, fmt.Errorf("the new file %s cannot be marked for removal on failure: %w (and it could not be removed: %v)", path, err, rerr)
+		}
+		return nil, fmt.Errorf("the new file %s cannot be marked for removal on failure, so it was removed: %w", path, err)
 	}
 	return os.NewFile(uintptr(h), path), nil
 }

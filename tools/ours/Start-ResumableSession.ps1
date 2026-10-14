@@ -274,7 +274,8 @@ function Test-PackedSwapToken([string]$token) {
         $ctx = $json.rpccontext
         if ($ctx -isnot [System.Management.Automation.PSCustomObject]) { return $false }
         foreach ($prop in $ctx.PSObject.Properties) {
-            if (-not $SwapContextTypes.ContainsKey($prop.Name) -or $prop.Value -isnot $SwapContextTypes[$prop.Name]) { return $false }
+            # field names are matched exactly (a hashtable lookup ignores case, so BLOCKID would pass as blockid)
+            if (@($SwapContextTypes.Keys) -cnotcontains $prop.Name -or $prop.Value -isnot $SwapContextTypes[$prop.Name]) { return $false }
         }
         $names = @($ctx.PSObject.Properties.Name)
         return [bool](($names -ccontains 'sockname') -and $ctx.sockname -and ($names -ccontains 'routeid'))

@@ -261,7 +261,9 @@ class P {
             '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":0}}',
             '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","evil":"x"}}',
             '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":""},"extra":1}',
-            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":"s"}'
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":"s"}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","BLOCKID":"x"}}',
+            '{"token":"11111111-aaaa-bbbb-cccc-222222222222","rpccontext":{"sockname":"s","routeid":"","ProcRoute":true}}'
         )) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($j)) }))) {
         Remove-Item -LiteralPath $swapArgs -ErrorAction SilentlyContinue
         $env:RESUMABLE_TEST_SWAPTOKEN = $badToken
@@ -273,9 +275,11 @@ class P {
     # ---- the real format: a token packed by Wave's own code (tools/ours/packswaptoken, TokenSwapEntry.PackForClient), and the real wsh ----
     $go = if ($env:RESUMABLE_TEST_GO) { $env:RESUMABLE_TEST_GO } else { (Get-Command go -ErrorAction SilentlyContinue).Source }
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $script:realFormatRan = $false
     if (-not $go) {
         "SKIP  the real-format checks: no go (set RESUMABLE_TEST_GO to go.exe)"
     } else {
+        $script:realFormatRan = $true
         $fakeSock = Join-Path $root 'no-such-wave.sock'
         Push-Location $repoRoot
         try {
@@ -635,4 +639,6 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     }
 }
 "failures: $fail"
+# without go the real packer and the real wsh did not run: the run is not called green then, whatever the count
+if ($fail -eq 0 -and -not $script:realFormatRan) { "PARTIAL: the real packer and the real wsh were not run (set RESUMABLE_TEST_GO to go.exe)" } elseif ($fail -eq 0) { "GREEN: all checks ran" }
 exit $(if ($fail -gt 0) { 1 } else { 0 })

@@ -15,7 +15,13 @@ import { debounce } from "throttle-debounce";
 import { Tab } from "./tab";
 import "./tabbar.scss";
 import { TabBarEnv } from "./tabbarenv";
-import { TabDefaultWidth, computeTabLayout, getWindowDragRightWidth } from "./tabbarlayout";
+import {
+    TabDefaultWidth,
+    computeTabLayout,
+    getWindowDragRightWidth,
+    tabsContentWidth,
+    tabsEndScrollLeft,
+} from "./tabbarlayout";
 import { UpdateStatusBanner } from "./updatebanner";
 import { WorkspaceSwitcher } from "./workspaceswitcher";
 
@@ -509,7 +515,7 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
         debounce(30, () => {
             if (scrollableRef.current) {
                 const { viewport } = osInstanceRef.current.elements();
-                viewport.scrollLeft = tabIds.length * tabWidthRef.current;
+                viewport.scrollLeft = tabsEndScrollLeft(tabIds.length, tabWidthRef.current);
             }
         }),
         [tabIds]
@@ -562,7 +568,7 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
         env.electron.showWorkspaceAppMenu(workspace.oid);
     }
 
-    const tabsWrapperWidth = tabIds.length * tabWidthRef.current;
+    const tabsWrapperWidth = tabsContentWidth(tabIds.length, tabWidthRef.current);
     const showAppMenuButton = env.isWindows() || (!env.isMacOS() && !showMenuBar);
 
     // Calculate window drag left width based on platform and state

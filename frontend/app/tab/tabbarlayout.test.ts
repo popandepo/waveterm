@@ -12,15 +12,23 @@ import {
     WindowDragStripWidth,
     computeTabLayout,
     getWindowDragRightWidth,
+    tabsContentWidth,
+    tabsEndScrollLeft,
 } from "./tabbarlayout";
+
+// What a browser does with scrollLeft on an overflowing box: it is clamped to [0, content - viewport].
+function clampedScroll(wanted: number, content: number, viewport: number): number {
+    return Math.min(Math.max(wanted, 0), Math.max(content - viewport, 0));
+}
 
 describe("the grab strip of the top row", () => {
     test("on Windows the strip comes on top of the room of the window buttons", () => {
         assert.equal(getWindowDragRightWidth(true, 1), WindowButtonsWidth + WindowDragStripWidth);
     });
-    test("elsewhere the right end keeps its old edge and no strip", () => {
-        assert.equal(getWindowDragRightWidth(false, 1), WindowDragRightEdgeWidth);
-        assert.equal(getWindowDragRightWidth(false, 2), WindowDragRightEdgeWidth / 2);
+    test("elsewhere the right end keeps its old fixed 12 px edge at any zoom, and no strip", () => {
+        for (const zoom of [0, 0.5, 1, 2]) {
+            assert.equal(getWindowDragRightWidth(false, zoom), WindowDragRightEdgeWidth);
+        }
     });
     test("the width follows the zoom, and an unknown zoom counts as none", () => {
         assert.equal(getWindowDragRightWidth(true, 2), (WindowButtonsWidth + WindowDragStripWidth) / 2);
@@ -57,13 +65,13 @@ describe("the tabs never take the right block", () => {
         assert.equal(l.tabWidth, TabMinWidth);
         assert.isTrue(l.scrollable);
         assert.equal(l.spaceForTabs, wrapper - others - right, "the strip is outside the tab viewport");
-        const maxScroll = n * l.tabWidth - l.spaceForTabs;
-        assert.isAbove(maxScroll, 0);
-        assert.equal(
-            maxScroll + l.spaceForTabs,
-            n * l.tabWidth,
-            "scrolled to the end, the last tab ends at the viewport edge"
-        );
+        // the bar sizes the tabs box with tabsContentWidth and scrolls to the end with tabsEndScrollLeft
+        const content = tabsContentWidth(n, l.tabWidth);
+        const left = clampedScroll(tabsEndScrollLeft(n, l.tabWidth), content, l.spaceForTabs);
+        const lastTabStart = (n - 1) * l.tabWidth;
+        const lastTabEnd = n * l.tabWidth;
+        assert.isAtMost(left, lastTabStart, "scrolled to the end, the last tab starts inside the viewport");
+        assert.isAtLeast(left + l.spaceForTabs, lastTabEnd, "and ends inside it");
     });
 
     test("the strip is what makes the difference: without it the same row would not scroll", () => {
@@ -86,6 +94,8 @@ describe("the tab bar is wired to the layout module", () => {
     test("the bar takes the right width and the tab layout from the module", () => {
         assert.include(source, "getWindowDragRightWidth(env.isWindows(), zoomFactor)");
         assert.include(source, "computeTabLayout(");
+        assert.include(source, "tabsContentWidth(tabIds.length, tabWidthRef.current)");
+        assert.include(source, "tabsEndScrollLeft(tabIds.length, tabWidthRef.current)");
         assert.notInclude(source, "139 / zoomFactor");
     });
 });

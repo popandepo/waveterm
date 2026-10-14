@@ -12,11 +12,14 @@ export const WindowDragStripWidth = 96;
 export const WindowButtonsWidth = 139;
 export const WindowDragRightEdgeWidth = 12;
 
-// The width of the draggable block at the right end of the row, in CSS pixels at the given zoom (0 or less means no zoom is known).
+// The width of the draggable block at the right end of the row, in CSS pixels at the given zoom (0 or less means no zoom is known). Only the
+// Windows block follows the zoom, because it must cover the window buttons in screen pixels; the 12 px edge elsewhere is fixed.
 export function getWindowDragRightWidth(isWindows: boolean, zoomFactor: number): number {
     const zoom = zoomFactor > 0 ? zoomFactor : 1;
-    const width = isWindows ? WindowButtonsWidth + WindowDragStripWidth : WindowDragRightEdgeWidth;
-    return width / zoom;
+    if (!isWindows) {
+        return WindowDragRightEdgeWidth;
+    }
+    return (WindowButtonsWidth + WindowDragStripWidth) / zoom;
 }
 
 export type TabLayout = { tabWidth: number; scrollable: boolean; spaceForTabs: number };
@@ -28,4 +31,14 @@ export function computeTabLayout(rowWidth: number, nonTabWidth: number, numberOf
     const ideal = spaceForTabs / numberOfTabs;
     const tabWidth = Math.max(TabMinWidth, Math.min(ideal, TabDefaultWidth));
     return { tabWidth, scrollable: tabWidth * numberOfTabs > spaceForTabs, spaceForTabs };
+}
+
+// The width of the box that holds the tabs; the tab viewport scrolls over it.
+export function tabsContentWidth(numberOfTabs: number, tabWidth: number): number {
+    return numberOfTabs * tabWidth;
+}
+
+// The scrollLeft the bar asks for to show the end of the row. It may overshoot: the browser clamps it to content minus viewport.
+export function tabsEndScrollLeft(numberOfTabs: number, tabWidth: number): number {
+    return numberOfTabs * tabWidth;
 }

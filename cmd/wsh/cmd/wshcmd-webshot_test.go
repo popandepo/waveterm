@@ -307,3 +307,30 @@ func TestWebShotAFailedFlushLeavesNoFile(t *testing.T) {
 		t.Fatalf("the file must not be left behind: %v", got)
 	}
 }
+
+// Pictures with future times in their names would sort after the new one; the picture just saved is never the one removed.
+func TestWebShotNeverPrunesThePictureJustSaved(t *testing.T) {
+	dir, _, _ := stubWebShot(t)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < webShotKeep; i++ {
+		name := fmt.Sprintf("%s-%s-%08x.png", webBlockId, future.Add(time.Duration(i)*time.Minute).Format("20060102T150405Z"), i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	WrappedStdout = &out
+	if err := webShotCmd.RunE(webShotCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	saved := strings.SplitN(out.String(), " ", 2)[0]
+	if _, err := os.Stat(saved); err != nil {
+		t.Fatalf("the picture whose path was printed must still be there: %v", err)
+	}
+	if got := len(filesIn(t, dir)); got != webShotKeep {
+		t.Fatalf("still %d pictures in all, got %d", webShotKeep, got)
+	}
+}

@@ -30,7 +30,8 @@ var webTextCmd = &cobra.Command{
 Reads only: nothing is navigated, clicked or focused.
 
 A web tile that has no web:partition of its own uses the default sign-in store of Wave, which every web tile shares and which keeps logins
-across restarts. The text of such a tile is refused until the owner can allow a tile by name. Same limits as the other web commands: a
+across restarts. The text of such a tile is refused until the owner can allow a tile by name. A partition is the tile's own only when it is
+exactly the tile's block id or persist:<block id>; any other name is refused, since it may be a store someone is signed in to. Same limits as the other web commands: a
 tile of the caller's own workspace only. Control characters and invisible format characters in the page text are printed as <U+XXXX>.`,
 	Args: cobra.NoArgs,
 	RunE: webTextRun,

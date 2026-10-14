@@ -82,7 +82,7 @@ export class ElectronWshClientType extends WshClient {
         const info = await RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid);
         authorizeWebNav(data, info);
         // the tile's own record decides, before its page is touched: a tile on the shared default sign-in store is refused
-        const refusal = webTextRefusal(info.block?.meta);
+        const refusal = webTextRefusal(data.blockid, info.block?.meta);
         if (refusal) {
             throw new Error(refusal);
         }

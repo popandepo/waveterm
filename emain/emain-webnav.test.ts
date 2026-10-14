@@ -275,15 +275,51 @@ describe("wsh web info: the load state of a tile", () => {
 });
 
 describe("wsh web text: what is read, and from which tiles", () => {
-    test("a tile with no partition of its own is refused, whatever the record holds in its place", () => {
+    const tileId = "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90";
+    const otherTile = "11111111-2222-4333-8444-555555555555";
+
+    test("a tile with no partition is refused, whatever the record holds in its place", () => {
         for (const meta of [undefined, null, {}, { "web:partition": "" }, { "web:partition": "   " }, { "web:partition": 3 }, { "web:partition": null }, { "web:partition": ["persist:x"] }, { web: { partition: "x" } }]) {
-            assert.include(webTextRefusal(meta as any), "shared default sign-in store", JSON.stringify(meta));
+            assert.include(webTextRefusal(tileId, meta as any), "shared default sign-in store", JSON.stringify(meta));
         }
     });
 
-    test("a tile with a partition of its own is allowed", () => {
-        assert.equal(webTextRefusal({ "web:partition": "persist:agent-1" }), "");
-        assert.equal(webTextRefusal({ "web:partition": "agent-1", view: "web" }), "");
+    test("a partition named exactly after the tile's own block id is the tile's own and allowed", () => {
+        assert.equal(webTextRefusal(tileId, { "web:partition": "persist:" + tileId }), "");
+        assert.equal(webTextRefusal(tileId, { "web:partition": tileId, view: "web" }), "");
+    });
+
+    test("any other name is refused: a session can point its tile at a store the owner is signed in to", () => {
+        for (const p of [
+            "persist:agent-1",
+            "agent-1",
+            "persist:gmail",
+            otherTile,
+            "persist:" + otherTile,
+            "persist:" + tileId + "-x",
+            "x-" + tileId,
+            "persist:" + tileId.toUpperCase(),
+            " persist:" + tileId,
+            "persist:" + tileId + " ",
+            "persist:persist:" + tileId,
+            "persist:",
+        ]) {
+            const why = webTextRefusal(tileId, { "web:partition": p });
+            assert.notEqual(why, "", p);
+            assert.include(why, tileId, "the refusal names the partition the tile needs: " + p);
+        }
+    });
+
+    test("a tile named like another tile's persist: form is refused for itself, and the other tile's own name stays its own", () => {
+        assert.notEqual(webTextRefusal(tileId, { "web:partition": "persist:" + otherTile }), "");
+        assert.equal(webTextRefusal(otherTile, { "web:partition": "persist:" + otherTile }), "");
+    });
+
+    test("no block id means nothing is the tile's own", () => {
+        for (const id of ["", undefined, null, "   "]) {
+            assert.notEqual(webTextRefusal(id as any, { "web:partition": "persist:" + id }), "", String(id));
+            assert.notEqual(webTextRefusal(id as any, { "web:partition": String(id) }), "", String(id));
+        }
     });
 
     test("the selector goes into the script as a JSON string, never as code", () => {
@@ -439,7 +475,7 @@ describe("wsh web text: the wiring (source pins)", () => {
         const first = body.indexOf("WebNavAuthorizeCommand");
         const second = body.indexOf("WebNavAuthorizeCommand", first + 1);
         assert.isAbove(second, body.indexOf("getWebContentsByBlockId"));
-        assert.include(body, "webTextRefusal(info.block?.meta)");
+        assert.include(body, "webTextRefusal(data.blockid, info.block?.meta)");
         assert.notInclude(body, "data.partition");
     });
 });

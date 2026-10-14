@@ -180,16 +180,21 @@ export interface WebTextResult {
     truncated: boolean;
 }
 
-// The tile must have its own partition (block meta web:partition, a non-empty text). A tile without one shows its pages in the default store of Wave,
-// which every web tile of Wave shares and which keeps cookies and logins across restarts: what such a tile shows may be a signed-in page of the owner.
-// Reading it is refused until the owner can allow a tile by name (an allow-list that does not exist yet). The check is on the record of the block, read
-// by the window itself, never on a value from the caller.
-export function webTextRefusal(meta: { [key: string]: any } | null | undefined): string {
+// The tile must have a partition of its own: block meta web:partition exactly <blockId> or persist:<blockId> of that same tile. A tile without one
+// shows its pages in the default store of Wave, which every web tile shares and which keeps logins across restarts. Any other name is refused too:
+// a session can set web:partition, and a name the owner has signed in to elsewhere would hand that login to the tile. A name made of the tile's own
+// id cannot be one the owner uses for another tile. The check is on the record of the block, read by the window itself, never on a value from the
+// caller; the owner's allow-list (not built yet) is the planned second way past it.
+export function webTextRefusal(blockId: string, meta: { [key: string]: any } | null | undefined): string {
     const partition = meta?.["web:partition"];
-    if (typeof partition === "string" && partition.trim() !== "") {
+    if (typeof partition !== "string" || partition.trim() === "") {
+        return "this web tile uses the shared default sign-in store of Wave, so its text is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
+    }
+    const id = typeof blockId === "string" ? blockId.trim() : "";
+    if (id !== "" && (partition === id || partition === "persist:" + id)) {
         return "";
     }
-    return "this web tile uses the shared default sign-in store of Wave, so its text is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
+    return `this web tile's partition is not its own, so its text is not given out: set web:partition to ${id} or persist:${id} (a name another tile or a sign-in may use is refused)`;
 }
 
 export function checkSelector(selector: unknown): string {

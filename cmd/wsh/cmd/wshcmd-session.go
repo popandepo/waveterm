@@ -35,9 +35,15 @@ arguments exactly as given: there is no shell and no launcher in between, so cha
 argument reach the program unchanged. Use --args-file for a JSON array of strings if even the command line of wsh
 itself must not be trusted to carry the arguments.
 
-The output is one JSON object: {"tabid":"...","blockid":"..."}.`,
+With --stack <block> no tab is created: the program block is created in the tab of that block and put into its group (stack), as
+wsh group add does. --name, --color and --symbol then go on the block (frame:title, icon:color and frame:bordercolor, frame:icon),
+because there is no tab of its own to carry them. --stack cannot be combined with --activate. The group is applied when the tab
+of that block is open (the back end only queues it, as for wsh group add).
+
+The output is one JSON object: {"tabid":"...","blockid":"..."}, with "stackedwith":"<block>" added for --stack.`,
 	Example: `  wsh session start --name tether-notes --color "#2D7DD2" --symbol star --cwd C:\work -- pwsh -NoLogo -File start.ps1 -Prompt "a; b"
-  wsh session start --name w1 --args-file cmd.json`,
+  wsh session start --name w1 --args-file cmd.json
+  wsh session start --stack 3 --name build --color "#2D7DD2" --symbol star --args-file cmd.json`,
 	RunE:    sessionStartRun,
 	PreRunE: preRunSetupRpcClient,
 }
@@ -87,6 +93,7 @@ func init() {
 	f.BoolVar(&sessionRestart, "restart", false, "start the program again every time Wave starts; the command must resume its own work. Best effort: --session-id and inline code (pwsh -Command, node -e, python -c, wsl ...) are refused, what a script file does cannot be checked")
 	f.StringArrayVar(&sessionMeta, "meta", nil, "session:KEY=VALUE written on the block for outside tools (session:id, session:model ...), repeatable")
 	f.BoolVar(&sessionActivate, "activate", false, "switch to the new tab (default: leave the active tab alone)")
+	f.StringVar(&sessionStack, "stack", "", "no new tab: put the program block into the group (stack) of this block (block id or number); --name, --color and --symbol then go on the block")
 	sessionCloseCmd.Flags().BoolVar(&sessionForce, "force", false, "close even if a program is still running")
 	sessionCommand.AddCommand(sessionStartCmd)
 	sessionCommand.AddCommand(sessionListCmd)
@@ -96,6 +103,7 @@ func init() {
 
 type sessionBlockInfo struct {
 	BlockId  string `json:"blockid"`
+	Title    string `json:"title,omitempty"`
 	View     string `json:"view"`
 	Status   string `json:"status"`
 	ExitCode int    `json:"exitcode"`
@@ -271,7 +279,15 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return err
 	}
-	styleMeta, err := buildSessionStyleMeta(sessionColor, sessionSymbol)
+	if err := validateSessionStackOptions(cmd.Flags().Changed("stack"), sessionStack, sessionActivate); err != nil {
+		return err
+	}
+	var styleMeta, memberLook map[string]any
+	if sessionStack != "" {
+		memberLook, err = buildSessionMemberLook(sessionName, sessionColor, sessionSymbol)
+	} else {
+		styleMeta, err = buildSessionStyleMeta(sessionColor, sessionSymbol)
+	}
 	if err != nil {
 		return err
 	}
@@ -289,6 +305,16 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		if err != nil {
 			return fmt.Errorf("getting current directory: %w", err)
 		}
+	}
+	if sessionStack != "" {
+		blockMeta := buildSessionBlockMeta(command, cmdArgs, cwd, envMap, RpcContext.Conn)
+		applySessionOptions(blockMeta, sessionRestart, extraMeta)
+		out, err := startSessionInStack(wsId, sessionStack, blockMeta, memberLook)
+		if err != nil {
+			return err
+		}
+		WriteStdout("%s\n", out)
+		return nil
 	}
 	tabId, err := createBackgroundTab(rpcTabCreator{}, wsId, sessionName, true, sessionActivate)
 	if err != nil {
@@ -310,8 +336,7 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return fmt.Errorf("tab %s was created but the block could not be: %w", tabId, err)
 	}
-	out, _ := json.Marshal(map[string]string{"tabid": tabId, "blockid": oref.OID})
-	WriteStdout("%s\n", string(out))
+	WriteStdout("%s\n", sessionStartOutput(tabId, oref.OID, ""))
 	return nil
 }
 
@@ -381,7 +406,8 @@ func collectSessionTabs() ([]sessionTabInfo, error) {
 					continue
 				}
 				view, _ := b.Meta[waveobj.MetaKey_View].(string)
-				bi := sessionBlockInfo{BlockId: b.BlockId, View: view}
+				title, _ := b.Meta[waveobj.MetaKey_FrameTitle].(string)
+				bi := sessionBlockInfo{BlockId: b.BlockId, Title: title, View: view}
 				if view == "term" {
 					st, err := wshclient.ControllerStatusCommand(RpcClient, b.BlockId, &wshrpc.RpcOpts{Timeout: 2000})
 					if err != nil {

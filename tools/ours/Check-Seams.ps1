@@ -145,7 +145,7 @@ $seams = @(
     @('telemetry-send-gate', 'pkg/wcloud/wcloud.go', 'if !telemetry.IsTelemetryEnabled() {', 'the one place that stops every usage upload while telemetry is off'),
     @('setbaseconfig-writer', 'pkg/wconfig/settingsconfig.go', 'func SetBaseConfigValue(toMerge waveobj.MetaMapType) error {', 'the one function that writes the settings file; it refuses the owner-only keys first'),
     @('setconfig-command', 'pkg/wshrpc/wshserver/wshserver.go', 'func (ws *WshServer) SetConfigCommand(ctx context.Context, data wshrpc.MetaSettingsType) error {', 'what wsh setconfig calls; refuses the owner-only keys'),
-    @('telemetry-update-service', 'pkg/service/clientservice/clientservice.go', 'func (cs *ClientService) TelemetryUpdate(ctx context.Context, telemetryEnabled bool) error {', 'the window's way to switch telemetry; refused in the fork'),
+    @('telemetry-update-service', 'pkg/service/clientservice/clientservice.go', 'func (cs *ClientService) TelemetryUpdate(ctx context.Context, telemetryEnabled bool) error {', 'the window''s way to switch telemetry; refused in the fork'),
     @('record-tevent', 'pkg/telemetry/telemetry.go', 'func RecordTEvent(ctx context.Context, tevent *telemetrydata.TEvent) error {', 'usage events are dropped while telemetry is off'),
     @('app-menu-items', 'emain/emain-menu.ts', 'function makeAppMenuItems(webContents: electron.WebContents): Electron.MenuItemConstructorOptions[] {', 'the app menu has no Check for Updates item in the fork')
 )

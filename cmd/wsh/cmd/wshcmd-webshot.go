@@ -30,7 +30,7 @@ var webShotCmd = &cobra.Command{
 	Short: "save a picture of one web tile (own workspace, and only a tile with its own web:partition) to a new PNG file",
 	Long: `Saves a PNG of the web contents of ONE tile, not of the window. Reads only: nothing is navigated, clicked or focused.
 The file must not exist yet (it is never overwritten), its folder must exist, its name must end in .png, and neither the folder nor
-the path may be inside a .claude or .claude-work folder. The tile must be shown (a tile in a tab that is not shown gives an empty
+the path may be inside a .claude or .claude-work folder. Windows only. The tile must be shown (a tile in a tab that is not shown gives an empty
 picture, which is an error, not a blank file).
 
 A web tile that has no web:partition of its own uses the default sign-in store of Wave, which every web tile shares and which keeps
@@ -67,6 +67,9 @@ func hasOffLimitsSegment(path string) bool {
 // checkWebShotPath decides where the picture may go, before any request is made: an absolute spelling that is checked as written AND after its folder
 // is resolved (a junction or a link cannot lead into an off-limits folder), a .png name, an existing folder, and a file that does not exist.
 func checkWebShotPath(out string) (string, error) {
+	if err := webShotPlatformRefusal(); err != nil {
+		return "", err
+	}
 	if strings.TrimSpace(out) == "" {
 		return "", fmt.Errorf("--out is required: the new .png file to write")
 	}
@@ -133,12 +136,27 @@ func writeNewFile(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
+	if err := webShotWriteFile(f, data); err != nil {
+		// removed through the open handle, so no other file of that name can be hit
+		discardNewFile(f)
 		return err
 	}
-	return f.Close()
+	if err := webShotCloseFile(f); err != nil {
+		// the handle is gone; the name was checked a moment ago and the file is ours
+		os.Remove(path)
+		return err
+	}
+	return nil
 }
+
+// seams for tests
+var (
+	webShotWriteFile = func(f *os.File, data []byte) error {
+		_, err := f.Write(data)
+		return err
+	}
+	webShotCloseFile = func(f *os.File) error { return f.Close() }
+)
 
 func webShotRun(cmd *cobra.Command, args []string) error {
 	target, err := checkWebShotPath(webShotOut)

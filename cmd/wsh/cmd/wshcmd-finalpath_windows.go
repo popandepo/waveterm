@@ -84,3 +84,15 @@ func createNewFileIn(path string, wantDir string) (*os.File, error) {
 	}
 	return nil, fmt.Errorf("the folder of --out changed after it was checked (the file landed in %s, not %s; removed: %v)", filepath.Dir(final), wantDir, derr == nil)
 }
+
+// webShotPlatformRefusal is empty on Windows: the destination is checked through the new file's own handle (createNewFileIn).
+func webShotPlatformRefusal() error {
+	return nil
+}
+
+// discardNewFile deletes a file made by createNewFileIn through its open handle and closes it.
+func discardNewFile(f *os.File) {
+	deleteFile := byte(1)
+	windows.SetFileInformationByHandle(windows.Handle(f.Fd()), windows.FileDispositionInfo, &deleteFile, 1)
+	f.Close()
+}

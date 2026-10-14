@@ -126,3 +126,32 @@ func TestNormalizeFinalPathKeepsUncAbsolute(t *testing.T) {
 		}
 	}
 }
+
+// A write or a close that fails must not leave a file behind (an empty or half PNG under the name asked for).
+func TestWebShotAFailedWriteOrCloseLeavesNoFile(t *testing.T) {
+	oldWrite, oldClose := webShotWriteFile, webShotCloseFile
+	t.Cleanup(func() { webShotWriteFile, webShotCloseFile = oldWrite, oldClose })
+	for _, which := range []string{"write", "close"} {
+		stubWebShot(t)
+		out := filepath.Join(t.TempDir(), "a.png")
+		webShotOut = out
+		webShotWriteFile, webShotCloseFile = oldWrite, oldClose
+		if which == "write" {
+			webShotWriteFile = func(f *os.File, data []byte) error {
+				f.Write(data[:3])
+				return errString("disk full")
+			}
+		} else {
+			webShotCloseFile = func(f *os.File) error {
+				f.Close()
+				return errString("close failed")
+			}
+		}
+		if err := webShotCmd.RunE(webShotCmd, nil); err == nil {
+			t.Fatalf("%s: the failure must be reported", which)
+		}
+		if _, err := os.Lstat(out); err == nil {
+			t.Fatalf("%s: the file must not be left behind", which)
+		}
+	}
+}

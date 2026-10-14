@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +19,14 @@ func pngB64(extra int) string {
 	b := append([]byte{}, pngSignature...)
 	b = append(b, bytes.Repeat([]byte{1}, extra)...)
 	return base64.StdEncoding.EncodeToString(b)
+}
+
+// onlyWhereShotRuns skips a test of a working shot outside Windows, where --out is refused (wshcmd-webshot_other_test.go).
+func onlyWhereShotRuns(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		t.Skip("wsh web shot --out works on Windows only")
+	}
 }
 
 func stubWebShot(t *testing.T) (*[]wshrpc.CommandWebShotData, *bool) {
@@ -40,6 +49,7 @@ func stubWebShot(t *testing.T) (*[]wshrpc.CommandWebShotData, *bool) {
 }
 
 func TestWebShotWritesANewPngFileAndNeverOverwrites(t *testing.T) {
+	onlyWhereShotRuns(t)
 	sent, _ := stubWebShot(t)
 	out := filepath.Join(t.TempDir(), "tile.png")
 	webShotOut = out
@@ -69,6 +79,7 @@ func TestWebShotWritesANewPngFileAndNeverOverwrites(t *testing.T) {
 }
 
 func TestWebShotPathIsCheckedBeforeAnyRequest(t *testing.T) {
+	onlyWhereShotRuns(t)
 	sent, read := stubWebShot(t)
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".claude"), 0700); err != nil {
@@ -106,6 +117,7 @@ func TestWebShotPathIsCheckedBeforeAnyRequest(t *testing.T) {
 
 // A symlinked folder; the Windows junction case is in wshcmd-webshot_windows_test.go.
 func TestWebShotRefusesASymlinkedFolderIntoAnOffLimitsFolder(t *testing.T) {
+	onlyWhereShotRuns(t)
 	stubWebShot(t)
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, ".claude")
@@ -127,6 +139,7 @@ func TestWebShotRefusesASymlinkedFolderIntoAnOffLimitsFolder(t *testing.T) {
 }
 
 func TestWebShotRefusesAForeignTileBeforeAnythingIsReadAndWritesNothing(t *testing.T) {
+	onlyWhereShotRuns(t)
 	sent, read := stubWebShot(t)
 	webNavAuthorize = func(blockId string) error { return errString("no") }
 	out := filepath.Join(t.TempDir(), "x.png")
@@ -144,6 +157,7 @@ func TestWebShotRefusesAForeignTileBeforeAnythingIsReadAndWritesNothing(t *testi
 }
 
 func TestWebShotTheWindowsRefusalComesBackAndNoFileIsMade(t *testing.T) {
+	onlyWhereShotRuns(t)
 	stubWebShot(t)
 	out := filepath.Join(t.TempDir(), "x.png")
 	webShotOut = out

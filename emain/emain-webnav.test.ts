@@ -206,3 +206,16 @@ describe("round 5: the other web command, the answer's credentials, the time lim
         assert.notInclude(JSON.stringify(res), "p@");
     });
 });
+
+describe("the lookup of a web tile's page asks the named tab or nothing", () => {
+    const web = readFileSync(path.join(__dirname, "emain-web.ts"), "utf8");
+    const fn = web.slice(web.indexOf("export function getWebContentsByBlockId("), web.indexOf("function escapeSelector("));
+    test("a named tab that is not loaded gives null at once, the shown tab is not asked in its place", () => {
+        assert.include(fn, "const tabView = tabId ? ww?.allLoadedTabViews?.get(tabId) : ww?.activeTabView;");
+        assert.notMatch(fn, /\?\?\s*ww\?\.activeTabView/);
+        const check = fn.indexOf("if (tabView == null)");
+        assert.isAbove(check, 0);
+        assert.isBelow(check, fn.indexOf("webContents.send("));
+        assert.isBelow(check, fn.indexOf("ipcMain.once("));
+    });
+});

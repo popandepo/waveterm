@@ -70,7 +70,7 @@ func safeTextBlock(s string) string {
 		switch {
 		case r == '\n' || r == '\t':
 			b.WriteRune(r)
-		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) || r == unicode.ReplacementChar:
+		case isUnprintableRune(r):
 			b.WriteString(fmt.Sprintf("<U+%04X>", r))
 		default:
 			b.WriteRune(r)

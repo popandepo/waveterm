@@ -397,7 +397,10 @@ describe("wsh web text: what is read, and from which tiles", () => {
             assert.equal(printableErrorText("a" + String.fromCodePoint(c) + "b", 200), "a?b", c.toString(16));
         }
         assert.equal(printableErrorText("a" + String.fromCharCode(0xd800) + "b" + String.fromCharCode(0xdc00), 200), "a?b?");
-        const unsafe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+        for (const c of [0x034f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180f, 0x3164, 0xfe00, 0xfe0f, 0xffa0, 0xe0100, 0xe01ef]) {
+            assert.equal(printableErrorText("a" + String.fromCodePoint(c) + "b", 200), "a?b", "default-ignorable " + c.toString(16));
+        }
+        const unsafe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
         let all = "";
         for (let c = 0; c <= 0x10ffff; c++) {
             if (c >= 0xd800 && c <= 0xdfff) {

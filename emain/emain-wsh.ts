@@ -9,6 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
+import { authorizeWebNav, AuthorizeTimeoutMs, webNavigate } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
 export class ElectronWshClientType extends WshClient {
@@ -20,6 +21,8 @@ export class ElectronWshClientType extends WshClient {
         if (!data.tabid || !data.blockid || !data.workspaceid) {
             throw new Error("tabid and blockid are required");
         }
+        // the same question as for the web commands (wsh web get reads the page of a tile): the caller may act only on a tile of its own workspace
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
         const ww = getWaveWindowByWorkspaceId(data.workspaceid);
         if (ww == null) {
             throw new Error(`no window found with workspace ${data.workspaceid}`);
@@ -30,6 +33,34 @@ export class ElectronWshClientType extends WshClient {
         }
         const rtn = await webGetSelector(wc, data.selector, data.opts);
         return rtn;
+    }
+
+    async handle_webnav(rh: RpcResponseHelper, data: CommandWebNavData): Promise<CommandWebNavRtnData> {
+        if (!data.tabid || !data.blockid || !data.workspaceid) {
+            throw new Error("tabid, blockid and workspaceid are required");
+        }
+        if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
+            throw new Error("blockid must be a full block id");
+        }
+        // the caller is the block behind the source route that the router stamped on this message (a session cannot choose it): it may act only on a
+        // web tile in its own workspace. Asked before any window, tab or web contents is looked at.
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
+        const ww = getWaveWindowByWorkspaceId(data.workspaceid);
+        if (ww == null) {
+            throw new Error(`no window found with workspace ${data.workspaceid}`);
+        }
+        if (!ww.allLoadedTabViews?.has(data.tabid)) {
+            throw new Error(`the tab ${data.tabid} is not loaded in its window (show it once, then ask again)`);
+        }
+        // none of the ids is taken on trust: the block must be the one named, in the tab and the workspace named, and a web tile
+        authorizeWebNav(data, await RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid));
+        const wc = await getWebContentsByBlockId(ww, data.tabid, data.blockid);
+        if (wc == null) {
+            throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
+        }
+        // the same question again right before acting (a belt: no code moves a block to another tab or workspace today, but the lookups above take time)
+        await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
+        return webNavigate(wc, data.action);
     }
 
     async handle_notify(rh: RpcResponseHelper, notificationOptions: WaveNotificationOptions) {

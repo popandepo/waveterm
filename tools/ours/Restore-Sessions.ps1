@@ -21,6 +21,8 @@ param(
     [string]$Starter = (Join-Path $PSScriptRoot 'Start-ResumableSession.ps1'),
     [string]$Wsh = 'wsh',
     [string]$Shell = 'pwsh',
+    [string]$PluginDir = $(if (Test-Path -LiteralPath 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' -PathType Container) { 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' } else { '' }),
+    [string]$ConfigDir = (Join-Path $env:USERPROFILE '.claude-personal'),
     [string[]]$SessionId = @(),
     [switch]$Execute
 )
@@ -53,6 +55,8 @@ if (-not (Test-Path -LiteralPath $RecordPath)) { Fail "no state record at $Recor
 $rec = Get-Content -LiteralPath $RecordPath -Raw | ConvertFrom-Json
 if ($rec.version -ne 1) { Fail "unknown record version $($rec.version)" }
 if (-not (Test-Path -LiteralPath $Starter)) { Fail "starter not found: $Starter" }
+# Wave's own environment never has CLAUDE_CONFIG_DIR (the launcher removes it), so every restored session carries its config folder in its stored command.
+if ($ConfigDir -notmatch '^[A-Za-z]:[\\/]') { Fail "-ConfigDir must be a full path: '$ConfigDir'" }
 
 $running = Get-RunningSessions $SessionsDir
 $sessions = @($rec.sessions | Where-Object { $_ -and $_.session -and $_.session.id })
@@ -81,7 +85,8 @@ foreach ($s in $sessions) {
     if ($pm) {
         if ($AllowedModes -contains $pm) { $pmText = $pm } else { "NOTE    $label : permission mode '$pm' is not passed on, the session starts in its default mode" }
     }
-    $starterArgs = @('-NoLogo', '-File', $Starter, '-SessionId', $id)
+    $starterArgs = @('-NoLogo', '-File', $Starter, '-SessionId', $id, '-ConfigDir', $ConfigDir)
+    if ($PluginDir) { $starterArgs += '-PluginDir', $PluginDir }
     if ($s.session.name) { $starterArgs += '-Name', "$($s.session.name)" }
     if ($s.session.model) { $starterArgs += '-Model', "$($s.session.model)" }
     if ($s.session.effort) { $starterArgs += '-Effort', "$($s.session.effort)" }

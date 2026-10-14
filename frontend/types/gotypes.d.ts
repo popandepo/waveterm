@@ -812,6 +812,28 @@ declare global {
         streammeta: StreamMeta;
     };
 
+    // wshrpc.CommandWebNavAuthorizeData
+    type CommandWebNavAuthorizeData = {
+        callerroute: string;
+        blockid: string;
+    };
+
+    // wshrpc.CommandWebNavData
+    type CommandWebNavData = {
+        workspaceid: string;
+        blockid: string;
+        tabid: string;
+        action: string;
+    };
+
+    // wshrpc.CommandWebNavRtnData
+    type CommandWebNavRtnData = {
+        url: string;
+        title: string;
+        cangoback: boolean;
+        cangoforward: boolean;
+    };
+
     // wshrpc.CommandWebSelectorData
     type CommandWebSelectorData = {
         workspaceid: string;

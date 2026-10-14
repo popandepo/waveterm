@@ -291,7 +291,8 @@ export async function webText(wc: WebTextTarget, selector: unknown, askedMaxByte
 
 // The most one picture holds, in bytes of PNG before base64 (the answer travels over the RPC as one message).
 export const MaxShotBytes = 4 * 1024 * 1024;
-// A picture above the cap is scaled down to this width once, and refused if it is still above the cap.
+// A picture above the cap is scaled down once, to this width or to half its own width if it is already narrower, and refused if it is still above
+// the cap.
 export const ShrunkShotWidth = 1280;
 
 export interface ShotImage {
@@ -323,7 +324,13 @@ export async function webShot(wc: ShotTarget): Promise<WebShotResult> {
     }
     let png = image.toPNG();
     if (png.length > MaxShotBytes) {
-        image = image.resize({ width: ShrunkShotWidth });
+        // ShrunkShotWidth, or half the width for a picture that is already narrower: never scaled up
+        const width = image.getSize().width;
+        const smaller = Math.min(ShrunkShotWidth, Math.floor(width / 2));
+        if (!(smaller >= 1)) {
+            throw new Error(`the picture is larger than ${MaxShotBytes} bytes and cannot be scaled down`);
+        }
+        image = image.resize({ width: smaller });
         png = image.toPNG();
         if (image.isEmpty() || png.length > MaxShotBytes) {
             throw new Error(`the picture is larger than ${MaxShotBytes} bytes even scaled down`);

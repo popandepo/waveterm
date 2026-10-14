@@ -480,9 +480,15 @@ describe("wsh web shot: the picture of one tile", () => {
     });
 
     test("a picture above the cap is scaled down once, and refused if it is still too large", async () => {
-        const res = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: 50 }) });
+        const res = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: 50, width: 3000 }) });
         assert.equal(res.width, ShrunkShotWidth);
         assert.equal(Buffer.from(res.png, "base64").length, 50);
+        // a picture already narrower than ShrunkShotWidth is made smaller, never scaled up
+        for (const width of [800, ShrunkShotWidth, 2]) {
+            const narrow = await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: 50, width }) });
+            assert.isBelow(narrow.width, width, "from " + width);
+            assert.isAtLeast(narrow.width, 1, "from " + width);
+        }
         await webShot({ capturePage: async () => image({ bytes: MaxShotBytes + 1, shrunkBytes: MaxShotBytes + 1 }) }).then(
             () => assert.fail("must throw"),
             (e) => assert.match(String(e), /larger than/)

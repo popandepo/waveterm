@@ -211,11 +211,34 @@ export function buildTextScript(selector: string, maxChars: number): string {
         const el = sel ? document.querySelector(sel) : document.body;
         if (!el) { return { missing: true }; }
         const t = typeof el.innerText === "string" ? el.innerText : "";
-        return { text: t.slice(0, ${Math.floor(maxChars)}), more: t.length > ${Math.floor(maxChars)} };
+        let s = t.slice(0, ${Math.floor(maxChars)});
+        const last = s.charCodeAt(s.length - 1);
+        if (last >= 0xd800 && last <= 0xdbff) { s = s.slice(0, -1); }
+        return { text: s, more: t.length > ${Math.floor(maxChars)} };
     } catch (error) {
         return { error: String(error && error.message ? error.message : error).slice(0, 200) };
     }
 })()`;
+}
+
+// The characters that never reach a terminal from a page: controls (Cc), every format character (Cf: bidi, zero-width, soft hyphen, tags ...), line
+// and paragraph separators, lone surrogates (Cs), and the default-ignorable code points (variation selectors, Hangul fillers ...), which draw
+// nothing. The same classes as safeText in the CLI.
+const unprintableRe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Default_Ignorable_Code_Point}]/u;
+
+// An error message the page wrote (a getter can throw anything) goes to a terminal: every unprintable character becomes "?", and it is cut at
+// maxChars characters.
+export function printableErrorText(text: string, maxChars: number): string {
+    let out = "";
+    let n = 0;
+    for (const ch of text) {
+        if (n >= maxChars) {
+            break;
+        }
+        out += unprintableRe.test(ch) ? "?" : ch;
+        n++;
+    }
+    return out;
 }
 
 // Cuts text to at most maxBytes of UTF-8 without splitting a character.
@@ -255,7 +278,7 @@ export async function webText(wc: WebTextTarget, selector: unknown, askedMaxByte
         throw new Error("the page gave no answer");
     }
     if (res.error) {
-        throw new Error(`the page refused the selector: ${String(res.error).slice(0, 200)}`);
+        throw new Error(`the page refused the selector: ${printableErrorText(String(res.error), 200)}`);
     }
     if (res.missing) {
         throw new Error("nothing on the page matches the selector");

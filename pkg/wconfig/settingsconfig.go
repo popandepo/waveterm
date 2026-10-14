@@ -846,6 +846,9 @@ func convertJsonNumber(num json.Number, ctype reflect.Type) (interface{}, error)
 }
 
 func SetBaseConfigValue(toMerge waveobj.MetaMapType) error {
+	if err := CheckNoOwnerOnlyKeys(toMerge); err != nil {
+		return err
+	}
 	m, cerrs := ReadWaveHomeConfigFile(SettingsFile)
 	if len(cerrs) > 0 {
 		return fmt.Errorf("error reading config file: %v", cerrs[0])

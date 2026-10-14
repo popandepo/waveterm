@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { afterEach, assert, beforeEach, describe, test, vi } from "vitest";
-import { ClearAttentionMeta } from "./attentionclear";
 import { focusSwitchedSince, makeAttentionClearEnv, scheduleAttentionClear } from "./attentionschedule";
 
 function sources() {
@@ -11,12 +10,12 @@ function sources() {
         focused: "b1" as string | undefined,
         meta: { "attention:level": "need", "attention:reason": "why" } as Record<string, unknown>,
     };
-    const written: Array<[string, unknown]> = [];
+    const written: Array<[string, string, string]> = [];
     const src = {
         documentHasFocus: () => state.docFocus,
         focusedBlockId: () => state.focused,
         readMeta: (_blockId: string, key: string) => state.meta[key],
-        writeMeta: (blockId: string, meta: unknown) => void written.push([blockId, meta]),
+        clearIf: (blockId: string, level: string, reason: string) => void written.push([blockId, level, reason]),
     };
     return { state, written, src };
 }
@@ -24,7 +23,7 @@ function sources() {
 describe("the attention env reads the present every time it is asked", () => {
     test("focused block, window focus and the mark are read at the call, not when the env was made", () => {
         const s = sources();
-        const env = makeAttentionClearEnv(s.src, ClearAttentionMeta);
+        const env = makeAttentionClearEnv(s.src);
         assert.equal(env.focusedBlockId(), "b1");
         s.state.focused = "b2";
         assert.equal(env.focusedBlockId(), "b2");
@@ -36,10 +35,10 @@ describe("the attention env reads the present every time it is asked", () => {
         assert.deepEqual(env.read("b1"), { level: "urgent", reason: "why" });
     });
 
-    test("clear writes exactly the two keys as null to the block that was asked for", () => {
+    test("clear hands the block and the planned level and reason to the server's compare-and-clear", () => {
         const s = sources();
-        makeAttentionClearEnv(s.src, ClearAttentionMeta).clear("b9");
-        assert.deepEqual(s.written, [["b9", { "attention:level": null, "attention:reason": null }]]);
+        makeAttentionClearEnv(s.src).clear("b9", "need", "why");
+        assert.deepEqual(s.written, [["b9", "need", "why"]]);
     });
 
     describe("with the timer", () => {
@@ -50,7 +49,7 @@ describe("the attention env reads the present every time it is asked", () => {
             const s = sources();
             scheduleAttentionClear(
                 { blockId: "b1", level: "need", reason: "why", documentHasFocus: true, focusSwitched: true },
-                makeAttentionClearEnv(s.src, ClearAttentionMeta)
+                makeAttentionClearEnv(s.src)
             );
             s.state.focused = "b2";
             vi.advanceTimersByTime(60_000);
@@ -61,10 +60,10 @@ describe("the attention env reads the present every time it is asked", () => {
             const s = sources();
             scheduleAttentionClear(
                 { blockId: "b1", level: "need", reason: "why", documentHasFocus: true, focusSwitched: true },
-                makeAttentionClearEnv(s.src, ClearAttentionMeta)
+                makeAttentionClearEnv(s.src)
             );
             vi.advanceTimersByTime(60_000);
-            assert.equal(s.written.length, 1);
+            assert.deepEqual(s.written, [["b1", "need", "why"]]);
         });
     });
 });

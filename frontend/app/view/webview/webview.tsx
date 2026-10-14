@@ -25,6 +25,7 @@ import { Fragment, createRef, memo, useCallback, useEffect, useLayoutEffect, use
 import { applyGuestMute } from "./hiddenmute";
 import "./webview.scss";
 import type { WebViewEnv } from "./webviewenv";
+import { isPageLoadFailure } from "./loadfailure";
 
 // User agent strings for mobile emulation
 const NeverHiddenAtom = atom(false);
@@ -1066,8 +1067,8 @@ const WebView = memo(({ model, onFailLoad, blockRef, initialSrc }: WebViewProps)
             setBgColor();
         };
         const failLoadHandler = (e: any) => {
-            if (e.errorCode === -3) {
-                console.warn("Suppressed ERR_ABORTED error", e);
+            if (!isPageLoadFailure(e)) {
+                console.warn("Suppressed load failure that is not the page's own (aborted, or a sub-frame or blocked sub-resource)", e);
             } else {
                 const errorMessage = `Failed to load ${e.validatedURL}: ${e.errorDescription}`;
                 console.error(errorMessage);

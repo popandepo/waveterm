@@ -50,6 +50,7 @@ type WshRpcInterface interface {
 	MessageCommand(ctx context.Context, data CommandMessageData) error
 	GetMetaCommand(ctx context.Context, data CommandGetMetaData) (waveobj.MetaMapType, error)
 	SetMetaCommand(ctx context.Context, data CommandSetMetaData) error
+	ClearAttentionIfCommand(ctx context.Context, data CommandClearAttentionIfData) (bool, error) // clears the attention mark of a block only if it is still exactly (level, reason)
 	ControllerInputCommand(ctx context.Context, data CommandBlockInputData) error
 	ControllerDestroyCommand(ctx context.Context, blockId string) error
 	ControllerStatusCommand(ctx context.Context, blockId string) (*CommandControllerStatusRtnData, error)
@@ -292,6 +293,14 @@ type CommandSetMetaData struct {
 	Meta waveobj.MetaMapType `json:"meta"`
 }
 
+// The mark that a clear was planned for. The server clears the block's attention only if the block still has exactly this level and reason when the
+// request arrives, in one transaction (a mark that a program wrote in between is never erased).
+type CommandClearAttentionIfData struct {
+	BlockId string `json:"blockid"`
+	Level   string `json:"level"`
+	Reason  string `json:"reason"`
+}
+
 type CommandResolveIdsData struct {
 	BlockId string   `json:"blockid"`
 	Ids     []string `json:"ids"`
@@ -310,6 +319,9 @@ type CommandCreateBlockData struct {
 	Focused       bool                 `json:"focused,omitempty"`
 	TargetBlockId string               `json:"targetblockid,omitempty"`
 	TargetAction  string               `json:"targetaction,omitempty"` // "replace", "splitright", "splitdown", "splitleft", "splitup", "stack"
+	// NodeSize is the weight of the new tile in the layout (a tile that nobody resized has 10). It counts only when the block becomes a new tile
+	// (inserted or split in), not for "replace" and "stack".
+	NodeSize *uint `json:"nodesize,omitempty"`
 }
 
 // StackBlockAction_* in wshrpctypes_const.go. Focused is false unless asked for: a layout change never takes

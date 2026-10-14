@@ -56,3 +56,10 @@ const (
 	StackBlockAction_Activate = "activate"
 	StackBlockAction_Move     = "move"
 )
+
+const (
+	WebNavAction_Reload  = "reload"
+	WebNavAction_Back    = "back"
+	WebNavAction_Forward = "forward"
+	WebNavAction_Url     = "url"
+)

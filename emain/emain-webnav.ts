@@ -164,3 +164,201 @@ export function webNavigate(wc: WebNavTarget, action: string): WebNavResult {
     }
     return rtn;
 }
+
+// ---- wsh web text ----
+
+// The most text one call returns, in bytes of UTF-8. The caller may ask for less.
+export const MaxWebTextBytes = 262144;
+export const MaxSelectorLength = 512;
+
+export interface WebTextTarget {
+    executeJavaScript(code: string): Promise<any>;
+}
+
+export interface WebTextResult {
+    text: string;
+    truncated: boolean;
+}
+
+// The tile must have a partition of its own: block meta web:partition exactly <blockId> or persist:<blockId> of that same tile. A tile without one
+// shows its pages in the default store of Wave, which every web tile shares and which keeps logins across restarts. Any other name is refused too:
+// a session can set web:partition, and a name the owner has signed in to elsewhere would hand that login to the tile. A name made of the tile's own
+// id cannot be one the owner uses for another tile. The check is on the record of the block, read by the window itself, never on a value from the
+// caller; the owner's allow-list (not built yet) is the planned second way past it.
+export function webTextRefusal(blockId: string, meta: { [key: string]: any } | null | undefined): string {
+    const partition = meta?.["web:partition"];
+    if (typeof partition !== "string" || partition.trim() === "") {
+        return "this web tile uses the shared default sign-in store of Wave, so its text is not given out: give the tile its own partition (web:partition) or wait for the allow-list";
+    }
+    const id = typeof blockId === "string" ? blockId.trim() : "";
+    if (id !== "" && (partition === id || partition === "persist:" + id)) {
+        return "";
+    }
+    return `this web tile's partition is not its own, so its text is not given out: set web:partition to ${id} or persist:${id} (a name another tile or a sign-in may use is refused)`;
+}
+
+// The same rule on the web contents that is about to be read: its live session must be the session of exactly the partition the record names, and
+// that name must be the tile's own (<id> or persist:<id>). A tile keeps the session it was loaded with, so the record alone is not enough, and the
+// two forms are different stores (a page signed in on persist:<id> stays there when the record is changed to <id>). Session objects are compared
+// (Electron gives one object per partition name), never names.
+export function liveSessionRefusal(
+    blockId: string,
+    recordPartition: unknown,
+    wc: { session?: unknown } | null | undefined,
+    sessionFor: (partition: string) => unknown
+): string {
+    const id = typeof blockId === "string" ? blockId.trim() : "";
+    const live = wc?.session;
+    const own = typeof recordPartition === "string" && id !== "" && (recordPartition === id || recordPartition === "persist:" + id);
+    if (own && live != null && live === sessionFor(recordPartition as string)) {
+        return "";
+    }
+    return `this web tile's page is not on its own partition, so its text is not given out (the tile may have been loaded before its web:partition was set; reload it)`;
+}
+
+export interface WebReadDeps {
+    authorize(): Promise<void>;
+    getWindow(): { allLoadedTabViews?: { has(tabId: string): boolean } } | null | undefined;
+    blockInfo(): Promise<any>;
+    getContents(ww: any): Promise<any>;
+    sessionFor(partition: string): unknown;
+}
+
+// A block id as Wave writes it: a lower-case canonical uuid.
+export const FullBlockIdRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// The order every read of a tile's page follows: the caller first; the record of the block (the one named, a web tile) and its partition rule; the
+// window and its loaded tab; only then the page; then the caller again and the live session of the contents, right before the read.
+export async function readWebTile<T>(
+    data: { blockid?: string; tabid?: string; workspaceid?: string },
+    deps: WebReadDeps,
+    read: (wc: any) => Promise<T>
+): Promise<T> {
+    if (!data.tabid || !data.blockid || !data.workspaceid) {
+        throw new Error("tabid, blockid and workspaceid are required");
+    }
+    if (!FullBlockIdRe.test(data.blockid)) {
+        throw new Error("blockid must be a full block id");
+    }
+    await deps.authorize();
+    const info = await deps.blockInfo();
+    authorizeWebNav(data, info);
+    const refusal = webTextRefusal(data.blockid, info.block?.meta);
+    if (refusal) {
+        throw new Error(refusal);
+    }
+    const ww = deps.getWindow();
+    if (ww == null) {
+        throw new Error(`no window found with workspace ${data.workspaceid}`);
+    }
+    if (!ww.allLoadedTabViews?.has(data.tabid)) {
+        throw new Error(`the tab ${data.tabid} is not loaded in its window (show it once, then ask again)`);
+    }
+    const wc = await deps.getContents(ww);
+    if (wc == null) {
+        throw new Error(`no web contents found for block ${data.blockid} (is its page ready?)`);
+    }
+    await deps.authorize();
+    const live = liveSessionRefusal(data.blockid, info.block?.meta?.["web:partition"], wc, deps.sessionFor);
+    if (live) {
+        throw new Error(live);
+    }
+    return await read(wc);
+}
+
+export function checkSelector(selector: unknown): string {
+    if (selector == null || selector === "") {
+        return "";
+    }
+    // characters, as the CLI counts them, not UTF-16 units; every C0 and C1 control is refused
+    if (typeof selector !== "string" || [...selector].length > MaxSelectorLength || /\p{Cc}/u.test(selector)) {
+        throw new Error(`the selector must be text of at most ${MaxSelectorLength} characters without control characters`);
+    }
+    return selector;
+}
+
+// The script that runs in the page: innerText of the body or of the first match, cut in the page so that a huge page is not copied out whole.
+// The selector goes in as a JSON string, never joined into code.
+export function buildTextScript(selector: string, maxChars: number): string {
+    return `(() => {
+    try {
+        const sel = ${JSON.stringify(selector)};
+        const el = sel ? document.querySelector(sel) : document.body;
+        if (!el) { return { missing: true }; }
+        const raw = el.innerText;
+        const t = typeof raw === "string" ? raw : "";
+        let s = t.slice(0, ${Math.floor(maxChars)});
+        const last = s.charCodeAt(s.length - 1);
+        if (last >= 0xd800 && last <= 0xdbff) { s = s.slice(0, -1); }
+        return { text: s, more: t.length > ${Math.floor(maxChars)} };
+    } catch (error) {
+        return { error: String(error && error.message ? error.message : error).slice(0, 200) };
+    }
+})()`;
+}
+
+// The characters that never reach a terminal from a page: controls (Cc), every format character (Cf: bidi, zero-width, soft hyphen, tags ...), line
+// and paragraph separators, lone surrogates (Cs), and the default-ignorable code points (variation selectors, Hangul fillers ...), which draw
+// nothing. The same classes as safeText in the CLI.
+const unprintableRe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Default_Ignorable_Code_Point}]/u;
+
+// An error message the page wrote (a getter can throw anything) goes to a terminal: every unprintable character becomes "?", and it is cut at
+// maxChars characters.
+export function printableErrorText(text: string, maxChars: number): string {
+    let out = "";
+    let n = 0;
+    for (const ch of text) {
+        if (n >= maxChars) {
+            break;
+        }
+        out += unprintableRe.test(ch) ? "?" : ch;
+        n++;
+    }
+    return out;
+}
+
+// Cuts text to at most maxBytes of UTF-8 without splitting a character.
+export function capUtf8(text: string, maxBytes: number): WebTextResult {
+    const enc = new TextEncoder();
+    if (enc.encode(text).length <= maxBytes) {
+        return { text, truncated: false };
+    }
+    let out = "";
+    let bytes = 0;
+    for (const ch of text) {
+        const n = enc.encode(ch).length;
+        if (bytes + n > maxBytes) {
+            break;
+        }
+        out += ch;
+        bytes += n;
+    }
+    return { text: out, truncated: true };
+}
+
+export function effectiveMaxBytes(asked: unknown): number {
+    if (typeof asked !== "number" || !Number.isFinite(asked) || asked <= 0) {
+        return MaxWebTextBytes;
+    }
+    return Math.min(Math.floor(asked), MaxWebTextBytes);
+}
+
+export async function webText(wc: WebTextTarget, selector: unknown, askedMaxBytes: unknown): Promise<WebTextResult> {
+    if (wc == null) {
+        throw new Error("no web contents");
+    }
+    const sel = checkSelector(selector);
+    const max = effectiveMaxBytes(askedMaxBytes);
+    const res = await wc.executeJavaScript(buildTextScript(sel, max));
+    if (res == null || typeof res !== "object") {
+        throw new Error("the page gave no answer");
+    }
+    if (res.error) {
+        throw new Error(`the page refused the selector: ${printableErrorText(String(res.error), 200)}`);
+    }
+    if (res.missing) {
+        throw new Error("nothing on the page matches the selector");
+    }
+    const capped = capUtf8(typeof res.text === "string" ? res.text : "", max);
+    return { text: capped.text, truncated: capped.truncated || res.more === true };
+}

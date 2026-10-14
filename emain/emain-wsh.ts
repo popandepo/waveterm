@@ -4,13 +4,26 @@
 import { WindowService } from "@/app/store/services";
 import { RpcResponseHelper, WshClient } from "@/app/store/wshclient";
 import { RpcApi } from "@/app/store/wshclientapi";
-import { Notification, net, safeStorage, shell } from "electron";
+import { Notification, net, safeStorage, session, shell } from "electron";
 import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
-import { authorizeWebNav, AuthorizeTimeoutMs, webNavigate } from "./emain-webnav";
+import { authorizeWebNav, AuthorizeTimeoutMs, FullBlockIdRe, readWebTile, WebReadDeps, webNavigate, webText } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
+
+// What readWebTile needs from the window, the store and Electron, for one request.
+function webReadDeps(rh: RpcResponseHelper, data: { blockid: string; tabid: string; workspaceid: string }): WebReadDeps {
+    return {
+        authorize: async () => {
+            await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
+        },
+        getWindow: () => getWaveWindowByWorkspaceId(data.workspaceid),
+        blockInfo: () => RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid),
+        getContents: (ww) => getWebContentsByBlockId(ww, data.tabid, data.blockid),
+        sessionFor: (partition) => session.fromPartition(partition),
+    };
+}
 
 export class ElectronWshClientType extends WshClient {
     constructor() {
@@ -39,7 +52,7 @@ export class ElectronWshClientType extends WshClient {
         if (!data.tabid || !data.blockid || !data.workspaceid) {
             throw new Error("tabid, blockid and workspaceid are required");
         }
-        if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
+        if (!FullBlockIdRe.test(data.blockid)) {
             throw new Error("blockid must be a full block id");
         }
         // the caller is the block behind the source route that the router stamped on this message (a session cannot choose it): it may act only on a
@@ -61,6 +74,11 @@ export class ElectronWshClientType extends WshClient {
         // the same question again right before acting (a belt: no code moves a block to another tab or workspace today, but the lookups above take time)
         await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
         return webNavigate(wc, data.action);
+    }
+
+    async handle_webtext(rh: RpcResponseHelper, data: CommandWebTextData): Promise<CommandWebTextRtnData> {
+        // the order and the checks are in readWebTile: the caller, the record and its partition rule, the page, then the caller and the live session again
+        return await readWebTile(data, webReadDeps(rh, data), (wc) => webText(wc, data.selector, data.maxbytes));
     }
 
     async handle_notify(rh: RpcResponseHelper, notificationOptions: WaveNotificationOptions) {

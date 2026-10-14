@@ -851,6 +851,21 @@ declare global {
         opts?: WebSelectorOpts;
     };
 
+    // wshrpc.CommandWebTextData
+    type CommandWebTextData = {
+        workspaceid: string;
+        blockid: string;
+        tabid: string;
+        selector?: string;
+        maxbytes?: number;
+    };
+
+    // wshrpc.CommandWebTextRtnData
+    type CommandWebTextRtnData = {
+        text: string;
+        truncated: boolean;
+    };
+
     // wshrpc.CommandWriteAppFileData
     type CommandWriteAppFileData = {
         appid: string;

@@ -58,6 +58,7 @@ var (
 		_, err := f.Write(data)
 		return err
 	}
+	webShotSyncFile = func(f *os.File) error { return f.Sync() }
 )
 
 // How many pictures the folder keeps; older ones named like ours are removed after each new one.
@@ -144,21 +145,42 @@ func decodeWebShot(res *wshrpc.CommandWebShotRtnData) ([]byte, error) {
 	return data, nil
 }
 
-// writeNewShotFile creates path, which must not exist, and writes the picture. A write that fails removes the file again (on Windows through its
-// own handle) and says so if that removal failed.
+// writeNewShotFile creates path, which must not exist, writes the picture and flushes it. A write or flush that fails removes the file again (on
+// Windows through its own handle: the file is made delete-pending and only kept once the whole picture is on disk) and says so if that failed.
 func writeNewShotFile(path string, data []byte) error {
 	f, err := createShotFile(path)
 	if err != nil {
 		return err
 	}
-	if err := webShotWriteFile(f, data); err != nil {
+	err = webShotWriteFile(f, data)
+	if err == nil {
+		err = webShotSyncFile(f)
+	}
+	if err != nil {
 		if derr := discardShotFile(f, path); derr != nil {
 			return fmt.Errorf("%w (and the partial file %s could not be removed: %v)", err, path, derr)
 		}
 		return err
 	}
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w (the file may be incomplete)", path, err)
+	return keepShotFile(f, path)
+}
+
+// ensureShotDir makes the shot folder and its parent (Wave) one at a time, each refused unless it is a plain folder, so neither an existing link at
+// Wave nor one at web-shots can lead the folder anywhere; nothing is made under a component that fails the check.
+func ensureShotDir(dir string) error {
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(filepath.Dir(parent), 0700); err != nil {
+		return fmt.Errorf("the folder for pictures: %w", err)
+	}
+	for _, p := range []string{parent, dir} {
+		if _, err := os.Lstat(p); errors.Is(err, os.ErrNotExist) {
+			if err := os.Mkdir(p, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("the folder for pictures: %w", err)
+			}
+		}
+		if err := checkShotDir(p); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -201,11 +223,7 @@ func webShotRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("the folder for pictures: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("the folder for pictures: %w", err)
-	}
-	// MkdirAll accepts a folder that is already there, whatever it is
-	if err := checkShotDir(dir); err != nil {
+	if err := ensureShotDir(dir); err != nil {
 		return err
 	}
 	name, err := webShotName(blockId, time.Now())

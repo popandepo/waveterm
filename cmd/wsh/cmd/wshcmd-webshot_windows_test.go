@@ -49,3 +49,25 @@ func TestWebShotRefusesAShotFolderThatIsAJunction(t *testing.T) {
 		t.Fatalf("nothing may be written through the junction: %v", got)
 	}
 }
+
+// A junction at the Wave folder above web-shots could lead the fixed folder anywhere: refused before anything is made through it.
+func TestWebShotRefusesAJunctionAtTheParentFolder(t *testing.T) {
+	stubWebShot(t)
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "elsewhere")
+	if err := os.MkdirAll(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	wave := filepath.Join(tmp, "Wave")
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", wave, target).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "Junction created") {
+		t.Fatalf("mklink /J: %v %s", err, out)
+	}
+	webShotDir = func() (string, error) { return filepath.Join(wave, "web-shots"), nil }
+	if err := webShotCmd.RunE(webShotCmd, nil); err == nil || !strings.Contains(err.Error(), "not a plain folder") {
+		t.Fatalf("want the plain-folder refusal for the parent, got %v", err)
+	}
+	if got := filesIn(t, target); len(got) != 0 {
+		t.Fatalf("nothing may be made through the junction, not even web-shots: %v", got)
+	}
+}

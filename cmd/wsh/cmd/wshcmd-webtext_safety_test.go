@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -61,20 +62,38 @@ func TestWebTextOutputIsCappedAfterEscaping(t *testing.T) {
 	}
 }
 
-func TestWebTextRunPrintsAtMostMaxBytes(t *testing.T) {
+// Runs the command with the real printer and returns what reached stdout and stderr.
+func runWebTextCaptured(t *testing.T, max int, pageText string) (string, string) {
+	t.Helper()
 	stubWebText(t)
-	webTextMax = 64
+	webTextMax = max
 	webTextRPC = func(d wshrpc.CommandWebTextData) (*wshrpc.CommandWebTextRtnData, error) {
-		return &wshrpc.CommandWebTextRtnData{Text: strings.Repeat("\x1b", 64)}, nil
+		return &wshrpc.CommandWebTextRtnData{Text: pageText}, nil
 	}
-	var printed string
-	old := webTextPrint
-	t.Cleanup(func() { webTextPrint = old })
-	webTextPrint = func(text string, cut bool, max int) { printed = text }
+	oldOut, oldErr := WrappedStdout, WrappedStderr
+	t.Cleanup(func() { WrappedStdout, WrappedStderr = oldOut, oldErr })
+	var out, errOut bytes.Buffer
+	WrappedStdout, WrappedStderr = &out, &errOut
 	if err := webTextCmd.RunE(webTextCmd, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(printed) > 64 || !strings.HasPrefix(printed, "<U+001B>") {
-		t.Fatalf("printed %d bytes: %q", len(printed), printed)
+	return out.String(), errOut.String()
+}
+
+func TestWebTextRunPrintsAtMostMaxBytesNewlineIncluded(t *testing.T) {
+	out, errOut := runWebTextCaptured(t, 64, strings.Repeat("\x1b", 64))
+	if len(out) > 64 || !strings.HasPrefix(out, "<U+001B>") || !strings.HasSuffix(out, "\n") {
+		t.Fatalf("printed %d bytes: %q", len(out), out)
+	}
+	if !strings.Contains(errOut, "cut") {
+		t.Fatalf("the cut is said on stderr: %q", errOut)
+	}
+	out, errOut = runWebTextCaptured(t, 1, "a")
+	if out != "\n" || !strings.Contains(errOut, "cut") {
+		t.Fatalf("--max-bytes 1 with \"a\": at most 1 byte on stdout, the newline counted: %q %q", out, errOut)
+	}
+	out, errOut = runWebTextCaptured(t, 2, "a")
+	if out != "a\n" || errOut != "" {
+		t.Fatalf("text and newline that fit are printed whole: %q %q", out, errOut)
 	}
 }

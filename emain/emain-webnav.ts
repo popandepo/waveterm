@@ -221,8 +221,12 @@ export function buildTextScript(selector: string, maxChars: number): string {
 })()`;
 }
 
-// An error message the page wrote (a getter can throw anything) goes to a terminal: every control, bidi or invisible format character becomes "?",
-// a lone surrogate too, and it is cut at maxChars characters.
+// The characters that never reach a terminal from a page: controls (Cc), every format character (Cf: bidi, zero-width, soft hyphen, tags ...), line
+// and paragraph separators, and lone surrogates (Cs). The same classes as safeText in the CLI.
+const unprintableRe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u;
+
+// An error message the page wrote (a getter can throw anything) goes to a terminal: every unprintable character becomes "?", and it is cut at
+// maxChars characters.
 export function printableErrorText(text: string, maxChars: number): string {
     let out = "";
     let n = 0;
@@ -230,16 +234,7 @@ export function printableErrorText(text: string, maxChars: number): string {
         if (n >= maxChars) {
             break;
         }
-        const c = ch.codePointAt(0);
-        const unsafe =
-            c < 0x20 ||
-            (c >= 0x7f && c <= 0x9f) ||
-            (c >= 0x200b && c <= 0x200f) ||
-            (c >= 0x2028 && c <= 0x202e) ||
-            (c >= 0x2060 && c <= 0x206f) ||
-            (c >= 0xd800 && c <= 0xdfff) ||
-            c === 0xfeff;
-        out += unsafe ? "?" : ch;
+        out += unprintableRe.test(ch) ? "?" : ch;
         n++;
     }
     return out;

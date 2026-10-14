@@ -117,19 +117,16 @@ func webTextRun(cmd *cobra.Command, args []string) error {
 	if res == nil {
 		return fmt.Errorf("no answer from the window")
 	}
-	out, cut := webTextOutput(res.Text, webTextMax)
-	webTextPrint(out, cut || res.Truncated, webTextMax)
+	// the newline after the text counts toward --max-bytes
+	out, cut := webTextOutput(res.Text, webTextMax-1)
+	WriteStdout("%s\n", out)
+	if cut || res.Truncated {
+		WriteStderr("the text was cut (at most %d bytes)\n", webTextMax)
+	}
 	return nil
 }
 
 const maxPrintedErrorRunes = 400
-
-var webTextPrint = func(text string, cut bool, max int) {
-	WriteStdout("%s\n", text)
-	if cut {
-		WriteStderr("the text was cut (at most %d bytes)\n", max)
-	}
-}
 
 // webTextOutput is the printable text cut to maxBytes. The cut comes after escaping, which can make text up to eight times longer, and never splits a
 // character or a <U+XXXX>.

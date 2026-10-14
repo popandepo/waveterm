@@ -8,6 +8,7 @@ import {
     authorizeWebNav,
     buildTextScript,
     capUtf8,
+    printableErrorText,
     checkSelector,
     effectiveMaxBytes,
     MaxSelectorLength,
@@ -385,6 +386,27 @@ describe("wsh web text: what is read, and from which tiles", () => {
                 assert.include(msg, "owned");
             }
         );
+    });
+
+    test("every control, format, line or paragraph separator character and every lone surrogate becomes ?", () => {
+        for (const c of [0x061c, 0x00ad, 0x180e, 0xfff9, 0xfffb, 0x0600, 0x110bd, 0x1d173, 0xe0001, 0xe007f, 0x2066, 0x2069, 0x85, 0x2028, 0x2029]) {
+            assert.equal(printableErrorText("a" + String.fromCodePoint(c) + "b", 200), "a?b", c.toString(16));
+        }
+        assert.equal(printableErrorText("a" + String.fromCharCode(0xd800) + "b" + String.fromCharCode(0xdc00), 200), "a?b?");
+        const unsafe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+        let all = "";
+        for (let c = 0; c <= 0x10ffff; c++) {
+            if (c >= 0xd800 && c <= 0xdfff) {
+                continue;
+            }
+            const ch = String.fromCodePoint(c);
+            if (unsafe.test(ch)) {
+                all += ch;
+            }
+        }
+        const out = printableErrorText(all, all.length);
+        assert.isFalse(unsafe.test(out), "a Cc, Cf, Zl or Zp character got through");
+        assert.equal(printableErrorText("plain text, accents: " + String.fromCodePoint(0xe9) + " and emoji " + String.fromCodePoint(0x1f680), 200), "plain text, accents: " + String.fromCodePoint(0xe9) + " and emoji " + String.fromCodePoint(0x1f680));
     });
 
     test("an invalid selector never reaches the page", async () => {

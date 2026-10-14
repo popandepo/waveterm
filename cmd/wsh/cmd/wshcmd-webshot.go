@@ -36,7 +36,8 @@ var webShotCmd = &cobra.Command{
 focused. The file always goes into the tool's own folder (AppData\Local\Wave\web-shots of your profile; the 50 newest are kept), with a new
 name made of the block id, the UTC time and a random part; the caller does not choose a folder or a name, and no file is ever written over.
 Known limits: a race by another process of the same account between the folder check and the create is not defended; concurrent shots are
-best effort.
+best effort; the picture inherits the cache folder's permissions (under your profile, whose default ACL is private to you; an ACL widened by
+someone else is not checked).
 The tile must be shown (a tile in a tab that is not shown gives an empty picture, which is an error, not a blank file).
 
 A web tile that has no web:partition of its own uses the default sign-in store of Wave, which every web tile shares and which keeps
@@ -173,7 +174,7 @@ func writeNewShotFile(path string, data []byte) error {
 // Wave nor one at web-shots can lead the folder anywhere; nothing is made under a component that fails the check. The folders above Wave (the
 // profile's AppData\Local, or the home's .cache) are trusted: they belong to the user, and a link there is the user's own doing. Known limit: another
 // process of the same account can swap Wave or web-shots for a link between this check and the create; that is not defended (the same account is
-// not the adversary here), and concurrent shots are best effort.
+// not the adversary here), and concurrent shots are best effort. Permissions: the picture inherits the cache folder's permissions; the folder is under the user's profile, whose default ACL is private to the user; an ACL widened by someone else is not checked.
 func ensureShotDir(dir string) error {
 	parent := filepath.Dir(dir)
 	if err := os.MkdirAll(filepath.Dir(parent), 0700); err != nil {

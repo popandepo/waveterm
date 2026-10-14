@@ -255,6 +255,9 @@ func sendTelemetry(clientId string) error {
 }
 
 func SendNoTelemetryUpdate(ctx context.Context, clientId string, noTelemetryVal bool) error {
+	if !NoTelemetryUpdateAllowed() {
+		return nil
+	}
 	req, err := makeAnonPostReq(ctx, NoTelemetryUrl, NoTelemetryInputType{ClientId: clientId, Value: noTelemetryVal})
 	if err != nil {
 		return err
@@ -320,6 +323,12 @@ func SendDiagnosticPing(ctx context.Context, clientId string, usageTelemetry boo
 		return err
 	}
 	return nil
+}
+
+// In this fork nothing is sent when the telemetry setting is changed: the update would carry the client id and the new value to the vendor's server,
+// whichever way the setting went. The setting stays a local fact.
+func NoTelemetryUpdateAllowed() bool {
+	return false
 }
 
 // The daily diagnostic ping carries the client id, version and architecture. In this fork it is only sent

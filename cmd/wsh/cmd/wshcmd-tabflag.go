@@ -33,6 +33,7 @@ var (
 
 // addTabFlag adds --tab to a command that creates a block. Without it the block goes into the tab of the calling block, as before.
 func addTabFlag(c *cobra.Command) {
+	addSizeFlag(c)
 	c.Flags().StringVar(&createTabRef, tabFlagName, "", "create the block in this tab: a full tab id (any workspace or window), tab:<n> (the n-th tab of the caller's workspace) or tab (the caller's own); default: the tab of the calling block")
 }
 
@@ -90,6 +91,9 @@ func blockTabViaRPC(blockId string) (string, error) {
 
 // checkCreateTarget runs after the target fields are set: with --tab the target must be in that tab.
 func checkCreateTarget(cmd *cobra.Command, data *wshrpc.CommandCreateBlockData) error {
+	if err := applyCreateSize(cmd, data); err != nil {
+		return err
+	}
 	if !cmd.Flags().Changed(tabFlagName) {
 		return nil
 	}

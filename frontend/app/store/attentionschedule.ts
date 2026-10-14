@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { attentionOf } from "./attention";
 import { attentionClearDelayMs } from "./attentionclear";
 
 export interface AttentionClearEnv {
@@ -10,8 +11,8 @@ export interface AttentionClearEnv {
     focusedBlockId: () => string | undefined;
     // the attention keys of a block right now
     read: (blockId: string) => { level: unknown; reason: unknown };
-    // writes null to both keys of the block
-    clear: (blockId: string) => void;
+    // asks the server to clear the mark of the block if it is STILL exactly (level, reason): the compare and the write are one step there
+    clear: (blockId: string, level: string, reason: string) => void;
 }
 
 export interface AttentionClearRequest {
@@ -32,6 +33,11 @@ export function scheduleAttentionClear(req: AttentionClearRequest, env: Attentio
     if (!req.blockId) {
         return undefined;
     }
+    // Nothing is planned for a mark that does not draw (a missing, empty or invalid reason, a level that is not one of the three): there is nothing to
+    // clear, and the server compares exact strings, so only a mark whose level and reason are both strings that passed the validation is planned.
+    if (typeof req.level !== "string" || typeof req.reason !== "string" || attentionOf(req.level, req.reason).level === "") {
+        return undefined;
+    }
     const delay = attentionClearDelayMs(req.level, req.documentHasFocus, req.focusSwitched);
     if (delay == null) {
         return undefined;
@@ -47,7 +53,7 @@ export function scheduleAttentionClear(req: AttentionClearRequest, env: Attentio
         if (now.level !== req.level || now.reason !== req.reason) {
             return;
         }
-        env.clear(req.blockId);
+        env.clear(req.blockId, req.level as string, req.reason as string);
     }, delay);
     return () => clearTimeout(timeoutId);
 }
@@ -58,15 +64,15 @@ export interface AttentionClearSources {
     documentHasFocus: () => boolean;
     focusedBlockId: () => string | undefined;
     readMeta: (blockId: string, key: string) => unknown;
-    writeMeta: (blockId: string, meta: { [key: string]: null }) => void;
+    clearIf: (blockId: string, level: string, reason: string) => void;
 }
 
-export function makeAttentionClearEnv(src: AttentionClearSources, clearMeta: { [key: string]: null }): AttentionClearEnv {
+export function makeAttentionClearEnv(src: AttentionClearSources): AttentionClearEnv {
     return {
         documentHasFocus: () => src.documentHasFocus(),
         focusedBlockId: () => src.focusedBlockId(),
         read: (blockId) => ({ level: src.readMeta(blockId, "attention:level"), reason: src.readMeta(blockId, "attention:reason") }),
-        clear: (blockId) => src.writeMeta(blockId, clearMeta),
+        clear: (blockId, level, reason) => src.clearIf(blockId, level, reason),
     };
 }
 

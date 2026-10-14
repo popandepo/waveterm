@@ -201,15 +201,6 @@ export const AIModeDropdown = memo(({ compatibilityMode = false }: AIModeDropdow
         });
     };
 
-    const handleEnableTelemetry = () => {
-        fireAndForget(async () => {
-            await RpcApi.WaveAIEnableTelemetryCommand(TabRpcClient);
-            setTimeout(() => {
-                model.focusInput();
-            }, 100);
-        });
-    };
-
     return (
         <div className="relative" ref={dropdownRef}>
             <button
@@ -270,12 +261,9 @@ export const AIModeDropdown = memo(({ compatibilityMode = false }: AIModeDropdow
                                                 </div>
                                             )}
                                             {section.noTelemetry && (
-                                                <button
-                                                    onClick={handleEnableTelemetry}
-                                                    className="text-center text-[11px] text-green-300 hover:text-green-200 pb-1 cursor-pointer transition-colors w-full"
-                                                >
-                                                    (enable telemetry to unlock Wave AI Cloud)
-                                                </button>
+                                                <div className="text-center text-[11px] text-secondary pb-1">
+                                                    (Wave AI Cloud needs usage telemetry, which this fork keeps off)
+                                                </div>
                                             )}
                                         </>
                                     )}

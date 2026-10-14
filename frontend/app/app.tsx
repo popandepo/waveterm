@@ -9,7 +9,6 @@ import {
     getBadgeAtom,
     getBlockBadgeAtom,
 } from "@/app/store/badge";
-import { ClearAttentionMeta } from "@/app/store/attentionclear";
 import { ReducedMotionClass } from "@/app/reducedmotion";
 import { focusSwitchedSince, makeAttentionClearEnv, scheduleAttentionClear } from "@/app/store/attentionschedule";
 import { ClientModel } from "@/app/store/client-model";
@@ -398,12 +397,9 @@ const AttentionAutoClearing = () => {
                     documentHasFocus: () => document.hasFocus(),
                     focusedBlockId: () => globalStore.get(layoutModel.focusedNode)?.data?.blockId,
                     readMeta: (blockId, key) => globalStore.get(getBlockMetaKeyAtom(blockId, key as keyof MetaType)),
-                    writeMeta: (blockId, meta) =>
-                        util.fireAndForget(() =>
-                            RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("block", blockId), meta })
-                        ),
-                },
-                ClearAttentionMeta
+                    clearIf: (blockId, level, reason) =>
+                        util.fireAndForget(() => RpcApi.ClearAttentionIfCommand(TabRpcClient, { blockid: blockId, level, reason })),
+                }
             )
         );
     }, [focusedBlockId, level, reason, documentHasFocus]);

@@ -111,14 +111,36 @@ func webTextRun(cmd *cobra.Command, args []string) error {
 		if strings.Contains(err.Error(), webNavDenied) {
 			return errors.New(webNavDenied)
 		}
-		return err
+		// the window's error can carry text the page wrote (a throwing innerText getter)
+		return errors.New(safeText(err.Error(), maxPrintedErrorRunes))
 	}
 	if res == nil {
 		return fmt.Errorf("no answer from the window")
 	}
-	WriteStdout("%s\n", safeTextBlock(res.Text))
-	if res.Truncated {
-		WriteStderr("the text was cut (at most %d bytes)\n", webTextMax)
-	}
+	out, cut := webTextOutput(res.Text, webTextMax)
+	webTextPrint(out, cut || res.Truncated, webTextMax)
 	return nil
+}
+
+const maxPrintedErrorRunes = 400
+
+var webTextPrint = func(text string, cut bool, max int) {
+	WriteStdout("%s\n", text)
+	if cut {
+		WriteStderr("the text was cut (at most %d bytes)\n", max)
+	}
+}
+
+// webTextOutput is the printable text cut to maxBytes. The cut comes after escaping, which can make text up to eight times longer, and never splits a
+// character or a <U+XXXX>.
+func webTextOutput(text string, maxBytes int) (string, bool) {
+	var b strings.Builder
+	for _, r := range text {
+		piece := safeTextBlock(string(r))
+		if b.Len()+len(piece) > maxBytes {
+			return b.String(), true
+		}
+		b.WriteString(piece)
+	}
+	return b.String(), false
 }

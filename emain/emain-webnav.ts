@@ -211,11 +211,38 @@ export function buildTextScript(selector: string, maxChars: number): string {
         const el = sel ? document.querySelector(sel) : document.body;
         if (!el) { return { missing: true }; }
         const t = typeof el.innerText === "string" ? el.innerText : "";
-        return { text: t.slice(0, ${Math.floor(maxChars)}), more: t.length > ${Math.floor(maxChars)} };
+        let s = t.slice(0, ${Math.floor(maxChars)});
+        const last = s.charCodeAt(s.length - 1);
+        if (last >= 0xd800 && last <= 0xdbff) { s = s.slice(0, -1); }
+        return { text: s, more: t.length > ${Math.floor(maxChars)} };
     } catch (error) {
         return { error: String(error && error.message ? error.message : error).slice(0, 200) };
     }
 })()`;
+}
+
+// An error message the page wrote (a getter can throw anything) goes to a terminal: every control, bidi or invisible format character becomes "?",
+// a lone surrogate too, and it is cut at maxChars characters.
+export function printableErrorText(text: string, maxChars: number): string {
+    let out = "";
+    let n = 0;
+    for (const ch of text) {
+        if (n >= maxChars) {
+            break;
+        }
+        const c = ch.codePointAt(0);
+        const unsafe =
+            c < 0x20 ||
+            (c >= 0x7f && c <= 0x9f) ||
+            (c >= 0x200b && c <= 0x200f) ||
+            (c >= 0x2028 && c <= 0x202e) ||
+            (c >= 0x2060 && c <= 0x206f) ||
+            (c >= 0xd800 && c <= 0xdfff) ||
+            c === 0xfeff;
+        out += unsafe ? "?" : ch;
+        n++;
+    }
+    return out;
 }
 
 // Cuts text to at most maxBytes of UTF-8 without splitting a character.
@@ -255,7 +282,7 @@ export async function webText(wc: WebTextTarget, selector: unknown, askedMaxByte
         throw new Error("the page gave no answer");
     }
     if (res.error) {
-        throw new Error(`the page refused the selector: ${String(res.error).slice(0, 200)}`);
+        throw new Error(`the page refused the selector: ${printableErrorText(String(res.error), 200)}`);
     }
     if (res.missing) {
         throw new Error("nothing on the page matches the selector");

@@ -86,6 +86,27 @@ func TestOnlyThreeStatesAreEverPrinted(t *testing.T) {
 	}
 }
 
+func TestAnEmptyOrMissingStateIsUnknownInBothModes(t *testing.T) {
+	res := &wshrpc.CommandWebNavRtnData{Url: "https://example.org/", State: ""}
+	text, err := formatWebNav(wshrpc.WebNavAction_Info, res, false)
+	if err != nil || !strings.Contains(text, "state: unknown\n") {
+		t.Fatalf("an empty state must print as unknown, got %q %v", text, err)
+	}
+	text, err = formatWebNav(wshrpc.WebNavAction_Info, res, true)
+	if err != nil || !strings.Contains(text, `"state": "unknown"`) {
+		t.Fatalf("an empty state must be \"unknown\" in JSON, not left out, got %q %v", text, err)
+	}
+}
+
+func TestUrlJsonCarriesNoState(t *testing.T) {
+	for _, st := range []string{"", "ready"} {
+		text, err := formatWebNav(wshrpc.WebNavAction_Url, &wshrpc.CommandWebNavRtnData{Url: "https://example.org/", State: st}, true)
+		if err != nil || strings.Contains(text, "state") {
+			t.Fatalf("url --json has address, title and history only (state %q), got %q %v", st, text, err)
+		}
+	}
+}
+
 func TestUrlAndTheOthersDoNotPrintAState(t *testing.T) {
 	res := &wshrpc.CommandWebNavRtnData{Url: "https://example.org/", Title: "Ex", State: "ready"}
 	text, err := formatWebNav(wshrpc.WebNavAction_Url, res, false)

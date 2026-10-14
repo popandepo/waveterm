@@ -348,6 +348,45 @@ describe("wsh web text: what is read, and from which tiles", () => {
         );
     });
 
+    // Runs the page script against a stand-in document, the way executeJavaScript would.
+    const runTextScript = (selector: string, maxChars: number, doc: any) =>
+        new Function("document", "return " + buildTextScript(selector, maxChars))(doc);
+
+    test("the page script cuts at a character, never inside a surrogate pair", () => {
+        const rocket = String.fromCodePoint(0x1f680);
+        const res = runTextScript("", 3, { body: { innerText: "ab" + rocket + "c" } });
+        assert.equal(res.text, "ab", "a cut between the two halves of the rocket drops the half");
+        assert.isTrue(res.more);
+        assert.equal(runTextScript("", 4, { body: { innerText: "ab" + rocket + "c" } }).text, "ab" + rocket);
+        assert.equal(runTextScript("", 10, { body: { innerText: "ab" + rocket } }).text, "ab" + rocket);
+    });
+
+    test("an error the page writes reaches the caller with no control or format characters", async () => {
+        const nasty = ["\u001b]0;owned", "\u0007\u001b[2J", String.fromCharCode(0x202e), "gnp.exe\r\nfake$ ", String.fromCharCode(0x9b), "31m"].join("");
+        const doc = {
+            body: {
+                get innerText(): string {
+                    throw new Error(nasty);
+                },
+            },
+        };
+        const answer = runTextScript("", 100, doc);
+        assert.property(answer, "error");
+        const wc = { executeJavaScript: async (_code: string) => answer };
+        await webText(wc, "", undefined).then(
+            () => assert.fail("must throw"),
+            (e) => {
+                const msg = String(e.message);
+                const unsafe = [...msg].filter((ch) => {
+                    const c = ch.codePointAt(0);
+                    return c < 0x20 || (c >= 0x7f && c <= 0x9f) || (c >= 0x200b && c <= 0x200f) || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2060 && c <= 0x206f) || c === 0xfeff;
+                });
+                assert.deepEqual(unsafe, [], "no control or format character in " + JSON.stringify(msg));
+                assert.include(msg, "owned");
+            }
+        );
+    });
+
     test("an invalid selector never reaches the page", async () => {
         let ran = false;
         const wc = { executeJavaScript: async () => ((ran = true), { text: "" }) };

@@ -12,6 +12,7 @@ import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
+import { treeActionForBackendAction } from "./backendaction";
 import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -483,15 +484,10 @@ export class LayoutModel {
                     this.newEphemeralNode(action.blockid);
                     break;
                 }
-                const insertNodeAction: LayoutTreeInsertNodeAction = {
-                    type: LayoutTreeActionType.InsertNode,
-                    node: newLayoutNode(undefined, undefined, undefined, {
-                        blockId: action.blockid,
-                    }),
-                    magnified: action.magnified,
-                    focused: action.focused,
-                };
-                this.treeReducer(insertNodeAction, false);
+                const inserted = treeActionForBackendAction(action, (id) => this?.getNodeByBlockId(id));
+                if (inserted?.action != null) {
+                    this.treeReducer(inserted.action, false);
+                }
                 break;
             }
             case LayoutTreeActionType.DeleteNode: {
@@ -552,59 +548,21 @@ export class LayoutModel {
                 break;
             }
             case LayoutTreeActionType.SplitHorizontal: {
-                const targetNode = this?.getNodeByBlockId(action.targetblockid);
-                if (!targetNode) {
-                    console.error(
-                        "Cannot apply eventbus layout action SplitHorizontal, could not find target node with blockId",
-                        action.targetblockid
-                    );
-                    break;
+                const split = treeActionForBackendAction(action, (id) => this?.getNodeByBlockId(id));
+                if (split?.action != null) {
+                    this.treeReducer(split.action, false);
+                } else if (split?.error != null) {
+                    console.error(split.error);
                 }
-                if (action.position != "before" && action.position != "after") {
-                    console.error(
-                        "Cannot apply eventbus layout action SplitHorizontal, invalid position",
-                        action.position
-                    );
-                    break;
-                }
-                const newNode = newLayoutNode(undefined, action.nodesize, undefined, {
-                    blockId: action.blockid,
-                });
-                const splitAction: LayoutTreeSplitHorizontalAction = {
-                    type: LayoutTreeActionType.SplitHorizontal,
-                    targetNodeId: targetNode.id,
-                    newNode: newNode,
-                    position: action.position,
-                };
-                this.treeReducer(splitAction, false);
                 break;
             }
             case LayoutTreeActionType.SplitVertical: {
-                const targetNode = this?.getNodeByBlockId(action.targetblockid);
-                if (!targetNode) {
-                    console.error(
-                        "Cannot apply eventbus layout action SplitVertical, could not find target node with blockId",
-                        action.targetblockid
-                    );
-                    break;
+                const split = treeActionForBackendAction(action, (id) => this?.getNodeByBlockId(id));
+                if (split?.action != null) {
+                    this.treeReducer(split.action, false);
+                } else if (split?.error != null) {
+                    console.error(split.error);
                 }
-                if (action.position != "before" && action.position != "after") {
-                    console.error(
-                        "Cannot apply eventbus layout action SplitVertical, invalid position",
-                        action.position
-                    );
-                    break;
-                }
-                const newNode = newLayoutNode(undefined, action.nodesize, undefined, {
-                    blockId: action.blockid,
-                });
-                const splitAction: LayoutTreeSplitVerticalAction = {
-                    type: LayoutTreeActionType.SplitVertical,
-                    targetNodeId: targetNode.id,
-                    newNode: newNode,
-                    position: action.position,
-                };
-                this.treeReducer(splitAction, false);
                 break;
             }
             case LayoutTreeActionType.Stack: {

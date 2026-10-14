@@ -15,12 +15,10 @@ import { debounce } from "throttle-debounce";
 import { Tab } from "./tab";
 import "./tabbar.scss";
 import { TabBarEnv } from "./tabbarenv";
-import { getWindowDragRightWidth } from "./tabbarlayout";
+import { TabDefaultWidth, computeTabLayout, getWindowDragRightWidth } from "./tabbarlayout";
 import { UpdateStatusBanner } from "./updatebanner";
 import { WorkspaceSwitcher } from "./workspaceswitcher";
 
-const TabDefaultWidth = 130;
-const TabMinWidth = 100;
 const MacOSTrafficLightsWidth = 74;
 const MacOSTahoeTrafficLightsWidth = 80;
 
@@ -200,18 +198,11 @@ const TabBar = memo(({ workspace, noTabs }: TabBarProps) => {
             appMenuButtonWidth +
             workspaceSwitcherWidth +
             waveAIButtonWidth;
-        const spaceForTabs = tabbarWrapperWidth - nonTabElementsWidth;
-
-        const numberOfTabs = tabIds.length;
-
-        // Compute the ideal width per tab by dividing the available space by the number of tabs
-        let idealTabWidth = spaceForTabs / numberOfTabs;
-
-        // Apply min/max constraints
-        idealTabWidth = Math.max(TabMinWidth, Math.min(idealTabWidth, TabDefaultWidth));
-
-        // Determine if the tab bar needs to be scrollable
-        const newScrollable = idealTabWidth * numberOfTabs > spaceForTabs;
+        const { tabWidth: idealTabWidth, scrollable: newScrollable } = computeTabLayout(
+            tabbarWrapperWidth,
+            nonTabElementsWidth,
+            tabIds.length
+        );
 
         // Apply the calculated width and position to all tabs
         tabRefs.current.forEach((ref, index) => {

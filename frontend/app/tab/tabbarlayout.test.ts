@@ -4,35 +4,88 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { assert, describe, test } from "vitest";
-import { WindowButtonsWidth, WindowDragStripWidth, getWindowDragRightWidth } from "./tabbarlayout";
+import {
+    TabDefaultWidth,
+    TabMinWidth,
+    WindowButtonsWidth,
+    WindowDragRightEdgeWidth,
+    WindowDragStripWidth,
+    computeTabLayout,
+    getWindowDragRightWidth,
+} from "./tabbarlayout";
 
 describe("the grab strip of the top row", () => {
     test("on Windows the strip comes on top of the room of the window buttons", () => {
         assert.equal(getWindowDragRightWidth(true, 1), WindowButtonsWidth + WindowDragStripWidth);
-        assert.isAbove(getWindowDragRightWidth(true, 1), WindowButtonsWidth);
     });
-    test("elsewhere the strip is still there", () => {
-        assert.isAtLeast(getWindowDragRightWidth(false, 1), WindowDragStripWidth);
+    test("elsewhere the right end keeps its old edge and no strip", () => {
+        assert.equal(getWindowDragRightWidth(false, 1), WindowDragRightEdgeWidth);
+        assert.equal(getWindowDragRightWidth(false, 2), WindowDragRightEdgeWidth / 2);
     });
     test("the width follows the zoom, and an unknown zoom counts as none", () => {
         assert.equal(getWindowDragRightWidth(true, 2), (WindowButtonsWidth + WindowDragStripWidth) / 2);
         assert.equal(getWindowDragRightWidth(true, 0), getWindowDragRightWidth(true, 1));
         assert.equal(getWindowDragRightWidth(true, -1), getWindowDragRightWidth(true, 1));
     });
-    test("the strip is wide enough to grab, and not wider than a quarter of a small window", () => {
-        assert.isAtLeast(WindowDragStripWidth, 64);
-        assert.isAtMost(WindowDragStripWidth, 160);
+});
+
+describe("the tabs never take the right block", () => {
+    const wrapper = 1200;
+    const others = 200; // left dragger, menu, switcher, add button
+    const right = getWindowDragRightWidth(true, 1);
+
+    test("a few tabs get their default width and nothing scrolls", () => {
+        const l = computeTabLayout(wrapper, others + right, 3);
+        assert.equal(l.tabWidth, TabDefaultWidth);
+        assert.isFalse(l.scrollable);
+        assert.isAtMost(3 * l.tabWidth, l.spaceForTabs);
+    });
+
+    test("more tabs shrink to fit beside the strip", () => {
+        const space = wrapper - others - right;
+        const n = Math.floor(space / TabMinWidth);
+        const l = computeTabLayout(wrapper, others + right, n);
+        assert.isBelow(l.tabWidth, TabDefaultWidth);
+        assert.isAtLeast(l.tabWidth, TabMinWidth);
+        assert.isFalse(l.scrollable);
+        assert.isAtMost(n * l.tabWidth, space + 1e-9, "the tabs end before the strip");
+    });
+
+    test("a full row scrolls at minimum width instead of covering the strip, and the last tab is reachable", () => {
+        const n = 40;
+        const l = computeTabLayout(wrapper, others + right, n);
+        assert.equal(l.tabWidth, TabMinWidth);
+        assert.isTrue(l.scrollable);
+        assert.equal(l.spaceForTabs, wrapper - others - right, "the strip is outside the tab viewport");
+        const maxScroll = n * l.tabWidth - l.spaceForTabs;
+        assert.isAbove(maxScroll, 0);
+        assert.equal(
+            maxScroll + l.spaceForTabs,
+            n * l.tabWidth,
+            "scrolled to the end, the last tab ends at the viewport edge"
+        );
+    });
+
+    test("the strip is what makes the difference: without it the same row would not scroll", () => {
+        const space = wrapper - others - WindowButtonsWidth;
+        const n = Math.floor(space / TabMinWidth);
+        assert.isFalse(computeTabLayout(wrapper, others + WindowButtonsWidth, n).scrollable);
+        assert.isTrue(computeTabLayout(wrapper, others + right, n).scrollable);
+    });
+
+    test("no tabs gives no width and no scroll", () => {
+        const l = computeTabLayout(wrapper, others + right, 0);
+        assert.equal(l.tabWidth, TabDefaultWidth);
+        assert.isFalse(l.scrollable);
     });
 });
 
-describe("the tab bar uses the strip (source pins)", () => {
+describe("the tab bar is wired to the layout module", () => {
+    // The behaviour is tested above; this only pins that the bar uses it. Dragging the window by the strip needs a real window.
     const source = readFileSync(path.resolve(__dirname, "tabbar.tsx"), "utf8");
-    test("the right drag width comes from the layout module, not from a number in the bar", () => {
+    test("the bar takes the right width and the tab layout from the module", () => {
         assert.include(source, "getWindowDragRightWidth(env.isWindows(), zoomFactor)");
+        assert.include(source, "computeTabLayout(");
         assert.notInclude(source, "139 / zoomFactor");
-    });
-    test("the right block is counted in the room that the tabs do not get, and is a drag region", () => {
-        assert.match(source, /rightContainerWidth\s*=\s*rightContainerRef\.current\?\.getBoundingClientRect\(\)\.width/);
-        assert.match(source, /style=\{\{ width: windowDragRightWidth, WebkitAppRegion: "drag" \}/);
     });
 });

@@ -278,6 +278,13 @@ declare global {
         errorstring?: string;
     };
 
+    // wshrpc.CommandClearAttentionIfData
+    type CommandClearAttentionIfData = {
+        blockid: string;
+        level: string;
+        reason: string;
+    };
+
     // wshrpc.CommandConnServerInitData
     type CommandConnServerInitData = {
         clientid: string;

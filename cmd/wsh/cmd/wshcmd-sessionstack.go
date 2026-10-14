@@ -6,9 +6,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"unicode/utf16"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
@@ -115,9 +117,24 @@ func sessionStartOutput(tabId string, blockId string, stackedWith string) string
 	return string(b)
 }
 
+// checkStackRefWorkspace refuses a short reference (a number, "this") when the session goes into another workspace: those are resolved in the
+// caller's own tab, so they would name a block there, not in the requested workspace. Only a full block id means the same block everywhere.
+func checkStackRefWorkspace(wsId string, ref string) error {
+	if wsId == os.Getenv("WAVETERM_WORKSPACEID") {
+		return nil
+	}
+	if _, err := uuid.Parse(strings.TrimPrefix(ref, waveobj.OType_Block+":")); err == nil {
+		return nil
+	}
+	return fmt.Errorf("--stack %q is counted in your own tab, not in workspace %s; give the full block id (wsh session list shows it)", ref, wsId)
+}
+
 // startSessionInStack creates the program block in the tab of the target block and puts it into the target's group. The back end only queues the
 // layout change for the page of that tab, so the block exists at once and the group is applied when that tab is open (the same as wsh group add).
 func startSessionInStack(wsId string, target string, blockMeta map[string]any, look map[string]any) (string, error) {
+	if err := checkStackRefWorkspace(wsId, target); err != nil {
+		return "", err
+	}
 	targetId, err := resolveBlockRef(target)
 	if err != nil {
 		return "", fmt.Errorf("resolving --stack: %w", err)

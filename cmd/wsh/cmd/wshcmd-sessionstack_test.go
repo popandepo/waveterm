@@ -126,6 +126,7 @@ func TestStackCreateRequestTargetsTheGroupAndTakesNoFocus(t *testing.T) {
 }
 
 func TestStartSessionInStackUsesTheTabOfTheTargetAndKeepsTheProgramMeta(t *testing.T) {
+	t.Setenv("WAVETERM_WORKSPACEID", "ws1")
 	oldTab, oldCreate, oldResolve := sessionTabOfBlock, sessionCreateBlock, resolveBlockRef
 	defer func() { sessionTabOfBlock, sessionCreateBlock, resolveBlockRef = oldTab, oldCreate, oldResolve }()
 	resolveBlockRef = func(ref string) (string, error) {
@@ -170,6 +171,7 @@ func TestStartSessionInStackUsesTheTabOfTheTargetAndKeepsTheProgramMeta(t *testi
 }
 
 func TestStartSessionInStackStopsAtTheFirstFailureAndCreatesNothing(t *testing.T) {
+	t.Setenv("WAVETERM_WORKSPACEID", "ws")
 	oldTab, oldCreate, oldResolve := sessionTabOfBlock, sessionCreateBlock, resolveBlockRef
 	defer func() { sessionTabOfBlock, sessionCreateBlock, resolveBlockRef = oldTab, oldCreate, oldResolve }()
 	created := false
@@ -187,9 +189,51 @@ func TestStartSessionInStackStopsAtTheFirstFailureAndCreatesNothing(t *testing.T
 		t.Fatal("nothing may be created when the target cannot be found")
 	}
 	sessionTabOfBlock = func(string, string) (string, error) { return "t", nil }
-	sessionCreateBlock = func(wshrpc.CommandCreateBlockData) (string, error) { return "", fmt.Errorf("target must be in the same tab") }
+	sessionCreateBlock = func(wshrpc.CommandCreateBlockData) (string, error) {
+		return "", fmt.Errorf("target must be in the same tab")
+	}
 	if _, err := startSessionInStack("ws", "9", map[string]any{}, nil); err == nil || !strings.Contains(err.Error(), "stack of b") {
 		t.Fatalf("a refused create must name the target, got %v", err)
+	}
+}
+
+func TestStackInAnotherWorkspaceTakesOnlyAFullBlockId(t *testing.T) {
+	t.Setenv("WAVETERM_WORKSPACEID", "ws-here")
+	oldTab, oldCreate, oldResolve := sessionTabOfBlock, sessionCreateBlock, resolveBlockRef
+	defer func() { sessionTabOfBlock, sessionCreateBlock, resolveBlockRef = oldTab, oldCreate, oldResolve }()
+	var resolved []string
+	resolveBlockRef = func(ref string) (string, error) { resolved = append(resolved, ref); return "block-in-this-tab", nil }
+	var askedWs string
+	sessionTabOfBlock = func(ws string, b string) (string, error) { askedWs = ws; return "tab-there", nil }
+	created := false
+	sessionCreateBlock = func(wshrpc.CommandCreateBlockData) (string, error) { created = true; return "new", nil }
+
+	for _, ref := range []string{"3", "this", "block:3"} {
+		_, err := startSessionInStack("ws-other", ref, map[string]any{}, nil)
+		if err == nil || !strings.Contains(err.Error(), "full block id") {
+			t.Fatalf("%q in another workspace must be refused asking for a full block id, got %v", ref, err)
+		}
+	}
+	if len(resolved) != 0 || askedWs != "" || created {
+		t.Fatalf("a refused reference must reach no lookup and no create: resolved=%v askedWs=%q created=%v", resolved, askedWs, created)
+	}
+
+	full := "0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90"
+	for _, ref := range []string{full, "block:" + full} {
+		resolved, askedWs, created = nil, "", false
+		resolveBlockRef = func(r string) (string, error) { resolved = append(resolved, r); return full, nil }
+		out, err := startSessionInStack("ws-other", ref, map[string]any{}, nil)
+		if err != nil {
+			t.Fatalf("%q is a full id and works from any workspace: %v", ref, err)
+		}
+		if askedWs != "ws-other" || !created || !strings.Contains(out, full) {
+			t.Fatalf("%q: the tab must be looked up in the requested workspace: askedWs=%q created=%v out=%s", ref, askedWs, created, out)
+		}
+	}
+
+	resolved = nil
+	if _, err := startSessionInStack("ws-here", "3", map[string]any{}, nil); err != nil || len(resolved) != 1 {
+		t.Fatalf("a number in the caller's own workspace stays allowed: err=%v resolved=%v", err, resolved)
 	}
 }
 

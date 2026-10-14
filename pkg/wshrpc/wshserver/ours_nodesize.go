@@ -3,7 +3,11 @@
 
 package wshserver
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+)
 
 const (
 	MinCreateNodeSize = 2
@@ -21,4 +25,13 @@ func checkNodeSize(size *uint) (*uint, error) {
 		return nil, fmt.Errorf("nodesize must be between %d and %d (leave it out for the default), got %d", MinCreateNodeSize, MaxCreateNodeSize, *size)
 	}
 	return size, nil
+}
+
+// checkCreateNodeSize is checkNodeSize for a whole request: a weight is for a tile in the layout, and an ephemeral block is not one (the layout
+// would drop the weight without a word), so a weight with ephemeral is refused.
+func checkCreateNodeSize(data wshrpc.CommandCreateBlockData) (*uint, error) {
+	if data.Ephemeral && data.NodeSize != nil {
+		return nil, fmt.Errorf("nodesize applies to tiles in the layout only, not to an ephemeral block")
+	}
+	return checkNodeSize(data.NodeSize)
 }

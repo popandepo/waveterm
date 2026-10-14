@@ -312,7 +312,7 @@ func (ws *WshServer) ResolveIdsCommand(ctx context.Context, data wshrpc.CommandR
 func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.CommandCreateBlockData) (*waveobj.ORef, error) {
 	ctx = waveobj.ContextWithUpdates(ctx)
 	tabId := data.TabId
-	nodeSize, err := checkNodeSize(data.NodeSize)
+	nodeSize, err := checkCreateNodeSize(data)
 	if err != nil {
 		return nil, err
 	}

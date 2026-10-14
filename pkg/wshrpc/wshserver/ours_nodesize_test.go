@@ -46,10 +46,10 @@ func TestTheWeightIsCheckedBeforeAnythingIsCreated(t *testing.T) {
 		t.Fatal("CreateBlockCommand not found")
 	}
 	body := text[start:]
-	check := strings.Index(body, "checkNodeSize(data.NodeSize)")
+	check := strings.Index(body, "checkCreateNodeSize(data)")
 	create := strings.Index(body, "wcore.CreateBlock(")
 	if check < 0 || create < 0 || check > create {
-		t.Fatalf("checkNodeSize must run before wcore.CreateBlock (check at %d, create at %d)", check, create)
+		t.Fatalf("checkCreateNodeSize must run before wcore.CreateBlock (check at %d, create at %d)", check, create)
 	}
 	if !strings.Contains(body, "data.NodeSize = nodeSize") {
 		t.Fatal("the checked weight must replace the requested one")
@@ -68,5 +68,19 @@ func TestTheHandlerRefusesAWeightOutOfRangeBeforeItTouchesAnything(t *testing.T)
 		if !strings.Contains(err.Error(), "nodesize must be between") {
 			t.Fatalf("nodesize %d: the refusal must be the weight's own (it came first), got %v", bad, err)
 		}
+	}
+}
+
+// An ephemeral block is not a tile in the layout, so a weight for it would be dropped without a word: it is refused first, valid weight or not.
+func TestTheHandlerRefusesAWeightForAnEphemeralBlockBeforeItTouchesAnything(t *testing.T) {
+	ws := &WshServer{}
+	for _, size := range []uint{4, 2, 50} {
+		rtn, err := ws.CreateBlockCommand(context.Background(), wshrpc.CommandCreateBlockData{TabId: "tab-that-does-not-exist", Ephemeral: true, NodeSize: uintp(size)})
+		if err == nil || rtn != nil || !strings.Contains(err.Error(), "ephemeral") {
+			t.Fatalf("nodesize %d on an ephemeral block must be refused first, got %v %v", size, rtn, err)
+		}
+	}
+	if _, err := checkCreateNodeSize(wshrpc.CommandCreateBlockData{Ephemeral: true}); err != nil {
+		t.Fatalf("an ephemeral block without a weight is fine: %v", err)
 	}
 }

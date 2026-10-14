@@ -125,9 +125,11 @@ func decodeWebShot(res *wshrpc.CommandWebShotRtnData) ([]byte, error) {
 	return data, nil
 }
 
-// writeNewFile creates the file and fails if it exists (a race between the check and the write does not overwrite anything).
+// writeNewFile creates the file and fails if it exists (a race between the check and the write does not overwrite anything). The folder was
+// checked before the request and can be swapped while the window answers, so the new file must turn out to be in that same checked folder before
+// anything is written (createNewFileIn).
 func writeNewFile(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	f, err := createNewFileIn(path, filepath.Dir(path))
 	if err != nil {
 		return err
 	}

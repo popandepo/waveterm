@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -105,7 +104,8 @@ func TestWebShotPathIsCheckedBeforeAnyRequest(t *testing.T) {
 	}
 }
 
-func TestWebShotRefusesAFolderThatLeadsIntoAnOffLimitsFolder(t *testing.T) {
+// A symlinked folder; the Windows junction case is in wshcmd-webshot_windows_test.go.
+func TestWebShotRefusesASymlinkedFolderIntoAnOffLimitsFolder(t *testing.T) {
 	stubWebShot(t)
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, ".claude")
@@ -114,10 +114,7 @@ func TestWebShotRefusesAFolderThatLeadsIntoAnOffLimitsFolder(t *testing.T) {
 	}
 	link := filepath.Join(tmp, "innocent")
 	if err := os.Symlink(target, link); err != nil {
-		out, jerr := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput()
-		if jerr != nil {
-			t.Skipf("neither a symlink nor a junction could be made: %v %s", err, out)
-		}
+		t.Skipf("no symlink could be made (Windows without developer mode): %v", err)
 	}
 	webShotOut = filepath.Join(link, "a.png")
 	err := webShotCmd.RunE(webShotCmd, nil)

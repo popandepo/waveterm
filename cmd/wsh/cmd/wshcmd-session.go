@@ -279,7 +279,7 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return err
 	}
-	if err := validateSessionStackOptions(sessionStack, sessionActivate); err != nil {
+	if err := validateSessionStackOptions(cmd.Flags().Changed("stack"), sessionStack, sessionActivate); err != nil {
 		return err
 	}
 	var styleMeta, memberLook map[string]any

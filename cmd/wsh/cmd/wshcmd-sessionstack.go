@@ -40,10 +40,14 @@ var sessionCreateBlock = func(data wshrpc.CommandCreateBlockData) (string, error
 }
 
 // validateSessionStackOptions refuses what cannot go together with --stack before anything is looked up or created. A stacked session is a tile in
-// a tab that already exists, so there is no new tab to switch to.
-func validateSessionStackOptions(stack string, activate bool) error {
-	if stack == "" {
+// a tab that already exists, so there is no new tab to switch to. stackGiven is whether --stack was on the command line: an empty value given
+// there is refused, never read as no --stack (that would quietly create a tab instead).
+func validateSessionStackOptions(stackGiven bool, stack string, activate bool) error {
+	if !stackGiven {
 		return nil
+	}
+	if strings.TrimSpace(stack) == "" {
+		return fmt.Errorf("--stack needs a block (id or number); leave --stack out to start the session in a new tab")
 	}
 	if activate {
 		return fmt.Errorf("--activate cannot be combined with --stack: it switches to a new tab and a stacked session has none; show the member with: wsh group activate -b <block>")

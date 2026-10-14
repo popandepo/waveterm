@@ -15,13 +15,18 @@ import (
 )
 
 func TestStackAndActivateAreRefusedTogetherBeforeAnything(t *testing.T) {
-	if err := validateSessionStackOptions("3", true); err == nil || !strings.Contains(err.Error(), "--activate") {
+	if err := validateSessionStackOptions(true, "3", true); err == nil || !strings.Contains(err.Error(), "--activate") {
 		t.Fatalf("want a --activate refusal, got %v", err)
 	}
-	if err := validateSessionStackOptions("3", false); err != nil {
+	if err := validateSessionStackOptions(true, "3", false); err != nil {
 		t.Fatalf("a stack without activate is the normal case: %v", err)
 	}
-	if err := validateSessionStackOptions("", true); err != nil {
+	for _, empty := range []string{"", "  "} {
+		if err := validateSessionStackOptions(true, empty, false); err == nil || !strings.Contains(err.Error(), "--stack") {
+			t.Fatalf("a --stack given with %q must be refused, not read as no --stack: %v", empty, err)
+		}
+	}
+	if err := validateSessionStackOptions(false, "", true); err != nil {
 		t.Fatalf("activate without a stack is the old way and stays allowed: %v", err)
 	}
 }
@@ -30,17 +35,57 @@ func TestStackWithActivateStopsBeforeAnyRpc(t *testing.T) {
 	t.Setenv("WAVETERM_WORKSPACEID", "11111111-1111-1111-1111-111111111111")
 	oldStack, oldActivate, oldName, oldFile, oldRestart, oldMeta := sessionStack, sessionActivate, sessionName, sessionArgsFile, sessionRestart, sessionMeta
 	oldTab, oldCreate := sessionTabOfBlock, sessionCreateBlock
+	flag := sessionStartCmd.Flags().Lookup("stack")
 	defer func() {
 		sessionStack, sessionActivate, sessionName, sessionArgsFile, sessionRestart, sessionMeta = oldStack, oldActivate, oldName, oldFile, oldRestart, oldMeta
 		sessionTabOfBlock, sessionCreateBlock = oldTab, oldCreate
+		flag.Changed = false
 	}()
 	called := false
 	sessionTabOfBlock = func(string, string) (string, error) { called = true; return "", nil }
 	sessionCreateBlock = func(wshrpc.CommandCreateBlockData) (string, error) { called = true; return "", nil }
-	sessionStack, sessionActivate, sessionName, sessionArgsFile, sessionRestart, sessionMeta = "3", true, "t", "", false, nil
+	sessionActivate, sessionName, sessionArgsFile, sessionRestart, sessionMeta = true, "t", "", false, nil
+	if err := sessionStartCmd.Flags().Set("stack", "3"); err != nil {
+		t.Fatal(err)
+	}
 	err := sessionStartRun(sessionStartCmd, []string{"pwsh", "-NoProfile"})
 	if err == nil || !strings.Contains(err.Error(), "--activate") {
 		t.Fatalf("want the --activate refusal, got %v", err)
+	}
+	if called {
+		t.Fatal("a refused request must not look anything up or create anything")
+	}
+}
+
+func TestAnEmptyStackGivenOnTheCommandLineStopsBeforeAnyRpc(t *testing.T) {
+	t.Setenv("WAVETERM_WORKSPACEID", "11111111-1111-1111-1111-111111111111")
+	oldStack, oldActivate, oldName, oldFile, oldRestart, oldMeta, oldWs := sessionStack, sessionActivate, sessionName, sessionArgsFile, sessionRestart, sessionMeta, sessionWorkspace
+	oldTab, oldCreate := sessionTabOfBlock, sessionCreateBlock
+	flag := sessionStartCmd.Flags().Lookup("stack")
+	defer func() {
+		sessionStack, sessionActivate, sessionName, sessionArgsFile, sessionRestart, sessionMeta, sessionWorkspace = oldStack, oldActivate, oldName, oldFile, oldRestart, oldMeta, oldWs
+		sessionTabOfBlock, sessionCreateBlock = oldTab, oldCreate
+		flag.Changed = false
+	}()
+	called := false
+	sessionTabOfBlock = func(string, string) (string, error) { called = true; return "", nil }
+	sessionCreateBlock = func(wshrpc.CommandCreateBlockData) (string, error) { called = true; return "", nil }
+	sessionActivate, sessionName, sessionArgsFile, sessionRestart, sessionMeta = false, "t", "", false, nil
+	sessionWorkspace = "22222222-2222-2222-2222-222222222222"
+	if err := sessionStartCmd.Flags().Set("stack", ""); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("went on to the tab path and panicked: %v", r)
+			}
+		}()
+		err = sessionStartRun(sessionStartCmd, []string{"pwsh", "-NoProfile"})
+	}()
+	if err == nil || !strings.Contains(err.Error(), "--stack") || strings.Contains(err.Error(), "panicked") {
+		t.Fatalf("want a --stack refusal, got %v", err)
 	}
 	if called {
 		t.Fatal("a refused request must not look anything up or create anything")

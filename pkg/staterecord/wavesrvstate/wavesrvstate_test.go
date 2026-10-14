@@ -223,15 +223,21 @@ func TestLookAndAttentionReachTheFileAndHostileValuesDoNot(t *testing.T) {
 		return contains(s, `"icon": "rocket"`) && contains(s, `"iconcolor": "#2D7DD2"`) && contains(s, `"flagcolor": "#ff8800"`)
 	})
 	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{"attention:level": "need", "attention:reason": "the build is waiting"})
-	waitFor(t, "the file to carry the mark", func() bool {
-		s := read()
-		return contains(s, `"attentionlevel": "need"`) && contains(s, `"attentionreason": "the build is waiting"`)
+	waitFor(t, "the file to carry the mark's level", func() bool {
+		return contains(read(), `"attentionlevel": "need"`)
 	})
-	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{"attention:reason": "now it is urgent text"})
-	waitFor(t, "a changed reason to rewrite the file", func() bool {
-		s := read()
-		return contains(s, "now it is urgent text") && !contains(s, "the build is waiting")
+	if s := read(); contains(s, "the build is waiting") || contains(s, "attentionreason") {
+		t.Fatalf("the reason must never be in the file: %s", s)
+	}
+	// a changed reason with another change after it: once the other change is in the file, the reason is still not
+	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{"attention:reason": "my token is abc123"})
+	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{"frame:icon": "star"})
+	waitFor(t, "the later change to reach the file", func() bool {
+		return contains(read(), `"icon": "star"`)
 	})
+	if s := read(); contains(s, "abc123") || contains(s, "attentionreason") {
+		t.Fatalf("a changed reason must not reach the file either: %s", s)
+	}
 	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{
 		"frame:icon": "<img src=x onerror=alert(1)>", "icon:color": "red;background:url(http://x/a.png)", "attention:reason": "a" + string(rune(0x200b)) + "b",
 	})

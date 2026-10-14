@@ -374,7 +374,7 @@ func blockOf(t *testing.T, rec Record, id string) BlockRec {
 func TestLookAndAttentionAreInTheRecord(t *testing.T) {
 	rec := BuildRecord(lookFixture(t))
 	b1 := blockOf(t, rec, "b1")
-	if b1.Icon != "rocket" || b1.IconColor != "#2D7DD2" || b1.AttentionLevel != "need" || b1.AttentionReason != "the build is waiting" {
+	if b1.Icon != "rocket" || b1.IconColor != "#2D7DD2" || b1.AttentionLevel != "need" {
 		t.Fatalf("b1: %+v", b1)
 	}
 	if got := blockOf(t, rec, "b2").Icon; got != string(rune(0x1F680)) {
@@ -388,10 +388,26 @@ func TestLookAndAttentionAreInTheRecord(t *testing.T) {
 	}
 }
 
+// The record file has no token and anyone on the machine can read it, while a block's owner writes attention:reason freely (a password or a token
+// could be in it). Only the level goes into the record; the reason never does.
+func TestTheAttentionReasonNeverReachesTheRecord(t *testing.T) {
+	rec := BuildRecord(lookFixture(t))
+	if blockOf(t, rec, "b1").AttentionLevel != "need" {
+		t.Fatal("the level is recorded")
+	}
+	out, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(out); strings.Contains(s, "the build is waiting") || strings.Contains(s, "attentionreason") {
+		t.Fatalf("the reason must not be in the record: %s", s)
+	}
+}
+
 func TestAMarkThatWouldDrawNothingAndUnsafeLookValuesAreNotRecorded(t *testing.T) {
 	rec := BuildRecord(lookFixture(t))
 	b3 := blockOf(t, rec, "b3")
-	if b3.AttentionLevel != "" || b3.AttentionReason != "" {
+	if b3.AttentionLevel != "" {
 		t.Fatalf("a reason with a hidden character must record no mark: %+v", b3)
 	}
 	b4 := blockOf(t, rec, "b4")
@@ -411,7 +427,11 @@ func TestLookAndAttentionChangeTheRecordContent(t *testing.T) {
 	a := BuildRecord(lookFixture(t))
 	snap := lookFixture(t)
 	snap.Blocks["b1"].Meta["attention:reason"] = "something else"
+	if !reflect.DeepEqual(a.WithoutStamp(), BuildRecord(snap).WithoutStamp()) {
+		t.Fatal("a changed reason is not in the record, so it must not change it")
+	}
+	snap.Blocks["b1"].Meta["attention:level"] = "info"
 	if reflect.DeepEqual(a.WithoutStamp(), BuildRecord(snap).WithoutStamp()) {
-		t.Fatal("a changed reason must change the record, or the file would not be rewritten")
+		t.Fatal("a changed level must change the record, or the file would not be rewritten")
 	}
 }

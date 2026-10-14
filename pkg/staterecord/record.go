@@ -74,11 +74,11 @@ type BlockRec struct {
 	ExitCode *int              `json:"exitcode,omitempty"`
 	Session  map[string]string `json:"session,omitempty"`
 	// How the block looks, for a tool that draws a picture of the workspace, each only when it passes the rules that the window applies before it draws it
-	// (look.go for the icon and the colour, pkg/attention for the mark): the icon (frame:icon, else icon), its colour (icon:color), the attention mark.
-	Icon            string `json:"icon,omitempty"`
-	IconColor       string `json:"iconcolor,omitempty"`
-	AttentionLevel  string `json:"attentionlevel,omitempty"`
-	AttentionReason string `json:"attentionreason,omitempty"`
+	// (look.go for the icon and the colour, pkg/attention for the mark): the icon (frame:icon, else icon), its colour (icon:color), the attention level.
+	// The attention reason is not recorded: the file has no token and anyone on the machine can read it, while a block's owner writes the reason freely.
+	Icon           string `json:"icon,omitempty"`
+	IconColor      string `json:"iconcolor,omitempty"`
+	AttentionLevel string `json:"attentionlevel,omitempty"`
 }
 
 // SessionRec is the index of the blocks that carry a session id: where each one sits and what it was started with.
@@ -295,26 +295,26 @@ func blockRec(blocks map[string]*waveobj.Block, statuses map[string]ProcStatus, 
 	if b == nil {
 		return BlockRec{}, false
 	}
-	level, reason := attention.Of(b.Meta["attention:level"], b.Meta["attention:reason"])
+	// the reason still decides whether the mark is drawn at all (a reason with a hidden character draws nothing), so it is read, never kept
+	level, _ := attention.Of(b.Meta["attention:level"], b.Meta["attention:reason"])
 	if level == attention.LevelNone {
-		level, reason = "", ""
+		level = ""
 	}
 	return BlockRec{
-		Icon:            iconOf(b.Meta),
-		IconColor:       ColorValue(metaString(b.Meta, "icon:color")),
-		AttentionLevel:  level,
-		AttentionReason: reason,
-		Position:        position,
-		BlockId:         blockId,
-		Active:          active,
-		View:            metaString(b.Meta, "view"),
-		Title:           metaString(b.Meta, "frame:title"),
-		Cwd:             metaString(b.Meta, "cmd:cwd"),
-		Program:         programName(metaString(b.Meta, "cmd")),
-		Controller:      metaString(b.Meta, "controller"),
-		Session:         sessionMeta(b.Meta),
-		Status:          statuses[blockId].Status,
-		ExitCode:        statuses[blockId].ExitCode,
+		Icon:           iconOf(b.Meta),
+		IconColor:      ColorValue(metaString(b.Meta, "icon:color")),
+		AttentionLevel: level,
+		Position:       position,
+		BlockId:        blockId,
+		Active:         active,
+		View:           metaString(b.Meta, "view"),
+		Title:          metaString(b.Meta, "frame:title"),
+		Cwd:            metaString(b.Meta, "cmd:cwd"),
+		Program:        programName(metaString(b.Meta, "cmd")),
+		Controller:     metaString(b.Meta, "controller"),
+		Session:        sessionMeta(b.Meta),
+		Status:         statuses[blockId].Status,
+		ExitCode:       statuses[blockId].ExitCode,
 	}, true
 }
 

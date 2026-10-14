@@ -17,6 +17,23 @@ import (
 var defaultIgnorablesForTest = []rune{0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x180F, 0x3164,
 	0xFE00, 0xFE0E, 0xFE0F, 0xFFA0, 0xE0100, 0xE01EF, 0x061C, 0x00AD, 0x2060, 0xFEFF}
 
+func TestWebTextSelectorLimitCountsCharacters(t *testing.T) {
+	accented := strings.Repeat(string(rune(0xe9)), 300)
+	if err := checkWebTextOptions(accented, 1000); err != nil {
+		t.Fatalf("300 characters are within 512 whatever their bytes: %v", err)
+	}
+	rockets := strings.Repeat(string(rune(0x1F680)), 512)
+	if err := checkWebTextOptions(rockets, 1000); err != nil {
+		t.Fatalf("512 characters are allowed: %v", err)
+	}
+	if err := checkWebTextOptions(rockets+"a", 1000); err == nil {
+		t.Fatal("513 characters are refused")
+	}
+	if err := checkWebTextOptions("a"+string(rune(0x85))+"b", 1000); err == nil {
+		t.Fatal("a C1 control is refused")
+	}
+}
+
 func TestBothCleanersShowDefaultIgnorables(t *testing.T) {
 	for _, r := range defaultIgnorablesForTest {
 		in := "a" + string(r) + "b"

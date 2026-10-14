@@ -5,6 +5,8 @@ package staterecord
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -338,5 +340,98 @@ func TestAStatusChangeChangesTheRecordContent(t *testing.T) {
 	jb, _ := json.Marshal(BuildRecord(b).WithoutStamp())
 	if string(ja) == string(jb) {
 		t.Fatalf("a program that exited must change the content")
+	}
+}
+
+func lookFixture(t *testing.T) Snapshot {
+	snap := fixture(t)
+	snap.Tabs["tab1"].Meta = waveobj.MetaMapType{"tab:flagcolor": "#ff8800"}
+	snap.Blocks["b1"].Meta["frame:icon"] = "rocket"
+	snap.Blocks["b1"].Meta["icon:color"] = "#2D7DD2"
+	snap.Blocks["b1"].Meta["attention:level"] = "need"
+	snap.Blocks["b1"].Meta["attention:reason"] = "the build is waiting"
+	snap.Blocks["b2"].Meta["frame:icon"] = string(rune(0x1F680))
+	snap.Blocks["b3"].Meta["attention:level"] = "urgent"
+	snap.Blocks["b3"].Meta["attention:reason"] = "a" + string(rune(0x200b)) + "b"
+	snap.Blocks["b4"].Meta["frame:icon"] = "rocket" + string(rune(0x07))
+	snap.Blocks["b4"].Meta["icon:color"] = strings.Repeat("x", 61)
+	snap.Blocks["b4"].Meta["attention:level"] = "need"
+	return snap
+}
+
+func blockOf(t *testing.T, rec Record, id string) BlockRec {
+	for _, tile := range rec.Workspaces[0].Tabs[0].Tiles {
+		for _, b := range tile.Group {
+			if b.BlockId == id {
+				return b
+			}
+		}
+	}
+	t.Fatalf("block %s not in the record", id)
+	return BlockRec{}
+}
+
+func TestLookAndAttentionAreInTheRecord(t *testing.T) {
+	rec := BuildRecord(lookFixture(t))
+	b1 := blockOf(t, rec, "b1")
+	if b1.Icon != "rocket" || b1.IconColor != "#2D7DD2" || b1.AttentionLevel != "need" {
+		t.Fatalf("b1: %+v", b1)
+	}
+	if got := blockOf(t, rec, "b2").Icon; got != string(rune(0x1F680)) {
+		t.Fatalf("an emoji icon must be recorded as set, got %q", got)
+	}
+	if got := rec.Workspaces[0].Tabs[0].FlagColor; got != "#ff8800" {
+		t.Fatalf("tab flag colour: %q", got)
+	}
+	if got := rec.Workspaces[0].Tabs[1].FlagColor; got != "" {
+		t.Fatalf("a tab without a colour must record none, got %q", got)
+	}
+}
+
+// The record file has no token and anyone on the machine can read it, while a block's owner writes attention:reason freely (a password or a token
+// could be in it). Only the level goes into the record; the reason never does.
+func TestTheAttentionReasonNeverReachesTheRecord(t *testing.T) {
+	rec := BuildRecord(lookFixture(t))
+	if blockOf(t, rec, "b1").AttentionLevel != "need" {
+		t.Fatal("the level is recorded")
+	}
+	out, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(out); strings.Contains(s, "the build is waiting") || strings.Contains(s, "attentionreason") {
+		t.Fatalf("the reason must not be in the record: %s", s)
+	}
+}
+
+func TestAMarkThatWouldDrawNothingAndUnsafeLookValuesAreNotRecorded(t *testing.T) {
+	rec := BuildRecord(lookFixture(t))
+	b3 := blockOf(t, rec, "b3")
+	if b3.AttentionLevel != "" {
+		t.Fatalf("a reason with a hidden character must record no mark: %+v", b3)
+	}
+	b4 := blockOf(t, rec, "b4")
+	if b4.Icon != "" || b4.IconColor != "" {
+		t.Fatalf("a control character or more than 60 code points must record nothing: %+v", b4)
+	}
+	if b4.AttentionLevel != "" {
+		t.Fatalf("an orange level without a reason draws nothing and is not recorded: %+v", b4)
+	}
+	b2 := blockOf(t, rec, "b2")
+	if b2.AttentionLevel != "" || b2.IconColor != "" {
+		t.Fatalf("absent values stay absent: %+v", b2)
+	}
+}
+
+func TestLookAndAttentionChangeTheRecordContent(t *testing.T) {
+	a := BuildRecord(lookFixture(t))
+	snap := lookFixture(t)
+	snap.Blocks["b1"].Meta["attention:reason"] = "something else"
+	if !reflect.DeepEqual(a.WithoutStamp(), BuildRecord(snap).WithoutStamp()) {
+		t.Fatal("a changed reason is not in the record, so it must not change it")
+	}
+	snap.Blocks["b1"].Meta["attention:level"] = "info"
+	if reflect.DeepEqual(a.WithoutStamp(), BuildRecord(snap).WithoutStamp()) {
+		t.Fatal("a changed level must change the record, or the file would not be rewritten")
 	}
 }

@@ -9,6 +9,7 @@ package staterecord
 import (
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/attention"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -40,11 +41,13 @@ type WorkspaceRec struct {
 }
 
 type TabRec struct {
-	TabId    string    `json:"tabid"`
-	Name     string    `json:"name"`
-	Position int       `json:"position"`
-	Active   bool      `json:"active"`
-	Tiles    []TileRec `json:"tiles"`
+	TabId    string `json:"tabid"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
+	Active   bool   `json:"active"`
+	// FlagColor is the tab's colour (tab:flagcolor) when it passes the colour rules of the window (look.go), else empty.
+	FlagColor string    `json:"flagcolor,omitempty"`
+	Tiles     []TileRec `json:"tiles"`
 }
 
 // A tile is one rectangle of a tab. A plain tile has a group of one block. A stack tile has a group of several: the
@@ -70,6 +73,12 @@ type BlockRec struct {
 	Status   string            `json:"status,omitempty"`
 	ExitCode *int              `json:"exitcode,omitempty"`
 	Session  map[string]string `json:"session,omitempty"`
+	// How the block looks, for a tool that draws a picture of the workspace, each only when it passes the rules that the window applies before it draws it
+	// (look.go for the icon and the colour, pkg/attention for the mark): the icon (frame:icon, else icon), its colour (icon:color), the attention level.
+	// The attention reason is not recorded: the file has no token and anyone on the machine can read it, while a block's owner writes the reason freely.
+	Icon           string `json:"icon,omitempty"`
+	IconColor      string `json:"iconcolor,omitempty"`
+	AttentionLevel string `json:"attentionlevel,omitempty"`
 }
 
 // SessionRec is the index of the blocks that carry a session id: where each one sits and what it was started with.
@@ -273,23 +282,39 @@ func walkLayout(node any, out *[]tileSrc) {
 	}
 }
 
+// The symbol of a block as the window picks it: frame:icon when that passes the rules, else icon.
+func iconOf(meta waveobj.MetaMapType) string {
+	if v := SymbolValue(metaString(meta, "frame:icon")); v != "" {
+		return v
+	}
+	return SymbolValue(metaString(meta, "icon"))
+}
+
 func blockRec(blocks map[string]*waveobj.Block, statuses map[string]ProcStatus, blockId string, position int, active bool) (BlockRec, bool) {
 	b := blocks[blockId]
 	if b == nil {
 		return BlockRec{}, false
 	}
+	// the reason still decides whether the mark is drawn at all (a reason with a hidden character draws nothing), so it is read, never kept
+	level, _ := attention.Of(b.Meta["attention:level"], b.Meta["attention:reason"])
+	if level == attention.LevelNone {
+		level = ""
+	}
 	return BlockRec{
-		Position:   position,
-		BlockId:    blockId,
-		Active:     active,
-		View:       metaString(b.Meta, "view"),
-		Title:      metaString(b.Meta, "frame:title"),
-		Cwd:        metaString(b.Meta, "cmd:cwd"),
-		Program:    programName(metaString(b.Meta, "cmd")),
-		Controller: metaString(b.Meta, "controller"),
-		Session:    sessionMeta(b.Meta),
-		Status:     statuses[blockId].Status,
-		ExitCode:   statuses[blockId].ExitCode,
+		Icon:           iconOf(b.Meta),
+		IconColor:      ColorValue(metaString(b.Meta, "icon:color")),
+		AttentionLevel: level,
+		Position:       position,
+		BlockId:        blockId,
+		Active:         active,
+		View:           metaString(b.Meta, "view"),
+		Title:          metaString(b.Meta, "frame:title"),
+		Cwd:            metaString(b.Meta, "cmd:cwd"),
+		Program:        programName(metaString(b.Meta, "cmd")),
+		Controller:     metaString(b.Meta, "controller"),
+		Session:        sessionMeta(b.Meta),
+		Status:         statuses[blockId].Status,
+		ExitCode:       statuses[blockId].ExitCode,
 	}, true
 }
 
@@ -306,7 +331,7 @@ func BuildRecord(snap Snapshot) Record {
 			if tab == nil {
 				continue
 			}
-			tabRec := TabRec{TabId: tabId, Name: tab.Name, Position: tabIndex, Active: tabId == ws.ActiveTabId, Tiles: []TileRec{}}
+			tabRec := TabRec{TabId: tabId, Name: tab.Name, Position: tabIndex, Active: tabId == ws.ActiveTabId, FlagColor: ColorValue(metaString(tab.Meta, "tab:flagcolor")), Tiles: []TileRec{}}
 			var tiles []tileSrc
 			if layout := snap.Layouts[tab.LayoutState]; layout != nil {
 				walkLayout(layout.RootNode, &tiles)

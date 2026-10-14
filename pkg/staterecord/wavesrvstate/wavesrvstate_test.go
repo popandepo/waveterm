@@ -184,3 +184,72 @@ func compact(data []byte) string {
 	}
 	return string(out)
 }
+
+// Look and attention through the whole chain, read from the file: a mark written to a stored block reaches the file; a change of the
+// reason rewrites it; a value that the window would not draw (markup in an icon, a colour with style text, a hidden character in a
+// reason) never reaches the file.
+func TestLookAndAttentionReachTheFileAndHostileValuesDoNot(t *testing.T) {
+	ctx := initTestStore(t)
+	block := &waveobj.Block{OID: uuid.NewString(), Meta: waveobj.MetaMapType{"view": "term", "frame:icon": "rocket", "icon:color": "#2D7DD2"}}
+	tab := &waveobj.Tab{OID: uuid.NewString(), Name: "T1", BlockIds: []string{block.OID}, Meta: waveobj.MetaMapType{"tab:flagcolor": "#ff8800"}}
+	ws := &waveobj.Workspace{OID: uuid.NewString(), Name: "Work", TabIds: []string{tab.OID}, ActiveTabId: tab.OID}
+	for _, obj := range []waveobj.WaveObj{block, tab, ws} {
+		if err := wstore.DBInsert(ctx, obj); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "state", "wave-state.json")
+	StartWith(path, func() (staterecord.Record, error) {
+		snap, err := loadSnapshot()
+		if err != nil {
+			return staterecord.Record{}, err
+		}
+		return staterecord.BuildRecord(snap), nil
+	}, 10*time.Millisecond)
+	read := func() string {
+		data, _ := os.ReadFile(path)
+		return string(data)
+	}
+	setMeta := func(oType string, oid string, meta waveobj.MetaMapType) {
+		mutateCtx := waveobj.ContextWithUpdates(ctx)
+		if err := wstore.UpdateObjectMeta(mutateCtx, waveobj.MakeORef(oType, oid), meta, false); err != nil {
+			t.Fatalf("update meta: %v", err)
+		}
+		wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(mutateCtx))
+	}
+
+	waitFor(t, "the file to carry the icon, its colour and the tab colour", func() bool {
+		s := read()
+		return contains(s, `"icon": "rocket"`) && contains(s, `"iconcolor": "#2D7DD2"`) && contains(s, `"flagcolor": "#ff8800"`)
+	})
+	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{"attention:level": "need", "attention:reason": "the build is waiting"})
+	waitFor(t, "the file to carry the mark's level", func() bool {
+		return contains(read(), `"attentionlevel": "need"`)
+	})
+	if s := read(); contains(s, "the build is waiting") || contains(s, "attentionreason") {
+		t.Fatalf("the reason must never be in the file: %s", s)
+	}
+	// a changed reason with another change after it: once the other change is in the file, the reason is still not
+	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{"attention:reason": "my token is abc123"})
+	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{"frame:icon": "star"})
+	waitFor(t, "the later change to reach the file", func() bool {
+		return contains(read(), `"icon": "star"`)
+	})
+	if s := read(); contains(s, "abc123") || contains(s, "attentionreason") {
+		t.Fatalf("a changed reason must not reach the file either: %s", s)
+	}
+	setMeta(waveobj.OType_Block, block.OID, waveobj.MetaMapType{
+		"frame:icon": "<img src=x onerror=alert(1)>", "icon:color": "red;background:url(http://x/a.png)", "attention:reason": "a" + string(rune(0x200b)) + "b",
+	})
+	setMeta(waveobj.OType_Tab, tab.OID, waveobj.MetaMapType{"tab:flagcolor": "url(http://x/a.png)"})
+	waitFor(t, "the file to drop the values that the window would not draw", func() bool {
+		s := read()
+		return !contains(s, `"icon"`) && !contains(s, `"iconcolor"`) && !contains(s, `"flagcolor"`) && !contains(s, "attentionlevel") && !contains(s, "attentionreason")
+	})
+	s := read()
+	for _, forbidden := range []string{"<img", "onerror", "url(", "background"} {
+		if contains(s, forbidden) {
+			t.Fatalf("%q reached the file: %s", forbidden, s)
+		}
+	}
+}

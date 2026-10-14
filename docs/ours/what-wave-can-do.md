@@ -543,6 +543,16 @@ Review notes on section 24 (the state record), asked by the reviewer:
   holds the file open is retried for about two seconds before it is given up and tried again at the next change. A test with a real
   open reader on Windows fails if the retry is removed.
 - A test changes an object through the event stream and checks that the file changes (it fails if the observer is never registered).
+- **Look and attention in the record (added 11-Oct-2026, for a status page that is built outside Wave):** each block has `icon` (`frame:icon`, else `icon`), `iconcolor` (`icon:color`), `attentionlevel` (the reason is not recorded: the file has no token and anyone on the machine can read it, while a block's owner writes `attention:reason` freely, so a password or token could be in it; the reason still decides whether a mark is drawn, so a reason with a hidden character records no level)
+  (`attention:level`, `attention:reason`), each tab has `flagcolor` (`tab:flagcolor`). Every one of them is written only when it passes the rules that the window applies before it draws it, and is left out otherwise (never cut or repaired):
+  the icon by the symbol rule (`pkg/staterecord/look.go` `SymbolValue`, a port of `parseTabSymbol`: a Font Awesome name of at most 40 characters or text of at most two graphemes and 32 bytes, no control, format or bidirectional characters, no stray
+  joiner; a joiner is accepted only between two emoji, so letters joined by one are refused: the window's own rule only refuses a joiner at an edge, doubled or beside white space, the record is stricter), the colours by the colour rule (`ColorValue`, a port of `memberColorValue`: a hex colour, a colour function whose arguments are only numbers, percentages, numbers with an angle unit and the word none (stricter than the window, which lets any word through: `rgb(background)` is not recorded), or a CSS colour name, at most 64 characters, no hidden characters), the mark by `pkg/attention` (a
+  mark that would draw nothing is not recorded). One difference on purpose: the window asks the browser whether a colour keyword is a colour; the record accepts only the CSS colour names (plus transparent and currentcolor), so it is never looser.
+  The record file is written atomically (a temporary file, then a rename; a reader that holds the file open makes the replace retry), so a page that reads it never sees a half written file. No new event is needed: a change to a block or a tab
+  already rewrites it. RAN: `go test ./pkg/staterecord/...` with cgo, including the vectors of both rules, the record tests, and a chain test with a real store that sets a mark, changes its reason, then writes markup, style text and a hidden
+  character, and reads the FILE each time (the file changes, and none of the hostile text reaches it). NOT RUN: a real Wave writing the new fields. The colour rule's hidden-character check is redundant with its shapes (no shape allows such a character);
+  it is kept as the same defence the window has.
+
 
 ## 25. Keyboard: next and previous tab inside a tile
 

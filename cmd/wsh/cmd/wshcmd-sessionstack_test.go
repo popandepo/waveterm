@@ -208,7 +208,9 @@ func TestStackInAnotherWorkspaceTakesOnlyAFullBlockId(t *testing.T) {
 	created := false
 	sessionCreateBlock = func(wshrpc.CommandCreateBlockData) (string, error) { created = true; return "new", nil }
 
-	for _, ref := range []string{"3", "this", "block:3"} {
+	for _, ref := range []string{"3", "this", "block:3",
+		"urn:uuid:0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90", "0b6f3c1e4f1a4d7e9a432f1d5c7b8e90", "{0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90}",
+		"0B6F3C1E-4F1A-4D7E-9A43-2F1D5C7B8E90", "block:urn:uuid:0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90", " 0b6f3c1e-4f1a-4d7e-9a43-2f1d5c7b8e90"} {
 		_, err := startSessionInStack("ws-other", ref, map[string]any{}, nil)
 		if err == nil || !strings.Contains(err.Error(), "full block id") {
 			t.Fatalf("%q in another workspace must be refused asking for a full block id, got %v", ref, err)

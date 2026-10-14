@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"unicode/utf16"
 
-	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
@@ -117,13 +117,17 @@ func sessionStartOutput(tabId string, blockId string, stackedWith string) string
 	return string(b)
 }
 
+// fullBlockIdRe is the exact text of a block id as Wave writes it (lower-case canonical uuid), optionally as block:<id>. Anything looser
+// (urn:uuid:, braces, no dashes, upper case) is a short reference as far as the workspace check goes.
+var fullBlockIdRe = regexp.MustCompile(`^(block:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 // checkStackRefWorkspace refuses a short reference (a number, "this") when the session goes into another workspace: those are resolved in the
 // caller's own tab, so they would name a block there, not in the requested workspace. Only a full block id means the same block everywhere.
 func checkStackRefWorkspace(wsId string, ref string) error {
 	if wsId == os.Getenv("WAVETERM_WORKSPACEID") {
 		return nil
 	}
-	if _, err := uuid.Parse(strings.TrimPrefix(ref, waveobj.OType_Block+":")); err == nil {
+	if fullBlockIdRe.MatchString(ref) {
 		return nil
 	}
 	return fmt.Errorf("--stack %q is counted in your own tab, not in workspace %s; give the full block id (wsh session list shows it)", ref, wsId)

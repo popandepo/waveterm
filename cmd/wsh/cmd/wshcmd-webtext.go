@@ -26,9 +26,10 @@ var (
 
 var webTextCmd = &cobra.Command{
 	Use:   "text [--selector css] [--max-bytes n] [-b block]",
-	Short: "print the visible text of a web tile (own workspace, and only a tile with its own web:partition)",
-	Long: `Prints the visible text (innerText) of the page, or of the first element that matches --selector, cut at --max-bytes (at most 262144).
-Reads only: nothing is navigated, clicked or focused.
+	Short: "print the text of a web tile (own workspace, and only a tile with its own web:partition)",
+	Long: `Prints the text the page reports (innerText) for its body, or for the first element that matches --selector (hidden elements included),
+cut at --max-bytes (at most 262144). The tool changes nothing itself: nothing is navigated, clicked or focused. A hostile page can run its own
+code when its text is read (it can replace innerText), with no more power than the page already has.
 
 A web tile that has no web:partition of its own uses the default sign-in store of Wave, which every web tile shares and which keeps logins
 across restarts. The text of such a tile is refused until the owner can allow a tile by name. A partition is the tile's own only when it is

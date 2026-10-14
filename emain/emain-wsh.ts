@@ -9,7 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
-import { authorizeWebNav, AuthorizeTimeoutMs, readWebTile, WebReadDeps, webNavigate, webText } from "./emain-webnav";
+import { authorizeWebNav, AuthorizeTimeoutMs, FullBlockIdRe, readWebTile, WebReadDeps, webNavigate, webText } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
 // What readWebTile needs from the window, the store and Electron, for one request.
@@ -52,7 +52,7 @@ export class ElectronWshClientType extends WshClient {
         if (!data.tabid || !data.blockid || !data.workspaceid) {
             throw new Error("tabid, blockid and workspaceid are required");
         }
-        if (!/^[0-9a-f-]{36}$/i.test(data.blockid)) {
+        if (!FullBlockIdRe.test(data.blockid)) {
             throw new Error("blockid must be a full block id");
         }
         // the caller is the block behind the source route that the router stamped on this message (a session cannot choose it): it may act only on a

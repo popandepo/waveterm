@@ -231,7 +231,10 @@ function Get-ClaudeArgs {
     return $a
 }
 
-if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; return }
+# The manager session (and only it) compacts at 300k tokens instead of the default (R-20261016-007; the same line as
+# MalfestioMaster tools\Start-Session.ps1). It is set after the CLAUDE* clean-up below, which would otherwise remove it.
+$compactWindow = if ($SessionId -eq '3c641601-9a7a-44be-a93c-e5a89419429b') { '300000' } else { '' }
+if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; return }
 
 Get-ChildItem env: |
     Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
@@ -239,6 +242,7 @@ Get-ChildItem env: |
     ForEach-Object { Remove-Item "env:$($_.Name)" -ErrorAction SilentlyContinue }
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
+if ($compactWindow) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = $compactWindow }
 # The status page's hook writes nothing unless STATUS_SESSION is set; a key inherited from the session that opened this block would be the wrong one.
 if ($Name) { $env:STATUS_SESSION = $statusSession; $env:STATUS_TAB = $Name }
 if ($Name) { try { $Host.UI.RawUI.WindowTitle = $Name } catch { } }

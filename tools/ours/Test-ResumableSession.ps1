@@ -60,6 +60,10 @@ try {
     Check 'model and effort are kept on resume' ($later[0] -match '--model m1' -and $later[0] -match '--effort low') $later[0]
     $other = & $script -SessionId '99999999-2222-3333-4444-555555555555' -ConfigDir $cfg -DryRun
     Check 'another id is not mistaken for it' ($other[0] -match '--session-id 99999999') $other[0]
+    # the manager session alone compacts at 300k (R-20261016-007)
+    $mgr = & $script -SessionId '3c641601-9a7a-44be-a93c-e5a89419429b' -ConfigDir $cfg -DryRun
+    Check 'the manager session gets the 300k compact window' ($mgr[3] -eq 'compact=300000') ($mgr -join ' | ')
+    Check 'any other session gets no compact window' ($other[3] -eq 'compact=' -and $later[3] -eq 'compact=') (($other -join ' | ') + ' // ' + ($later -join ' | '))
 
     # ---- how it is run: a child pwsh, so that this shell keeps its environment ----
     $stub = Join-Path $root 'stub.ps1'
@@ -79,7 +83,7 @@ Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
     $child = Join-Path $root 'child.ps1'
     Make-File $child @'
 param($Script, $Stub, $Record, $WshDir, $PathMode, $Cfg, $Id, [string]$ExtraPrompt, [string]$ExtraName, [string]$SwapDir, [string]$ExtraPromptFile)
-$env:CLAUDE_CONFIG_DIR = 'X:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
+$env:CLAUDE_CONFIG_DIR = 'X:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'; $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = '999'
 $env:RESUMABLE_TEST_RECORD = $Record
 $env:RESUMABLE_TEST_WSHDIR = $WshDir
 $env:STATUS_SESSION = 'stale-1234'; $env:STATUS_TAB = 'stale'
@@ -123,9 +127,9 @@ exit $LASTEXITCODE
     Make-File (Join-Path $wshDir 'wsh.cmd') '@echo wsh-from-wave'
     Make-File (Join-Path $otherDir 'wsh.cmd') '@echo wsh-already-there'
     $env:RESUMABLE_TEST_OTHERDIR = $otherDir
-    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '', [string]$name = '', [string]$swapDir = '', [string]$promptFile = '') {
+    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '', [string]$name = '', [string]$swapDir = '', [string]$promptFile = '', [string]$runId = $id) {
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
-        $a = @('-NoProfile', '-File', $child, '-Script', $script, '-Stub', $stub, '-Record', $rec, '-WshDir', $wshDir, '-PathMode', $mode, '-Cfg', $cfgDir, '-Id', $id)
+        $a = @('-NoProfile', '-File', $child, '-Script', $script, '-Stub', $stub, '-Record', $rec, '-WshDir', $wshDir, '-PathMode', $mode, '-Cfg', $cfgDir, '-Id', $runId)
         if ($prompt) { $a += '-ExtraPrompt', $prompt }
         if ($name) { $a += '-ExtraName', $name }
         if ($swapDir) { $a += '-SwapDir', $swapDir }
@@ -145,6 +149,9 @@ exit $LASTEXITCODE
     Check 'the launched program gets the searched config folder, not the inherited one' ($r.Lines -contains "ENV: CLAUDE_CONFIG_DIR=$cfg") $r.Text
     Check 'the inherited child-session markers are gone' (-not ($r.Text -match 'ENV: (CLAUDE_CODE_CHILD_SESSION|CLAUDECODE)=')) $r.Text
     Check 'NO_COLOR is gone' (-not ($r.Text -match 'ENV: NO_COLOR=')) $r.Text
+    Check 'an inherited compact window is gone for any other session' (-not ($r.Text -match 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=')) $r.Text
+    $rm = Run-Child 'set' -runId '3c641601-9a7a-44be-a93c-e5a89419429b'
+    Check 'the manager session is started with the 300k compact window (R-20261016-007)' ($rm.Lines -contains 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000') $rm.Text
     Check 'the launched program gets the resume arguments' ($r.Text -match "ARGS: --resume $id") $r.Text
     Check 'the folder of wsh is put AFTER the existing PATH entries' ($r.Lines -contains "PATHLAST: $wshDir") $r.Text
     Check 'wsh can be run from there and the stub prints what wsh printed' ($r.Lines -contains 'WSHOUT: wsh-from-wave') $r.Text
@@ -607,7 +614,8 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     foreach ($text in $texts) {
         $n++
         $pf = Write-PromptBytes ("p$n.txt") ([Text.UTF8Encoding]::new($false).GetBytes($text + "`n"))
-        $r = Run-Child 'set' $cfg '' '' '' $pf
+        # a fresh id each time: a prompt is only handed on at a session's first start, and $id has a transcript by now
+        $r = Run-Child 'set' $cfg '' '' '' $pf -runId ([guid]::NewGuid().ToString())
         $argLine = ($r.Lines | Where-Object { $_ -like 'ARGS:*' }) -join "`n"
         $count = ($r.Lines | Where-Object { $_ -like 'ARGCOUNT:*' })
         if ($null -eq $baseCount) { $baseCount = $count }
@@ -615,7 +623,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
         Check 'the prompt file is still there afterwards (the starter deletes nothing)' (Test-Path -LiteralPath $pf) ''
     }
     $crlf = Write-PromptBytes 'crlf.txt' ([Text.UTF8Encoding]::new($true).GetPreamble() + [Text.UTF8Encoding]::new($false).GetBytes("with bom and crlf`r`n"))
-    $r = Run-Child 'set' $cfg '' '' '' $crlf
+    $r = Run-Child 'set' $cfg '' '' '' $crlf -runId ([guid]::NewGuid().ToString())
     Check 'a byte order mark and one trailing line break are dropped, nothing else' ((($r.Lines | Where-Object { $_ -like 'ARGS:*' }) -join '').EndsWith(' with bom and crlf') -and -not (($r.Lines | Where-Object { $_ -like 'ARGS:*' }) -join '').Contains([string][char]0xFEFF)) $r.Text
     # refusals
     $okFile = Join-Path $promptRoot 'p1.txt'

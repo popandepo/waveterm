@@ -724,6 +724,13 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     # ---- what is accepted ----
     $dry = & $script -SessionId $id -ConfigDir $cfg -DryRun
     Check 'a folder under .claude-personal is accepted without the throwaway switch' ($dry[1] -eq "config=$cfg") ($dry -join ' | ')
+    # account 2 (R-20261014-008): .claude-personal2 is the second personal folder; a look-alike is not
+    $acct2 = Join-Path $profileDir '.claude-personal2'; Make-Dir $acct2
+    $dry = @(& pwsh -NoProfile -File $script -SessionId $id -ConfigDir $acct2 -DryRun 2>&1)
+    Check 'account 2: .claude-personal2 is accepted without the throwaway switch' ($dry.Count -ge 2 -and $dry[1] -eq "config=$acct2") ($dry -join ' | ')
+    $look = Join-Path $profileDir '.claude-personal2x'; Make-Dir $look
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $look -DryRun 2>$null | Out-Null
+    Check '.claude-personal2x is refused with exit code 2' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     $dry = & $script -SessionId $id -ConfigDir $throw -ThrowawayConfig -DryRun
     Check 'a throwaway folder is accepted with the switch' ($dry[1] -eq "config=$throw") ($dry -join ' | ')
     $dry = & $script -SessionId $id -ConfigDir $junc.Replace('to-old', 'cfg') -DryRun

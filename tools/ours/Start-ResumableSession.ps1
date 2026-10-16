@@ -106,7 +106,8 @@ function Resolve-AllowedConfigDir([string]$dir, [bool]$throwaway) {
     $homeFinal = Get-FinalPath $env:USERPROFILE
     if (-not $final -or -not $homeFinal) { return $null }
     foreach ($bad in '.claude', '.claude-work') { if (Test-Under $final "$homeFinal\$bad") { return $null } }
-    if (Test-Under $final "$homeFinal\.claude-personal") { return $final }
+    # account 1 and account 2 (R-20261014-008): exactly these two folders and what is below them
+    foreach ($ok in '.claude-personal', '.claude-personal2') { if (Test-Under $final "$homeFinal\$ok") { return $final } }
     if ($throwaway) { return $final }
     return $null
 }

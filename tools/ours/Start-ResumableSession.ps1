@@ -234,7 +234,10 @@ function Get-ClaudeArgs {
 
 # The manager session (and only it) compacts at 300k tokens instead of the default (R-20261016-007; the same line as
 # MalfestioMaster tools\Start-Session.ps1). It is set after the CLAUDE* clean-up below, which would otherwise remove it.
-$compactWindow = if ($SessionId -eq '3c641601-9a7a-44be-a93c-e5a89419429b') { '300000' } else { '' }
+# tools/manager.json in MalfestioMaster names the manager; the starter reads it so the id is not copied into three places.
+$mgrFile = 'C:\Projects\Personal\MalfestioMaster\tools\manager.json'
+$mgr = if (Test-Path -LiteralPath $mgrFile) { Get-Content -LiteralPath $mgrFile -Raw | ConvertFrom-Json } else { $null }
+$compactWindow = if ($mgr -and ($SessionId -eq $mgr.sessionId -or ($Name -and $Name -eq $mgr.name))) { [string]$mgr.autoCompactWindow } else { '' }
 if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; return }
 
 Get-ChildItem env: |

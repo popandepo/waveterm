@@ -60,6 +60,10 @@ try {
     Check 'model and effort are kept on resume' ($later[0] -match '--model m1' -and $later[0] -match '--effort low') $later[0]
     $other = & $script -SessionId '99999999-2222-3333-4444-555555555555' -ConfigDir $cfg -DryRun
     Check 'another id is not mistaken for it' ($other[0] -match '--session-id 99999999') $other[0]
+    # the manager session alone compacts at 300k (R-20261016-007)
+    $mgr = & $script -SessionId '3c641601-9a7a-44be-a93c-e5a89419429b' -ConfigDir $cfg -DryRun
+    Check 'the manager session gets the 300k compact window' ($mgr[3] -eq 'compact=300000') ($mgr -join ' | ')
+    Check 'any other session gets no compact window' ($other[3] -eq 'compact=' -and $later[3] -eq 'compact=') (($other -join ' | ') + ' // ' + ($later -join ' | '))
 
     # ---- how it is run: a child pwsh, so that this shell keeps its environment ----
     $stub = Join-Path $root 'stub.ps1'
@@ -78,8 +82,8 @@ Set-Content -LiteralPath $env:RESUMABLE_TEST_RECORD $lines
 '@
     $child = Join-Path $root 'child.ps1'
     Make-File $child @'
-param($Script, $Stub, $Record, $WshDir, $PathMode, $Cfg, $Id, [string]$ExtraPrompt, [string]$ExtraName, [string]$SwapDir)
-$env:CLAUDE_CONFIG_DIR = 'X:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'
+param($Script, $Stub, $Record, $WshDir, $PathMode, $Cfg, $Id, [string]$ExtraPrompt, [string]$ExtraName, [string]$SwapDir, [string]$ExtraPromptFile)
+$env:CLAUDE_CONFIG_DIR = 'X:\somewhere\else'; $env:CLAUDE_CODE_CHILD_SESSION = '1'; $env:CLAUDECODE = '1'; $env:NO_COLOR = '1'; $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = '999'
 $env:RESUMABLE_TEST_RECORD = $Record
 $env:RESUMABLE_TEST_WSHDIR = $WshDir
 $env:STATUS_SESSION = 'stale-1234'; $env:STATUS_TAB = 'stale'
@@ -103,12 +107,15 @@ switch ($PathMode) {
     'swap-nodir' { $env:WAVETERM_SWAPTOKEN = $env:RESUMABLE_TEST_PACKED; $env:WAVETERM_WSHBINDIR = $WshDir }
 }
 $extra = @{}
-if ($env:RESUMABLE_TEST_WSHROOT) { $extra.WshRoot = $env:RESUMABLE_TEST_WSHROOT }
+if ($env:RESUMABLE_TEST_WSHROOT -and -not $env:RESUMABLE_TEST_NOROOT) { $extra.WshRoot = $env:RESUMABLE_TEST_WSHROOT }
 if ($env:RESUMABLE_TEST_LOG) { $extra.LogPath = $env:RESUMABLE_TEST_LOG }
 if ($env:RESUMABLE_TEST_LOGROOT) { $extra.LogRoot = $env:RESUMABLE_TEST_LOGROOT }
+if ($env:RESUMABLE_TEST_NOLOCALAPPDATA) { Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue }
 if ($env:RESUMABLE_TEST_INHERIT) { $env:WAVETERM_JWT = 'inherited-jwt'; $env:WAVETERM_BLOCKID = 'inherited-block'; $env:WAVETERM_TABID = 'inherited-tab'; $env:WAVETERM_WORKSPACEID = 'inherited-ws' }
 if ($env:RESUMABLE_TEST_DECOYDIR) { $env:PATH = $env:RESUMABLE_TEST_DECOYDIR + $sep + $env:PATH }
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
+if ($ExtraPromptFile) { $extra.PromptFile = $ExtraPromptFile }
+if ($env:RESUMABLE_TEST_PROMPTROOT) { $extra.PromptRoot = $env:RESUMABLE_TEST_PROMPTROOT }
 if ($ExtraName) { $extra.Name = $ExtraName }
 if ($env:RESUMABLE_TEST_SWAPTIMEOUT) { $extra.SwapTimeoutSeconds = [int]$env:RESUMABLE_TEST_SWAPTIMEOUT }
 & $Script -SessionId $Id -ConfigDir $Cfg -Command $Stub -Model m1 @extra
@@ -120,12 +127,13 @@ exit $LASTEXITCODE
     Make-File (Join-Path $wshDir 'wsh.cmd') '@echo wsh-from-wave'
     Make-File (Join-Path $otherDir 'wsh.cmd') '@echo wsh-already-there'
     $env:RESUMABLE_TEST_OTHERDIR = $otherDir
-    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '', [string]$name = '', [string]$swapDir = '') {
+    function Run-Child([string]$mode, [string]$cfgDir = $cfg, [string]$prompt = '', [string]$name = '', [string]$swapDir = '', [string]$promptFile = '', [string]$runId = $id) {
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
-        $a = @('-NoProfile', '-File', $child, '-Script', $script, '-Stub', $stub, '-Record', $rec, '-WshDir', $wshDir, '-PathMode', $mode, '-Cfg', $cfgDir, '-Id', $id)
+        $a = @('-NoProfile', '-File', $child, '-Script', $script, '-Stub', $stub, '-Record', $rec, '-WshDir', $wshDir, '-PathMode', $mode, '-Cfg', $cfgDir, '-Id', $runId)
         if ($prompt) { $a += '-ExtraPrompt', $prompt }
         if ($name) { $a += '-ExtraName', $name }
         if ($swapDir) { $a += '-SwapDir', $swapDir }
+        if ($promptFile) { $a += '-ExtraPromptFile', $promptFile }
         $errFile = Join-Path $root 'child-error.txt'
         & pwsh @a 2>$errFile | Out-Null
         $code = $LASTEXITCODE
@@ -141,6 +149,9 @@ exit $LASTEXITCODE
     Check 'the launched program gets the searched config folder, not the inherited one' ($r.Lines -contains "ENV: CLAUDE_CONFIG_DIR=$cfg") $r.Text
     Check 'the inherited child-session markers are gone' (-not ($r.Text -match 'ENV: (CLAUDE_CODE_CHILD_SESSION|CLAUDECODE)=')) $r.Text
     Check 'NO_COLOR is gone' (-not ($r.Text -match 'ENV: NO_COLOR=')) $r.Text
+    Check 'an inherited compact window is gone for any other session' (-not ($r.Text -match 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=')) $r.Text
+    $rm = Run-Child 'set' -runId '3c641601-9a7a-44be-a93c-e5a89419429b'
+    Check 'the manager session is started with the 300k compact window (R-20261016-007)' ($rm.Lines -contains 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000') $rm.Text
     Check 'the launched program gets the resume arguments' ($r.Text -match "ARGS: --resume $id") $r.Text
     Check 'the folder of wsh is put AFTER the existing PATH entries' ($r.Lines -contains "PATHLAST: $wshDir") $r.Text
     Check 'wsh can be run from there and the stub prints what wsh printed' ($r.Lines -contains 'WSHOUT: wsh-from-wave') $r.Text
@@ -166,10 +177,10 @@ exit $LASTEXITCODE
     $r2 = Run-Child 'set' $cfg '' 'n1'
     $s1 = ($r1.Lines | Where-Object { $_ -like 'ENV: STATUS_SESSION=*' }) -replace '^ENV: STATUS_SESSION=', ''
     $s2 = ($r2.Lines | Where-Object { $_ -like 'ENV: STATUS_SESSION=*' }) -replace '^ENV: STATUS_SESSION=', ''
-    Check 'with -Name STATUS_SESSION is <name>-<4 hex> and STATUS_TAB is the name' (($s1 -match '^n1-[0-9a-f]{4}$') -and ($r1.Lines -contains 'ENV: STATUS_TAB=n1')) $r1.Text
+    Check 'with -Name STATUS_SESSION is <name>-<8 hex> and STATUS_TAB is the name' (($s1 -match '^n1-[0-9a-f]{8}$') -and ($r1.Lines -contains 'ENV: STATUS_TAB=n1')) $r1.Text
     Check 'every start gets a new STATUS_SESSION' (($s1 -match '^n1-') -and ($s2 -match '^n1-') -and ($s1 -ne $s2)) "$s1 $s2"
     $dryName = & $script -SessionId $id -ConfigDir $cfg -Name n1 -DryRun
-    Check 'the dry run prints the status key and tab' ($dryName[2] -match '^status=n1-[0-9a-f]{4} tab=n1$') ($dryName -join ' | ')
+    Check 'the dry run prints the status key and tab' ($dryName[2] -match '^status=n1-[0-9a-f]{8} tab=n1$') ($dryName -join ' | ')
 
     # ---- plugin folders ----
     $plug = Join-Path $root 'plugin one'; Make-Dir $plug
@@ -527,6 +538,40 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     $stray = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -DryRun stray-positional-piece 2>&1
     Check 'a stray positional argument is an error, not a model or an effort' (($LASTEXITCODE -ne 0) -and ($stray -join ' ') -match 'positional') ($stray -join ' ')
 
+    # ---- follow-up: tilde paths, a missing LOCALAPPDATA, listed names cleared, the plugin folder gaps ----
+    $tildeCfg = Join-Path $profileDir '.claude~1'
+    foreach ($tc in @(@('a config folder with a tilde', @('-ConfigDir', ($personal + '\~x'))), @('a config folder with a tilde below a throwaway switch', @('-ConfigDir', ($throw + '\a~1'), '-ThrowawayConfig')))) {
+        Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
+        $env:RESUMABLE_TEST_RECORD = $rec
+        $terr = Join-Path $root 'tilde-error.txt'
+        & pwsh -NoProfile -File $script -SessionId $id -Command $stub @($tc[1]) 2>$terr | Out-Null
+        $ttext = Get-Content -LiteralPath $terr -Raw
+        Remove-Item -LiteralPath $terr -ErrorAction SilentlyContinue
+        Check ($tc[0] + ' is refused by its text alone, with exit 2 and nothing is started') (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec) -and ($ttext -match 'plain spelling \(nothing was opened\)')) "exit=$LASTEXITCODE $ttext"
+    }
+    foreach ($tp in @(@('a plugin folder with a tilde', ($plug + '~1')), @('a drive-relative plugin folder', 'C:plugin'))) {
+        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $tp[1] -DryRun 2>$null | Out-Null
+        Check ($tp[0] + ' is refused with exit code 2') ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
+    }
+    $juncWork = Join-Path $root 'plugin-to-work'
+    $null = New-Item -ItemType Junction -Path $juncWork -Target $workDir; $made.Add($juncWork)
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $juncWork -DryRun 2>$null | Out-Null
+    Check 'a plugin folder that is a junction into .claude-work is refused after the link is resolved' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
+    $dotted = ($plug + '\..\plugin one')
+    $dd = & $script -SessionId $id -ConfigDir $cfg -PluginDir $dotted -DryRun
+    Check 'a plugin folder is handed on as its resolved full path, not as it was written' ($dd[0].StartsWith("--plugin-dir $plug ")) $dd[0]
+    # a name that wsh did not print does not keep what was inherited, after a success
+    $env:RESUMABLE_TEST_INHERIT = '1'
+    $env:SWAP_OUTPUT = $swapOut; $env:SWAP_ARGS = $swapArgs; $env:RESUMABLE_TEST_NOWSH = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'after a success a listed name that wsh did not print is cleared, not left inherited' (($r.Lines -contains 'ENV: WAVETERM_BLOCKID=block-1') -and -not ($r.Text -match 'inherited-ws') -and -not ($r.Text -match 'inherited-')) $r.Text
+    Remove-Item Env:RESUMABLE_TEST_INHERIT -ErrorAction SilentlyContinue
+    # LOCALAPPDATA unset and no -WshRoot: no exchange, the session starts (the default of the parameter must not end the starter)
+    $env:RESUMABLE_TEST_NOROOT = '1'; $env:RESUMABLE_TEST_NOLOCALAPPDATA = '1'
+    $r = Run-Child 'swap' $cfg '' '' $swapDir
+    Check 'with LOCALAPPDATA unset and no -WshRoot there is no exchange and the session still starts' (($r.Code -eq 0) -and $r.Lines.Count -gt 0 -and -not ($r.Text -match 'WAVETERM_BLOCKID') -and ($r.Text -match 'could not be exchanged')) "exit=$($r.Code) $($r.Text)"
+    Remove-Item Env:RESUMABLE_TEST_NOROOT, Env:RESUMABLE_TEST_NOLOCALAPPDATA, Env:SWAP_OUTPUT, Env:SWAP_ARGS, Env:RESUMABLE_TEST_NOWSH -ErrorAction SilentlyContinue
+
     # ---- the prompt ----
     foreach ($lead in '-x', ' -x', "`t-x", "  `t -x") {
         $rd = Run-Child 'set' $cfg ($lead + ' starts with a dash')
@@ -543,6 +588,69 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $child -Script $script -Stub $stub -Record $rec -WshDir $wshDir -PathMode set -Cfg $cfg -Id $id 2>$null | Out-Null
     Check 'a real launch under Windows PowerShell is refused with exit 2 and nothing is started' (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE"
+
+    # ---- the prompt from a file (-PromptFile): any text arrives as ONE argument, byte for byte; refusals are exit 2 with nothing started ----
+    $promptRoot = Join-Path $env:LOCALAPPDATA 'WaveFork\prompts'
+    Make-Dir (Join-Path $env:LOCALAPPDATA 'WaveFork'); Make-Dir $promptRoot
+    $env:RESUMABLE_TEST_PROMPTROOT = $promptRoot
+    function Write-PromptBytes([string]$name, [byte[]]$bytes) {
+        $p = Join-Path $promptRoot $name
+        [IO.File]::WriteAllBytes($p, $bytes); $made.Add($p)
+        return $p
+    }
+    $aring = [string][char]0x00E5
+    $texts = @(
+        "it's a 'quoted' prompt",
+        'say "hi" and a\"b c',
+        'semicolon; and & ampersand | pipe',
+        'dollar $HOME and `backtick` and 100%',
+        'ends with a full stop.',
+        ('unicode ' + $aring + ' text'),
+        'trailing backslash \',
+        "tab`there"
+    )
+    $n = 0
+    $baseCount = $null
+    foreach ($text in $texts) {
+        $n++
+        $pf = Write-PromptBytes ("p$n.txt") ([Text.UTF8Encoding]::new($false).GetBytes($text + "`n"))
+        # a fresh id each time: a prompt is only handed on at a session's first start, and $id has a transcript by now
+        $r = Run-Child 'set' $cfg '' '' '' $pf -runId ([guid]::NewGuid().ToString())
+        $argLine = ($r.Lines | Where-Object { $_ -like 'ARGS:*' }) -join "`n"
+        $count = ($r.Lines | Where-Object { $_ -like 'ARGCOUNT:*' })
+        if ($null -eq $baseCount) { $baseCount = $count }
+        Check ("a prompt file with '" + $text.Substring(0, [Math]::Min(18, $text.Length)).Replace("`n", '<nl>') + "' arrives as one argument, byte for byte") (($r.Code -eq 0) -and $argLine.EndsWith($text) -and ($count -eq $baseCount)) "exit=$($r.Code) count=$count base=$baseCount $($r.Text)"
+        Check 'the prompt file is still there afterwards (the starter deletes nothing)' (Test-Path -LiteralPath $pf) ''
+    }
+    $crlf = Write-PromptBytes 'crlf.txt' ([Text.UTF8Encoding]::new($true).GetPreamble() + [Text.UTF8Encoding]::new($false).GetBytes("with bom and crlf`r`n"))
+    $r = Run-Child 'set' $cfg '' '' '' $crlf -runId ([guid]::NewGuid().ToString())
+    Check 'a byte order mark and one trailing line break are dropped, nothing else' ((($r.Lines | Where-Object { $_ -like 'ARGS:*' }) -join '').EndsWith(' with bom and crlf') -and -not (($r.Lines | Where-Object { $_ -like 'ARGS:*' }) -join '').Contains([string][char]0xFEFF)) $r.Text
+    # refusals
+    $okFile = Join-Path $promptRoot 'p1.txt'
+    $bad = [ordered]@{
+        'a dash start'            = (Write-PromptBytes 'dash.txt' ([Text.Encoding]::UTF8.GetBytes('-x starts with a dash')))
+        'invalid UTF-8'           = (Write-PromptBytes 'bad-utf8.txt' ([byte[]](0x68, 0x69, 0xFF, 0xFE, 0x41)))
+        'above 64 KB'             = (Write-PromptBytes 'big.txt' ([byte[]]((1..70000) | ForEach-Object { 97 })))
+        'a missing file'          = (Join-Path $promptRoot 'does-not-exist.txt')
+        'a relative path'         = 'p1.txt'
+        'a path with a tilde'     = ($promptRoot + '\p1~1.txt')
+        'a file outside the root' = (Write-PromptBytes '..\..\..\outside-prompt.txt' ([Text.Encoding]::UTF8.GetBytes('outside')))
+    }
+    foreach ($k in $bad.Keys) {
+        $r = Run-Child 'set' $cfg '' '' '' $bad[$k]
+        Check ("a prompt file that is " + $k + " is refused with exit 2 and nothing is started") (($r.Code -eq 2) -and $r.Lines.Count -eq 0) "exit=$($r.Code) $($r.Text)"
+    }
+    $claudePrompt = Join-Path $oldDir 'prompt.txt'
+    Make-File $claudePrompt 'below .claude'
+    $r = Run-Child 'set' $cfg '' '' '' $claudePrompt
+    Check 'a prompt file below .claude is refused with exit 2 and nothing is started' (($r.Code -eq 2) -and $r.Lines.Count -eq 0) "exit=$($r.Code) $($r.Text)"
+    $promptJunc = Join-Path $promptRoot 'to-old'
+    $null = New-Item -ItemType Junction -Path $promptJunc -Target $oldDir; $made.Add($promptJunc)
+    $r = Run-Child 'set' $cfg '' '' '' (Join-Path $promptJunc 'prompt.txt')
+    Check 'a prompt file reached through a junction into .claude is refused after the link is resolved' (($r.Code -eq 2) -and $r.Lines.Count -eq 0) "exit=$($r.Code) $($r.Text)"
+    $r = Run-Child 'set' $cfg 'also a prompt' '' '' $okFile
+    Check 'giving -Prompt and -PromptFile together is refused with exit 2 and nothing is started' (($r.Code -eq 2) -and $r.Lines.Count -eq 0) "exit=$($r.Code) $($r.Text)"
+    Remove-Item Env:RESUMABLE_TEST_PROMPTROOT -ErrorAction SilentlyContinue
 
     # ---- the session id ----
     Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue

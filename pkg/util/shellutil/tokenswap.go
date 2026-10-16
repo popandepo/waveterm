@@ -99,9 +99,9 @@ func GetAndRemoveTokenSwapEntry(token string) *TokenSwapEntry {
 func encodeEnvVarsForBash(env map[string]string) (string, error) {
 	var encoded string
 	for k, v := range env {
-		// validate key
+		// a name no shell can assign (ProgramFiles(x86), 3DVPATH) is skipped, not a reason to fail the whole exchange
 		if !IsValidEnvVarName(k) {
-			return "", fmt.Errorf("invalid env var name: %q", k)
+			continue
 		}
 		encoded += fmt.Sprintf("export %s=%s\n", k, HardQuote(v))
 	}
@@ -111,9 +111,9 @@ func encodeEnvVarsForBash(env map[string]string) (string, error) {
 func encodeEnvVarsForFish(env map[string]string) (string, error) {
 	var encoded string
 	for k, v := range env {
-		// validate key
+		// a name no shell can assign (ProgramFiles(x86), 3DVPATH) is skipped, not a reason to fail the whole exchange
 		if !IsValidEnvVarName(k) {
-			return "", fmt.Errorf("invalid env var name: %q", k)
+			continue
 		}
 		encoded += fmt.Sprintf("set -x %s %s\n", k, HardQuoteFish(v))
 	}
@@ -123,9 +123,9 @@ func encodeEnvVarsForFish(env map[string]string) (string, error) {
 func encodeEnvVarsForPowerShell(env map[string]string) (string, error) {
 	var encoded string
 	for k, v := range env {
-		// validate key
+		// a name no shell can assign (ProgramFiles(x86), 3DVPATH) is skipped, not a reason to fail the whole exchange
 		if !IsValidEnvVarName(k) {
-			return "", fmt.Errorf("invalid env var name: %q", k)
+			continue
 		}
 		encoded += fmt.Sprintf("$env:%s = %s\n", k, HardQuotePowerShell(v))
 	}

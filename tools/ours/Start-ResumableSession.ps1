@@ -23,6 +23,8 @@ param(
     [string]$WshRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin' } else { '' }),
     [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
     [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
+    [string[]]$TrustRoot = @('C:\Projects\Personal'),
+    [ValidateRange(5, 300)][int]$TrustWaitSeconds = 90,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -434,6 +436,36 @@ if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
         # a failed exchange leaves nothing that looks like access: whatever was inherited is removed
         foreach ($n in 'WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID') { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
         [Console]::Error.WriteLine("Note: the Wave token could not be exchanged (swap=$swapCode), so this session starts without wsh access. Restarting the block gives a new token.")
+    }
+}
+# ---- the "trust this folder" question ---------------------------------------------------------------------------------------------------------------------
+# Claude asks once per folder whether to trust it, and the default answer is "No, exit". A session opened in a background tile then sits on that question
+# (or ends) and nobody sees it (17 Oct 2026, the Ashfall session). The manager has his standing yes for his own project folders, so this block answers it
+# itself: a watcher reads this block's own screen through wsh (no focus, no keys typed into the window) and, when the question is up for a folder under
+# -TrustRoot, moves to "Yes, I trust this folder" and confirms. Anything else (another folder, no wsh access, the question never shows) is left alone; the
+# watcher stops after -TrustWaitSeconds.
+$cwdFinal = Get-FinalPath (Get-Location).Path
+$trustOk = $false
+foreach ($r in $TrustRoot) { $rf = Get-FinalPath $r; if ($cwdFinal -and $rf -and (Test-Under $cwdFinal $rf)) { $trustOk = $true } }
+if ($trustOk -and -not $DryRun -and $env:WAVETERM_BLOCKID -and $env:WAVETERM_JWT) {
+    $wshHome = if ($wshFull) { $wshFull } else { Resolve-WshFolder $WshRoot }
+    $wshExe = if ($wshHome) { Join-Path $wshHome 'wsh.exe' } else { '' }
+}
+if ($trustOk -and -not $DryRun -and $env:WAVETERM_BLOCKID -and $env:WAVETERM_JWT -and $wshExe -and (Test-Path -LiteralPath $wshExe -PathType Leaf)) {
+    $null = Start-ThreadJob -ArgumentList $wshExe, $env:WAVETERM_BLOCKID, $cwdFinal, $TrustWaitSeconds -ScriptBlock {
+        param($wsh, $block, $folder, $wait)
+        $deadline = (Get-Date).AddSeconds($wait)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+            $screen = (& $wsh screen -b $block 2>$null) -join "`n"
+            # the folder is compared with all white space removed: in a narrow tile a long path wraps over two lines
+            if ($screen -match 'Yes, I trust this folder' -and ($screen -replace '\s', '').ToLowerInvariant().Contains(($folder -replace '\s', '').ToLowerInvariant())) {
+                $null = & $wsh send -b $block 'key:Down' 2>$null; Start-Sleep -Milliseconds 400
+                $screen = (& $wsh screen -b $block 2>$null) -join "`n"
+                if ($screen -match '(?m)^\s*\S\s+Yes, I trust this folder') { $null = & $wsh send -b $block 'key:Enter' 2>$null }
+                return
+            }
+        }
     }
 }
 $claudeArgs = @(Get-ClaudeArgs)

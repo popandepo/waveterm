@@ -35,7 +35,8 @@ param(
     [switch]$DryRun,
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
-    [string]$PluginDir = $(if (Test-Path -LiteralPath 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' -PathType Container) { 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' } else { '' }),
+    # Default: the usage-file mod of the account the config folder belongs to (Get-UsageModDir, after the folder is resolved).
+    [string]$PluginDir,
     [string]$StarterSource = (Join-Path (Split-Path $PSScriptRoot) 'Start-ResumableSession.ps1'),
     [string]$StarterDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\tools'),
     [string]$PromptDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\prompts'),
@@ -58,6 +59,7 @@ if (-not $NoRestart -and -not $ResolvedConfig) {
     [Console]::Error.WriteLine("Refusing: CLAUDE_CONFIG_DIR '$ConfigDir' is empty, is .claude or .claude-work, or is not under .claude-personal (use -ThrowawayConfig for a throwaway folder).")
     exit 2
 }
+if (-not $PSBoundParameters.ContainsKey('PluginDir')) { $PluginDir = Get-UsageModDir $ResolvedConfig }
 
 # the starter: a copy outside any working folder, because Wave starts it again at every start and a working folder can be on another branch
 $starter = $null

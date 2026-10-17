@@ -84,6 +84,18 @@ function Resolve-AllowedConfigDir([string]$dir, [bool]$throwaway) {
     return $null
 }
 
+# The usage-file mod that belongs to a resolved config folder: account 2 (.claude-personal2) writes its own limits file, account 1 the other.
+# 17 Oct 2026: every Wave-opened session got the account-1 mod, so sessions on account 2 wrote account 2's figures into account 1's file.
+# A throwaway folder (a test) gets no mod, so it never writes a real limits file. '' when the mod folder is missing.
+function Get-UsageModDir([string]$ResolvedConfig, [string]$ModsRoot = 'C:\Projects\Personal\MalfestioMaster\tools\mods') {
+    $homeFinal = Get-FinalPath $env:USERPROFILE
+    if (-not $ResolvedConfig -or -not $homeFinal) { return '' }
+    $name = if (Test-Under $ResolvedConfig "$homeFinal\.claude-personal2") { 'usage-file-2' } elseif (Test-Under $ResolvedConfig "$homeFinal\.claude-personal") { 'usage-file' } else { '' }
+    if (-not $name) { return '' }
+    $p = Join-Path $ModsRoot $name
+    if (Test-Path -LiteralPath $p -PathType Container) { return $p }
+    return ''
+}
 function Test-ClaudeConfigDir([string]$Dir, [switch]$Throwaway) { return [bool](Resolve-AllowedConfigDir $Dir $Throwaway.IsPresent) }
 function Assert-ClaudeConfigDir([string]$Dir, [switch]$Throwaway) {
     $r = Resolve-AllowedConfigDir $Dir $Throwaway.IsPresent

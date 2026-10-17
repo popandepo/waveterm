@@ -21,7 +21,8 @@ param(
     [string]$Starter = (Join-Path $PSScriptRoot 'Start-ResumableSession.ps1'),
     [string]$Wsh = 'wsh',
     [string]$Shell = 'pwsh',
-    [string]$PluginDir = $(if (Test-Path -LiteralPath 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' -PathType Container) { 'C:\Projects\Personal\MalfestioMaster\tools\mods\usage-file' } else { '' }),
+    # Default: the usage-file mod of the account -ConfigDir belongs to (Get-UsageModDir in host\Assert-ClaudeConfigDir.ps1).
+    [string]$PluginDir,
     [string]$ConfigDir = (Join-Path $env:USERPROFILE '.claude-personal'),
     [string[]]$SessionId = @(),
     [switch]$Execute
@@ -57,6 +58,11 @@ if ($rec.version -ne 1) { Fail "unknown record version $($rec.version)" }
 if (-not (Test-Path -LiteralPath $Starter)) { Fail "starter not found: $Starter" }
 # Wave's own environment never has CLAUDE_CONFIG_DIR (the launcher removes it), so every restored session carries its config folder in its stored command.
 if ($ConfigDir -notmatch '^[A-Za-z]:[\\/]') { Fail "-ConfigDir must be a full path: '$ConfigDir'" }
+if (-not $PSBoundParameters.ContainsKey('PluginDir')) {
+    . (Join-Path $PSScriptRoot 'host\Assert-ClaudeConfigDir.ps1')
+    $resolved = Get-FinalPath $ConfigDir
+    $PluginDir = if ($resolved) { Get-UsageModDir $resolved } else { '' }
+}
 
 $running = Get-RunningSessions $SessionsDir
 $sessions = @($rec.sessions | Where-Object { $_ -and $_.session -and $_.session.id })

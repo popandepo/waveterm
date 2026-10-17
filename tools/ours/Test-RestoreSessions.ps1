@@ -96,6 +96,12 @@ Check 'every start is a --restart start with the session id in its meta' (@($sta
 Check 'no call carries a skip-permissions or bypass flag' (-not (($r.Calls -join "`n") -match 'SkipPermissions|dangerously|bypass')) ($r.Calls -join ' | ')
 $rp = Run @('-PluginDir', $env:TEMP)
 Check 'a given plugin folder is part of every planned start command' (([regex]::Matches($rp.Out, '-PluginDir ' + [regex]::Escape($env:TEMP))).Count -ge 7) $rp.Out
+# Without -PluginDir the usage mod follows the account of -ConfigDir (17 Oct 2026, PR 76; the two folders are only resolved, never read).
+$mods = 'C:\Projects\Personal\MalfestioMaster\tools\mods'
+$r1 = Run @()
+Check 'by default account 1 restores with the usage-file mod' (([regex]::Matches($r1.Out, '-PluginDir ' + [regex]::Escape("$mods\usage-file") + '(\s|$)')).Count -ge 7) $r1.Out
+$r2 = Run @('-ConfigDir', (Join-Path $env:USERPROFILE '.claude-personal2'))
+Check 'with the account-2 folder the default is the usage-file-2 mod' (([regex]::Matches($r2.Out, '-PluginDir ' + [regex]::Escape("$mods\usage-file-2"))).Count -ge 7) $r2.Out
 Check 'every start carries -ConfigDir with a full path in its stored command (Wave itself has no CLAUDE_CONFIG_DIR)' (@($starts | Where-Object { $_ -match '-ConfigDir [A-Za-z]:[\\/]' }).Count -eq $starts.Count) ($starts -join ' | ')
 $adds = @($r.Calls | Where-Object { $_ -like 'group add*' })
 Check 'both free members of the stack join the running anchor block' ($adds.Count -eq 2 -and @($adds | Where-Object { $_ -match '--to blk-run$' }).Count -eq 2) ($adds -join ' | ')

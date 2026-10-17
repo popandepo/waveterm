@@ -25,6 +25,8 @@ param(
     [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
     [string[]]$TrustRoot = @('C:\Projects\Personal'),
     [ValidateRange(5, 300)][int]$TrustWaitSeconds = 90,
+    [string[]]$TrustExclude = @('C:\Projects\Personal\_wt', 'C:\Projects\Personal\_archive'),
+    [string]$TrustExcludeFile = 'C:\Projects\Personal\MalfestioMaster\tools\external-repos.json',
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -444,29 +446,48 @@ if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
 # itself: a watcher reads this block's own screen through wsh (no focus, no keys typed into the window) and, when the question is up for a folder under
 # -TrustRoot, moves to "Yes, I trust this folder" and confirms. Anything else (another folder, no wsh access, the question never shows) is left alone; the
 # watcher stops after -TrustWaitSeconds.
-$cwdFinal = Get-FinalPath (Get-Location).Path
-$trustOk = $false
-foreach ($r in $TrustRoot) { $rf = Get-FinalPath $r; if ($cwdFinal -and $rf -and (Test-Under $cwdFinal $rf)) { $trustOk = $true } }
-if ($trustOk -and -not $DryRun -and $env:WAVETERM_BLOCKID -and $env:WAVETERM_JWT) {
-    $wshHome = if ($wshFull) { $wshFull } else { Resolve-WshFolder $WshRoot }
-    $wshExe = if ($wshHome) { Join-Path $wshHome 'wsh.exe' } else { '' }
-}
-if ($trustOk -and -not $DryRun -and $env:WAVETERM_BLOCKID -and $env:WAVETERM_JWT -and $wshExe -and (Test-Path -LiteralPath $wshExe -PathType Leaf)) {
-    $null = Start-ThreadJob -ArgumentList $wshExe, $env:WAVETERM_BLOCKID, $cwdFinal, $TrustWaitSeconds -ScriptBlock {
-        param($wsh, $block, $folder, $wait)
-        $deadline = (Get-Date).AddSeconds($wait)
-        while ((Get-Date) -lt $deadline) {
-            Start-Sleep -Seconds 2
-            $screen = (& $wsh screen -b $block 2>$null) -join "`n"
-            # the folder is compared with all white space removed: in a narrow tile a long path wraps over two lines
-            if ($screen -match 'Yes, I trust this folder' -and ($screen -replace '\s', '').ToLowerInvariant().Contains(($folder -replace '\s', '').ToLowerInvariant())) {
-                $null = & $wsh send -b $block 'key:Down' 2>$null; Start-Sleep -Milliseconds 400
-                $screen = (& $wsh screen -b $block 2>$null) -join "`n"
-                if ($screen -match '(?m)^\s*\S\s+Yes, I trust this folder') { $null = & $wsh send -b $block 'key:Enter' 2>$null }
+# Only the last lines of the screen are read (the scrollback of a resumed session can quote the question), and only when the dialog itself is up: the
+# "Accessing workspace", "No, exit" and the folder (white space removed, a long path wraps) within those lines. Before Enter the dialog is read again and the pointer must be on
+# the Yes row. Not trusted by this: -TrustExclude (checkouts of other people's branches, the archive) and every folder in -TrustExcludeFile (outside clones).
+# Any error in this part leaves the session to start as before: it never stops the start.
+$wshExe = $null; $trustOk = $false
+try {
+    $cwdFinal = Get-FinalPath (Get-Location).Path
+    foreach ($r in $TrustRoot) {
+        if ([string]::IsNullOrWhiteSpace($r) -or $r -notmatch '^[A-Za-z]:[\\/].+' -or (Test-PlainlyForbidden $r)) { continue }
+        $rf = Get-FinalPath $r; if ($cwdFinal -and $rf -and (Test-Under $cwdFinal $rf)) { $trustOk = $true }
+    }
+    $excluded = @($TrustExclude)
+    if ($TrustExcludeFile -and (Test-Path -LiteralPath $TrustExcludeFile -PathType Leaf)) {
+        $excluded += @((Get-Content -LiteralPath $TrustExcludeFile -Raw | ConvertFrom-Json).repos | ForEach-Object { $_.path })
+    }
+    foreach ($x in $excluded) { if ($x) { $xf = Get-FinalPath $x; if ($cwdFinal -and $xf -and (Test-Under $cwdFinal $xf)) { $trustOk = $false } } }
+    if ($trustOk -and -not $DryRun -and $env:WAVETERM_BLOCKID -and $env:WAVETERM_JWT) {
+        $wshHome = if ($wshFull) { $wshFull } else { Resolve-WshFolder $WshRoot }
+        if ($wshHome) { $wshExe = Join-Path $wshHome 'wsh.exe' }
+    }
+    if ($trustOk -and $wshExe -and (Test-Path -LiteralPath $wshExe -PathType Leaf)) {
+        $null = Start-ThreadJob -ArgumentList $wshExe, $env:WAVETERM_BLOCKID, $cwdFinal, $TrustWaitSeconds -ScriptBlock {
+            param($wsh, $block, $folder, $wait)
+            $want = ($folder -replace '\s', '').ToLowerInvariant()
+            function Read-Dialog {
+                $tail = @(& $wsh screen -b $block --last 25 2>$null)
+                $flat = (($tail -join '') -replace '\s', '').ToLowerInvariant()
+                $up = ($tail -match 'Accessing workspace').Count -gt 0 -and ($tail -match '^\W*(\d\.\s*)?No, exit\s*$').Count -gt 0 -and $flat.Contains($want)
+                $onYes = ($tail -match '^\s*[^\s\w]\s*(\d\.\s*)?Yes, I trust this folder\s*$').Count -gt 0
+                [pscustomobject]@{ Up = $up; OnYes = $onYes }
+            }
+            $deadline = (Get-Date).AddSeconds($wait)
+            while ((Get-Date) -lt $deadline) {
+                Start-Sleep -Seconds 2
+                $d = Read-Dialog
+                if (-not $d.Up) { continue }
+                if (-not $d.OnYes) { $null = & $wsh send -b $block 'key:Down' 2>$null; Start-Sleep -Milliseconds 500; $d = Read-Dialog }
+                if ($d.Up -and $d.OnYes) { $null = & $wsh send -b $block 'key:Enter' 2>$null }
                 return
             }
         }
     }
-}
+} catch { }
 $claudeArgs = @(Get-ClaudeArgs)
 & $Command @claudeArgs

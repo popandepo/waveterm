@@ -9,7 +9,7 @@ $st = Join-Path $env:TEMP ('new-starter-' + [guid]::NewGuid().ToString('N') + '.
 # a made-up profile: nothing in this test names or opens a folder of the real profile
 $realProfile = $env:USERPROFILE
 $fakeProfile = Join-Path $env:TEMP ('openwave-test-profile-' + [guid]::NewGuid().ToString('N'))
-$fakeDirs = @($fakeProfile, (Join-Path $fakeProfile '.claude-personal'), (Join-Path $fakeProfile '.claude'), (Join-Path $fakeProfile '.claude-work'), (Join-Path $env:TEMP 'throwaway'))
+$fakeDirs = @($fakeProfile, (Join-Path $fakeProfile '.claude-personal'), (Join-Path $fakeProfile '.claude-personal2'), (Join-Path $fakeProfile '.claude'), (Join-Path $fakeProfile '.claude-work'), (Join-Path $env:TEMP 'throwaway'))
 foreach ($d in $fakeDirs) { $null = New-Item -ItemType Directory -Path $d -Force }
 $env:USERPROFILE = $fakeProfile
 $env:CLAUDE_CONFIG_DIR = Join-Path $env:USERPROFILE '.claude-personal'
@@ -61,6 +61,15 @@ foreach ($case in @(@('unset', ''), @('old', (Join-Path $env:USERPROFILE '.claud
 $ErrorActionPreference = 'Stop'
 $thr = & $script -Cwd $cwd -Name x -StarterSource $st -ConfigDir (Join-Path $env:TEMP 'throwaway') -ThrowawayConfig -DryRun | ConvertFrom-Json
 Check 'a throwaway folder needs -ThrowawayConfig and is then passed on with it' ((@($thr.argv) -contains '-ThrowawayConfig') -and (@($thr.argv) -contains (Join-Path $env:TEMP 'throwaway'))) ($thr | ConvertTo-Json -Compress)
+# the usage mod follows the account (17 Oct 2026: account-2 sessions got the account-1 mod and wrote account 2's figures into account 1's file)
+function PluginOf($r) { $a = @($r.argv); $i = [array]::IndexOf($a, '-PluginDir'); if ($i -ge 0) { $a[$i + 1] } else { '' } }
+$u1 = & $script -Cwd $cwd -Name u1 -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -DryRun | ConvertFrom-Json
+Check 'account 1 gets the usage-file mod' ((PluginOf $u1) -like '*\mods\usage-file') (PluginOf $u1)
+$u2 = & $script -Cwd $cwd -Name u2 -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal2') -DryRun | ConvertFrom-Json
+Check 'account 2 gets the usage-file-2 mod' ((PluginOf $u2) -like '*\mods\usage-file-2') (PluginOf $u2)
+Check 'a throwaway folder gets no usage mod' (-not (PluginOf $thr)) (PluginOf $thr)
+$ux = & $script -Cwd $cwd -Name ux -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal2') -PluginDir $env:TEMP -DryRun | ConvertFrom-Json
+Check 'a plugin folder given by the caller is kept' ((PluginOf $ux) -eq $env:TEMP) (PluginOf $ux)
 Remove-Item $st -ErrorAction SilentlyContinue
 $env:USERPROFILE = $realProfile
 Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue

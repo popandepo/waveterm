@@ -58,6 +58,9 @@ try {
     Check 'a later start resumes the same id' ($later[0] -match "--resume $id" -and $later[0] -notmatch '--session-id') $later[0]
     Check 'a resumed start does not repeat the first prompt' ($later[0] -notmatch 'hello') $later[0]
     Check 'model and effort are kept on resume' ($later[0] -match '--model m1' -and $later[0] -match '--effort low') $later[0]
+    # The peer name other sessions message it by is set by --name; --remote-control only names the Remote Control session
+    # (18 Oct 2026: research tiles opened as projects-research-night showed in ListAgents as ashfallprotocol-3c).
+    Check 'the session gets its name with --name, on the first start and on resume' (($first -match '--name n1(\s|$)') -and ($later[0] -match '--name n1(\s|$)')) "$first || $($later[0])"
     $other = & $script -SessionId '99999999-2222-3333-4444-555555555555' -ConfigDir $cfg -DryRun
     Check 'another id is not mistaken for it' ($other[0] -match '--session-id 99999999') $other[0]
     # the manager session alone compacts at 300k (R-20261016-007)

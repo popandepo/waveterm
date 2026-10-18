@@ -229,7 +229,9 @@ function Get-ClaudeArgs {
     if ($SkipPermissions) { $a += '--dangerously-skip-permissions' } elseif ($PermissionMode) { $a += '--permission-mode', $PermissionMode }
     $exists = Test-SessionExists $ConfigDir $SessionId
     if ($exists) { $a += '--resume', $SessionId } else { $a += '--session-id', $SessionId }
-    if ($Name) { $a += '--remote-control', $Name }
+    # --name is the name other sessions message it by (the session registry's "name"); --remote-control only names the
+    # Remote Control session (18 Oct 2026: tiles opened as projects-research-night showed in ListAgents as ashfallprotocol-3c).
+    if ($Name) { $a += '--name', $Name, '--remote-control', $Name }
     if ($Model) { $a += '--model', $Model }
     if ($Effort) { $a += '--effort', $Effort }
     if ($Prompt -and -not $exists) { $a += $Prompt }

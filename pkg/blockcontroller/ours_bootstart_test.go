@@ -109,6 +109,11 @@ func (e *bootTestEnv) insertBlock(t *testing.T, tabId string, meta waveobj.MetaM
 	return block.OID
 }
 
+// What a mounted terminal view sends with its resync.
+func viewSize() *waveobj.RuntimeOpts {
+	return &waveobj.RuntimeOpts{TermSize: waveobj.TermSize{Rows: 24, Cols: 80}}
+}
+
 func restartMeta() waveobj.MetaMapType {
 	return waveobj.MetaMapType{"view": "term", "controller": "cmd", "cmd": "x", "cmd:runonstart": true}
 }
@@ -152,7 +157,7 @@ func TestALaterMountDoesNotStartASecondProcess(t *testing.T) {
 	id := env.insertBlock(t, tab, restartMeta())
 
 	StartRestartBlocks(env.ctx)
-	if err := ResyncController(env.ctx, tab, id, nil, false); err != nil {
+	if err := ResyncController(env.ctx, tab, id, viewSize(), false); err != nil {
 		t.Fatal(err)
 	}
 	if env.starts(id) != 1 {
@@ -172,7 +177,7 @@ func TestAShortCommandIsNotRunAgainByTheFirstMount(t *testing.T) {
 	if first == nil || first.starts != 1 {
 		t.Fatalf("the boot pass must start the command once")
 	}
-	if err := ResyncController(env.ctx, tab, id, nil, false); err != nil {
+	if err := ResyncController(env.ctx, tab, id, viewSize(), false); err != nil {
 		t.Fatal(err)
 	}
 	if env.fakes[id] != first || first.starts != 1 || first.stops != 0 {
@@ -188,8 +193,8 @@ func TestTheSecondMountOfAnEndedBlockRestartsAsBefore(t *testing.T) {
 	id := env.insertBlock(t, tab, restartMeta())
 
 	StartRestartBlocks(env.ctx)
-	_ = ResyncController(env.ctx, tab, id, nil, false)
-	_ = ResyncController(env.ctx, tab, id, nil, false)
+	_ = ResyncController(env.ctx, tab, id, viewSize(), false)
+	_ = ResyncController(env.ctx, tab, id, viewSize(), false)
 	if env.made != 2 || env.fakes[id].starts != 1 {
 		t.Fatalf("the second mount must create a fresh controller and start it, got %d controllers (starts on the new one: %d)", env.made, env.fakes[id].starts)
 	}
@@ -217,11 +222,51 @@ func TestTheBootPassLeavesABlockThatAMountAlreadyStarted(t *testing.T) {
 	tab := env.insertTab(t)
 	id := env.insertBlock(t, tab, restartMeta())
 
-	if err := ResyncController(env.ctx, tab, id, nil, false); err != nil {
+	if err := ResyncController(env.ctx, tab, id, viewSize(), false); err != nil {
 		t.Fatal(err)
 	}
 	StartRestartBlocks(env.ctx)
 	if env.starts(id) != 1 || env.made != 1 {
 		t.Fatalf("one start from the mount only, got starts=%d controllers=%d", env.starts(id), env.made)
+	}
+}
+
+// A resync that does not come from a mounted view (no terminal size) must not use up the exemption: the view's own first
+// resync is the one that is spared.
+func TestAResyncThatIsNotAViewMountKeepsTheExemptionForTheMount(t *testing.T) {
+	env := initBootTest(t)
+	env.ends = true
+	tab := env.insertTab(t)
+	id := env.insertBlock(t, tab, restartMeta())
+
+	StartRestartBlocks(env.ctx)
+	if err := ResyncController(env.ctx, tab, id, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResyncController(env.ctx, tab, id, viewSize(), false); err != nil {
+		t.Fatal(err)
+	}
+	if env.made != 1 || env.starts(id) != 1 {
+		t.Fatalf("one run only: controllers=%d starts=%d", env.made, env.starts(id))
+	}
+}
+
+// The block can lose runonstart after the boot pass checked it and before it starts: it is read again at the start.
+func TestRunOnStartRemovedBetweenTheCheckAndTheStartIsHonoured(t *testing.T) {
+	env := initBootTest(t)
+	tab := env.insertTab(t)
+	id := env.insertBlock(t, tab, restartMeta())
+	old := afterBootEligibilityCheck
+	t.Cleanup(func() { afterBootEligibilityCheck = old })
+	afterBootEligibilityCheck = func(blockId string) {
+		err := wstore.UpdateObjectMeta(env.ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), map[string]any{"cmd:runonstart": false}, false)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	started, err := bootStartBlock(env.ctx, id)
+	if err != nil || started || env.made != 0 {
+		t.Fatalf("a block that lost runonstart in between must not be started (started=%v err=%v controllers=%d)", started, err, env.made)
 	}
 }

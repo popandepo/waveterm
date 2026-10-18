@@ -151,7 +151,10 @@ func handleBlockCloseEvent(event *wps.WaveEvent) {
 
 var makeShellControllerFn = MakeShellController
 
-// Blocks the boot pass started that no frontend resync has seen yet. A command that ends before its view mounts leaves a
+// Test seam: runs after the boot pass has checked a block and before it starts it.
+var afterBootEligibilityCheck = func(blockId string) {}
+
+// Blocks the boot pass started that no mounted view has resynced yet. A command that ends before its view mounts leaves a
 // done controller, and the first mount must not destroy and rerun it.
 var bootStartedBlocks = ds.MakeSyncMap[bool]()
 
@@ -206,13 +209,16 @@ func bootStartBlock(ctx context.Context, blockId string) (bool, error) {
 	if tab == nil {
 		return false, fmt.Errorf("tab %s is gone", tabId)
 	}
+	afterBootEligibilityCheck(blockId)
 	bootStartedBlocks.Set(blockId, true)
-	err = resyncControllerLocked(ctx, tabId, blockId, nil, false, false)
-	if err != nil {
+	err = resyncControllerLocked(ctx, tabId, blockId, nil, false, true, false)
+	if err != nil || getController(blockId) == nil {
 		bootStartedBlocks.Delete(blockId)
+	}
+	if err != nil {
 		return false, err
 	}
-	return true, nil
+	return getController(blockId) != nil, nil
 }
 
 // Only an explicit runonstart counts: for the shell controller an unset runonstart defaults to true, which would start every terminal.
@@ -233,15 +239,27 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	mu.Lock()
 	defer mu.Unlock()
 
-	_, bootStarted := bootStartedBlocks.GetEx(blockId)
-	bootStartedBlocks.Delete(blockId)
-	return resyncControllerLocked(ctx, tabId, blockId, rtOpts, force, bootStarted)
+	_, sparedDone := bootStartedBlocks.GetEx(blockId)
+	if sparedDone && (force || isViewResync(rtOpts)) {
+		defer bootStartedBlocks.Delete(blockId)
+	}
+	return resyncControllerLocked(ctx, tabId, blockId, rtOpts, force, false, sparedDone)
 }
 
-func resyncControllerLocked(ctx context.Context, tabId string, blockId string, rtOpts *waveobj.RuntimeOpts, force bool, bootStarted bool) error {
+// The terminal view always sends its size; a caller without one is not a view mounting, and must not use up the exemption.
+func isViewResync(rtOpts *waveobj.RuntimeOpts) bool {
+	return rtOpts != nil && rtOpts.TermSize.Rows > 0 && rtOpts.TermSize.Cols > 0
+}
+
+// bootStart: called by the boot pass, which starts the block only if it is still a restart block when this reads it.
+// sparedDone: the boot pass started this block and no view has resynced it yet, so a done controller is left as it is.
+func resyncControllerLocked(ctx context.Context, tabId string, blockId string, rtOpts *waveobj.RuntimeOpts, force bool, bootStart bool, sparedDone bool) error {
 	blockData, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
 		return fmt.Errorf("error getting block: %w", err)
+	}
+	if bootStart && !isRestartBlock(blockData) {
+		return nil
 	}
 
 	controllerName := blockData.Meta.GetString(waveobj.MetaKey_Controller, "")
@@ -312,7 +330,7 @@ func resyncControllerLocked(ctx context.Context, tabId string, blockId string, r
 	if existing != nil {
 		status := existing.GetRuntimeStatus()
 		if status.ShellProcStatus == Status_Done {
-			if bootStarted && !force {
+			if sparedDone && !force {
 				return nil
 			}
 			log.Printf("destroying blockcontroller %s with done status before restart\n", blockId)

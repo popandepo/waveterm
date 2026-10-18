@@ -81,6 +81,9 @@ func GetLayoutIdForTab(ctx context.Context, tabId string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to get layout id for given tab id %s: %w", tabId, err)
 	}
+	if tabObj == nil {
+		return "", fmt.Errorf("unable to get layout id for given tab id %s: tab not found", tabId)
+	}
 	return tabObj.LayoutState, nil
 }
 
@@ -88,6 +91,9 @@ func QueueLayoutAction(ctx context.Context, layoutStateId string, actions ...wav
 	layoutStateObj, err := wstore.DBGet[*waveobj.LayoutState](ctx, layoutStateId)
 	if err != nil {
 		return fmt.Errorf("unable to get layout state for given id %s: %w", layoutStateId, err)
+	}
+	if layoutStateObj == nil {
+		return fmt.Errorf("unable to get layout state for given id %s: not found", layoutStateId)
 	}
 
 	for i := range actions {

@@ -23,7 +23,7 @@ param(
     [string]$WshRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin' } else { '' }),
     [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
     [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
-    [string]$AccountLogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\session-accounts.jsonl' } else { '' }),
+    [string]$AccountDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\session-accounts' } else { '' }),
     [string[]]$TrustRoot = @('C:\Projects\Personal'),
     [ValidateRange(5, 300)][int]$TrustWaitSeconds = 90,
     [string[]]$TrustExclude = @('C:\Projects\Personal\_wt', 'C:\Projects\Personal\_archive'),
@@ -494,56 +494,47 @@ try {
 } catch { }
 # ---- which account a session runs on -------------------------------------------------------------------------------------------------------------------------
 # Nothing else records it (a session file has no account, both accounts' transcripts sit in one folder), and the budget scan needs it to split tokens per account.
-# One JSON line per real start: {"at":"<UTC time>","session":"<id>","account":1|2}. The newest line for a session wins (a session moved between accounts is started
-# again). Only the two personal config folders count (.claude-personal = 1, .claude-personal2 = 2); a throwaway config writes nothing. The file is judged like the
-# starter log: its FINAL folder must be at or below -LogRoot and never at or below .claude or .claude-work, a file that is itself a link is not written, the line is
-# APPENDED under a short exclusive open (3 tries), 5000 lines at most (cut back only when over). A record that cannot be written is ignored:
-# this step can never stop the session (any error leaves the start as it was).
+# ONE SMALL FILE PER START: <AccountDir>\<session id>-<at as yyyyMMddHHmmssfff>-<account>.json holding {"at","session","account"}. There is no shared file, so no lock, no
+# append, no trim and no lost update (Wave restarts all --restart blocks at the same moment after a reboot: a shared file was rewritten by each and the later start lost the earlier
+# record). The reader takes every file of a session, sorted by "at", so a session moved between accounts keeps both records. Written to a fresh temporary file in the same
+# folder (CreateNew) and then moved into place, so a reader never sees a half-written record. Only the two personal config folders count (.claude-personal = 1,
+# .claude-personal2 = 2); a throwaway config or a dry run writes nothing. The folder is judged like the starter log: its FINAL path must be at or below -LogRoot and never at or
+# below .claude or .claude-work, and a folder that is itself a link is never written into. Any error is ignored: this step can never stop the session.
+# Pruning (files older than 30 days) is a step of the manager's daily chores, not of the starter.
 function Write-SessionAccount {
     try {
-        if (-not $AccountLogPath -or $DryRun) { return }
+        if (-not $AccountDir -or $DryRun) { return }
         if ($SessionId -notmatch '^[0-9A-Fa-f-]{8,64}$') { return }
         $homeFinal = Get-FinalPath $env:USERPROFILE
         if (-not $homeFinal) { return }
         $account = $null
         if (Test-Under $ConfigDir "$homeFinal\.claude-personal2") { $account = 2 } elseif (Test-Under $ConfigDir "$homeFinal\.claude-personal") { $account = 1 }
         if (-not $account) { return }
-        if ($AccountLogPath -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $AccountLogPath)) { return }
+        if ($AccountDir -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $AccountDir)) { return }
         if ($LogRoot -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogRoot)) { return }
-        $dir = Split-Path -Parent $AccountLogPath
-        $finalDir = Get-FinalPath $dir
+        # the folder itself must not be a link (its final path would hide where the files really go)
+        if (Test-Path -LiteralPath $AccountDir) {
+            $item = Get-Item -LiteralPath $AccountDir -Force
+            if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+        }
+        $finalDir = Get-FinalPath $AccountDir
         $rootFinal = Get-FinalPath $LogRoot
         if (-not $finalDir -or -not $rootFinal -or -not (Test-Under $finalDir $rootFinal)) { return }
         foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { return } }
-        if ((Test-Path -LiteralPath $AccountLogPath) -and ((Get-Item -LiteralPath $AccountLogPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
-        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
-        $line = ([ordered]@{ at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); session = $SessionId.ToLowerInvariant(); account = $account } | ConvertTo-Json -Compress)
-        # APPEND the line (never read the file and write it back: starts at the same moment, which is every reboot since Wave restarts all blocks together, would
-        # each replace the file and the later one would lose the earlier record). A short exclusive open, at most 3 tries 50 ms apart, then give up silently.
-        $target = Join-Path $finalDir (Split-Path -Leaf $AccountLogPath)
-        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($line + [Environment]::NewLine)
-        $done = $false
-        for ($try = 1; $try -le 3 -and -not $done; $try++) {
-            try {
-                $stream = [IO.File]::Open($target, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
-                try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
-                $done = $true
-            } catch { if ($try -lt 3) { Start-Sleep -Milliseconds 50 } }
+        if (-not (Test-Path -LiteralPath $AccountDir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
+        $at = (Get-Date).ToUniversalTime()
+        $sid = $SessionId.ToLowerInvariant()
+        $json = ([ordered]@{ at = $at.ToString('yyyy-MM-ddTHH:mm:ssZ'); session = $sid; account = $account } | ConvertTo-Json -Compress)
+        $name = '{0}-{1}-{2}.json' -f $sid, $at.ToString('yyyyMMddHHmmssfff'), $account
+        $tmp = Join-Path $finalDir ('.session-account-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.tmp')
+        try {
+            $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json + [Environment]::NewLine); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+            [IO.File]::Move($tmp, (Join-Path $finalDir $name), $false)
+        } catch {
+            try { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } } catch { }
         }
-        # Only when the file is large (over 300 kB, a few thousand lines) is it read, and cut back when it holds more than 5000 lines to the newest 5000, under the same exclusive open (so no append lands in between; one that arrives meanwhile retries).
-        if ($done -and (Get-Item -LiteralPath $target).Length -gt 300000) {
-            try {
-                $stream = [IO.File]::Open($target, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
-                try {
-                    $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false), $false, 4096, $true)
-                    $all = @($reader.ReadToEnd() -split "`r?`n" | Where-Object { $_ })
-                    if ($all.Count -gt 5000) {
-                        $keep = [Text.UTF8Encoding]::new($false).GetBytes((@($all | Select-Object -Last 5000) -join [Environment]::NewLine) + [Environment]::NewLine)
-                        $stream.SetLength(0); $stream.Write($keep, 0, $keep.Length)
-                    }
-                } finally { $stream.Dispose() }
-            } catch { }
-        }    } catch { }
+    } catch { }
 }
 Write-SessionAccount
 $claudeArgs = @(Get-ClaudeArgs)

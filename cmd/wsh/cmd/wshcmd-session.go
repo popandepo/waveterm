@@ -316,28 +316,70 @@ func sessionStartRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		WriteStdout("%s\n", out)
 		return nil
 	}
-	tabId, err := createBackgroundTab(rpcTabCreator{}, wsId, sessionName, true, sessionActivate)
+	blockMeta := buildSessionBlockMeta(command, cmdArgs, cwd, envMap, RpcContext.Conn)
+	applySessionOptions(blockMeta, sessionRestart, extraMeta)
+	tabId, blockId, err := createSessionTab(rpcSessionOps{}, wsId, sessionName, styleMeta, blockMeta, sessionActivate)
 	if err != nil {
 		return err
 	}
-	if len(styleMeta) > 0 {
-		err = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{ORef: waveobj.MakeORef(waveobj.OType_Tab, tabId), Meta: styleMeta}, &wshrpc.RpcOpts{Timeout: 2000})
-		if err != nil {
-			return fmt.Errorf("tab %s was created but styling it failed: %w", tabId, err)
-		}
-	}
-	blockMeta := buildSessionBlockMeta(command, cmdArgs, cwd, envMap, RpcContext.Conn)
-	applySessionOptions(blockMeta, sessionRestart, extraMeta)
+	WriteStdout("%s\n", sessionStartOutput(tabId, blockId, ""))
+	return nil
+}
+
+type sessionTabOps interface {
+	tabCreator
+	SetTabStyle(tabId string, meta map[string]any) error
+	CreateBlock(tabId string, meta map[string]any) (string, error)
+}
+
+type rpcSessionOps struct {
+	rpcTabCreator
+}
+
+func (rpcSessionOps) SetTabStyle(tabId string, meta map[string]any) error {
+	return wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{ORef: waveobj.MakeORef(waveobj.OType_Tab, tabId), Meta: meta}, &wshrpc.RpcOpts{Timeout: 2000})
+}
+
+func (rpcSessionOps) CreateBlock(tabId string, meta map[string]any) (string, error) {
 	oref, err := wshclient.CreateBlockCommand(RpcClient, wshrpc.CommandCreateBlockData{
 		TabId:    tabId,
-		BlockDef: &waveobj.BlockDef{Meta: blockMeta},
+		BlockDef: &waveobj.BlockDef{Meta: meta},
 		Focused:  false,
 	}, &wshrpc.RpcOpts{Timeout: 15000})
 	if err != nil {
-		return fmt.Errorf("tab %s was created but the block could not be: %w", tabId, err)
+		return "", err
 	}
-	WriteStdout("%s\n", sessionStartOutput(tabId, oref.OID, ""))
-	return nil
+	return oref.OID, nil
+}
+
+// createSessionTab makes the tab and its program block and loads the tab's page LAST. The page queues a clean-up of orphaned
+// blocks (blocks of the tab that are not in its layout) when it first loads; a block created after that is in the tab's block
+// list before its layout insert has run, and the clean-up deletes it, leaving a bare shell. With the block there first, its
+// insert is already queued when the page loads. When a step fails, the tab id is still returned so the caller can close the tab.
+func createSessionTab(c sessionTabOps, wsId string, name string, styleMeta map[string]any, blockMeta map[string]any, activate bool) (string, string, error) {
+	tabId, err := c.CreateTab(wshrpc.CommandCreateTabData{WorkspaceId: wsId, Name: name, Empty: true})
+	if err != nil {
+		return "", "", fmt.Errorf("creating tab: %w", err)
+	}
+	if len(styleMeta) > 0 {
+		if err := c.SetTabStyle(tabId, styleMeta); err != nil {
+			return tabId, "", fmt.Errorf("tab %s was created but styling it failed: %w", tabId, err)
+		}
+	}
+	blockId, err := c.CreateBlock(tabId, blockMeta)
+	if err != nil {
+		return tabId, "", fmt.Errorf("tab %s was created but the block could not be: %w", tabId, err)
+	}
+	tabData := wshrpc.CommandElectronTabData{WorkspaceId: wsId, TabId: tabId}
+	if err := c.PreloadTab(tabData); err != nil {
+		return tabId, blockId, fmt.Errorf("tab %s was created with block %s but its page could not be loaded in the background: %w", tabId, blockId, err)
+	}
+	if activate {
+		if err := c.SetActiveTab(tabData); err != nil {
+			return tabId, blockId, fmt.Errorf("tab %s was created but could not be activated: %w", tabId, err)
+		}
+	}
+	return tabId, blockId, nil
 }
 
 // buildSessionBlockMeta is the whole description of the program block. cmd:shell is false and the arguments are a list,

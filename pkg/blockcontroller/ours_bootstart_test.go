@@ -270,3 +270,23 @@ func TestRunOnStartRemovedBetweenTheCheckAndTheStartIsHonoured(t *testing.T) {
 		t.Fatalf("a block that lost runonstart in between must not be started (started=%v err=%v controllers=%d)", started, err, env.made)
 	}
 }
+
+// A resync that is not a view mount starts the short command before the boot pass gets to the block. The command ends, the
+// boot pass finds a controller and leaves it, and the first mount must still not run it again.
+func TestACommandStartedBeforeTheBootPassIsNotRunAgainByTheFirstMount(t *testing.T) {
+	env := initBootTest(t)
+	env.ends = true
+	tab := env.insertTab(t)
+	id := env.insertBlock(t, tab, restartMeta())
+
+	if err := ResyncController(env.ctx, tab, id, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	StartRestartBlocks(env.ctx)
+	if err := ResyncController(env.ctx, tab, id, viewSize(), false); err != nil {
+		t.Fatal(err)
+	}
+	if env.made != 1 || env.starts(id) != 1 {
+		t.Fatalf("one run only: controllers=%d starts=%d", env.made, env.starts(id))
+	}
+}

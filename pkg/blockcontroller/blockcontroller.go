@@ -158,6 +158,9 @@ var afterBootEligibilityCheck = func(blockId string) {}
 // done controller, and the first mount must not destroy and rerun it.
 var bootStartedBlocks = ds.MakeSyncMap[bool]()
 
+// Blocks a mounted view has already resynced since backend start.
+var viewResyncedBlocks = ds.MakeSyncMap[bool]()
+
 // StartRestartBlocks starts every restart block (cmd:runonstart, not run once) at backend start. Without it a block waits
 // for the frontend to mount its view, which never happens for a tab nobody shows after a reboot.
 func StartRestartBlocks(ctx context.Context) {
@@ -196,6 +199,10 @@ func bootStartBlock(ctx context.Context, blockId string) (bool, error) {
 		return false, nil
 	}
 	if getController(blockId) != nil {
+		// started since backend start by a resync that was not a view mount: the first mount must not rerun it either
+		if _, viewSeen := viewResyncedBlocks.GetEx(blockId); !viewSeen {
+			bootStartedBlocks.Set(blockId, true)
+		}
 		return false, nil
 	}
 	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
@@ -239,6 +246,9 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	mu.Lock()
 	defer mu.Unlock()
 
+	if isViewResync(rtOpts) {
+		viewResyncedBlocks.Set(blockId, true)
+	}
 	_, sparedDone := bootStartedBlocks.GetEx(blockId)
 	if sparedDone && (force || isViewResync(rtOpts)) {
 		defer bootStartedBlocks.Delete(blockId)

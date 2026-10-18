@@ -154,12 +154,9 @@ var makeShellControllerFn = MakeShellController
 // Test seam: runs after the boot pass has checked a block and before it starts it.
 var afterBootEligibilityCheck = func(blockId string) {}
 
-// Blocks the boot pass started that no mounted view has resynced yet. A command that ends before its view mounts leaves a
-// done controller, and the first mount must not destroy and rerun it.
-var bootStartedBlocks = ds.MakeSyncMap[bool]()
-
-// Blocks a mounted view has already resynced since backend start.
-var viewResyncedBlocks = ds.MakeSyncMap[bool]()
+// Restart blocks started since backend start, by anyone, that no mounted view has resynced yet. A command that ends before
+// its view mounts leaves a done controller, and the first mount must not destroy and rerun it.
+var restartStartedBlocks = ds.MakeSyncMap[bool]()
 
 // StartRestartBlocks starts every restart block (cmd:runonstart, not run once) at backend start. Without it a block waits
 // for the frontend to mount its view, which never happens for a tab nobody shows after a reboot.
@@ -199,10 +196,6 @@ func bootStartBlock(ctx context.Context, blockId string) (bool, error) {
 		return false, nil
 	}
 	if getController(blockId) != nil {
-		// started since backend start by a resync that was not a view mount: the first mount must not rerun it either
-		if _, viewSeen := viewResyncedBlocks.GetEx(blockId); !viewSeen {
-			bootStartedBlocks.Set(blockId, true)
-		}
 		return false, nil
 	}
 	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
@@ -217,11 +210,7 @@ func bootStartBlock(ctx context.Context, blockId string) (bool, error) {
 		return false, fmt.Errorf("tab %s is gone", tabId)
 	}
 	afterBootEligibilityCheck(blockId)
-	bootStartedBlocks.Set(blockId, true)
 	err = resyncControllerLocked(ctx, tabId, blockId, nil, false, true, false)
-	if err != nil || getController(blockId) == nil {
-		bootStartedBlocks.Delete(blockId)
-	}
 	if err != nil {
 		return false, err
 	}
@@ -246,12 +235,9 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if isViewResync(rtOpts) {
-		viewResyncedBlocks.Set(blockId, true)
-	}
-	_, sparedDone := bootStartedBlocks.GetEx(blockId)
-	if sparedDone && (force || isViewResync(rtOpts)) {
-		defer bootStartedBlocks.Delete(blockId)
+	_, sparedDone := restartStartedBlocks.GetEx(blockId)
+	if force || isViewResync(rtOpts) {
+		defer restartStartedBlocks.Delete(blockId)
 	}
 	return resyncControllerLocked(ctx, tabId, blockId, rtOpts, force, false, sparedDone)
 }
@@ -262,7 +248,7 @@ func isViewResync(rtOpts *waveobj.RuntimeOpts) bool {
 }
 
 // bootStart: called by the boot pass, which starts the block only if it is still a restart block when this reads it.
-// sparedDone: the boot pass started this block and no view has resynced it yet, so a done controller is left as it is.
+// sparedDone: this restart block was started since backend start and no view has resynced it yet, so a done controller is left as it is.
 func resyncControllerLocked(ctx context.Context, tabId string, blockId string, rtOpts *waveobj.RuntimeOpts, force bool, bootStart bool, sparedDone bool) error {
 	blockData, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
@@ -391,6 +377,9 @@ func resyncControllerLocked(ctx context.Context, tabId string, blockId string, r
 		err = controller.Start(ctx, blockData.Meta, rtOpts, force)
 		if err != nil {
 			return fmt.Errorf("error starting controller: %w", err)
+		}
+		if isRestartBlock(blockData) {
+			restartStartedBlocks.Set(blockId, true)
 		}
 	}
 

@@ -290,3 +290,22 @@ func TestACommandStartedBeforeTheBootPassIsNotRunAgainByTheFirstMount(t *testing
 		t.Fatalf("one run only: controllers=%d starts=%d", env.made, env.starts(id))
 	}
 }
+
+// Non-view start, then the first mount, then the boot pass: one run, whatever the order.
+func TestAMountBetweenANonViewStartAndTheBootPassDoesNotRerunTheCommand(t *testing.T) {
+	env := initBootTest(t)
+	env.ends = true
+	tab := env.insertTab(t)
+	id := env.insertBlock(t, tab, restartMeta())
+
+	if err := ResyncController(env.ctx, tab, id, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResyncController(env.ctx, tab, id, viewSize(), false); err != nil {
+		t.Fatal(err)
+	}
+	StartRestartBlocks(env.ctx)
+	if env.made != 1 || env.starts(id) != 1 {
+		t.Fatalf("one run only: controllers=%d starts=%d", env.made, env.starts(id))
+	}
+}

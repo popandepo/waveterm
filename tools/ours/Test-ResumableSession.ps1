@@ -783,7 +783,24 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     $r = Run-Child 'unset' $cfg
     $capped = @(Acct-Lines)
     Check 'account record: the file keeps 5000 lines at most, the newest last, no temporary file left' ($capped.Count -eq 5000 -and ($capped[-1] | ConvertFrom-Json -DateKind String).session -eq $id -and @(Get-ChildItem -LiteralPath $logDir -Filter '.session-accounts-*.tmp' -Force).Count -eq 0) "count=$($capped.Count)"
-    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctLog} finally {
+    # many starts at the same moment (every reboot: Wave restarts all --restart blocks together): every record must be there, nothing corrupt, every session started
+    $parLog = Join-Path $logDir 'session-accounts-parallel.jsonl'; $made.Add($parLog)
+    $parStub = Join-Path $root 'par-stub.ps1'; Make-File $parStub 'exit 0'
+    $parIds = @(1..30 | ForEach-Object { [guid]::NewGuid().ToString() })
+    $procs = @()
+    foreach ($round in 0..4) {
+        foreach ($k in 0..5) {
+            $sid = $parIds[$round * 6 + $k]
+            $procs += Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', ('"' + $script + '"'), '-SessionId', $sid, '-ConfigDir', ('"' + $cfg + '"'), '-Command', ('"' + $parStub + '"'), '-AccountLogPath', ('"' + $parLog + '"'), '-LogRoot', ('"' + $root + '"'), '-LogPath', ('"' + (Join-Path $logDir 'par-starter.log') + '"')) -PassThru -WindowStyle Hidden
+        }
+        foreach ($pr in $procs[($round * 6)..($round * 6 + 5)]) { $null = $pr.WaitForExit(120000) }
+    }
+    $parLines = if (Test-Path -LiteralPath $parLog) { @(Get-Content -LiteralPath $parLog | Where-Object { $_ }) } else { @() }
+    $parRows = @($parLines | ForEach-Object { try { $_ | ConvertFrom-Json -DateKind String } catch { $null } })
+    $parSessions = @($parRows | Where-Object { $_ } | ForEach-Object { $_.session })
+    Check 'account record, parallel starts: 6 starts at once, five rounds: every start started (exit 0)' (@($procs | Where-Object { $_.ExitCode -ne 0 }).Count -eq 0) "exit codes: $(($procs | ForEach-Object { $_.ExitCode }) -join ',')"
+    Check 'account record, parallel starts: all 30 records are there, none lost, none corrupt' ($parLines.Count -eq 30 -and @($parRows | Where-Object { -not $_ }).Count -eq 0 -and @($parIds | Where-Object { $_ -notin $parSessions }).Count -eq 0) "lines=$($parLines.Count) of 30, missing=$(@($parIds | Where-Object { $_ -notin $parSessions }).Count), corrupt=$(@($parRows | Where-Object { -not $_ }).Count)"
+    Check 'account record, parallel starts: no temporary file is left in the log folder' (@(Get-ChildItem -LiteralPath $logDir -Filter '.session-accounts-*.tmp' -Force).Count -eq 0) ''    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctLog} finally {
     $env:USERPROFILE = $realProfile
     $env:LOCALAPPDATA = $realLocal
     Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue

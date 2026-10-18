@@ -496,8 +496,8 @@ try {
 # Nothing else records it (a session file has no account, both accounts' transcripts sit in one folder), and the budget scan needs it to split tokens per account.
 # One JSON line per real start: {"at":"<UTC time>","session":"<id>","account":1|2}. The newest line for a session wins (a session moved between accounts is started
 # again). Only the two personal config folders count (.claude-personal = 1, .claude-personal2 = 2); a throwaway config writes nothing. The file is judged like the
-# starter log: its FINAL folder must be at or below -LogRoot and never at or below .claude or .claude-work, a file that is itself a link is not written, the new
-# content goes into a new file that then replaces the old (a hard-linked file is never written into), 5000 lines at most. A record that cannot be written is ignored:
+# starter log: its FINAL folder must be at or below -LogRoot and never at or below .claude or .claude-work, a file that is itself a link is not written, the line is
+# APPENDED under a short exclusive open (3 tries), 5000 lines at most (cut back only when over). A record that cannot be written is ignored:
 # this step can never stop the session (any error leaves the start as it was).
 function Write-SessionAccount {
     try {
@@ -518,16 +518,32 @@ function Write-SessionAccount {
         if ((Test-Path -LiteralPath $AccountLogPath) -and ((Get-Item -LiteralPath $AccountLogPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
         if (-not (Test-Path -LiteralPath $dir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
         $line = ([ordered]@{ at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); session = $SessionId.ToLowerInvariant(); account = $account } | ConvertTo-Json -Compress)
-        $old = @(); if (Test-Path -LiteralPath $AccountLogPath -PathType Leaf) { $old = @(Get-Content -LiteralPath $AccountLogPath -Tail 4999 | Where-Object { $_ }) }
-        $tmp = Join-Path $finalDir ('.session-accounts-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.tmp')
-        try {
-            $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-            try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes((((@($old) + $line) -join [Environment]::NewLine) + [Environment]::NewLine)); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
-            [IO.File]::Move($tmp, (Join-Path $finalDir (Split-Path -Leaf $AccountLogPath)), $true)
-        } catch {
-            try { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } } catch { }
+        # APPEND the line (never read the file and write it back: starts at the same moment, which is every reboot since Wave restarts all blocks together, would
+        # each replace the file and the later one would lose the earlier record). A short exclusive open, at most 3 tries 50 ms apart, then give up silently.
+        $target = Join-Path $finalDir (Split-Path -Leaf $AccountLogPath)
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($line + [Environment]::NewLine)
+        $done = $false
+        for ($try = 1; $try -le 3 -and -not $done; $try++) {
+            try {
+                $stream = [IO.File]::Open($target, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
+                try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+                $done = $true
+            } catch { if ($try -lt 3) { Start-Sleep -Milliseconds 50 } }
         }
-    } catch { }
+        # Only when the file is large (over 300 kB, a few thousand lines) is it read, and cut back when it holds more than 5000 lines to the newest 5000, under the same exclusive open (so no append lands in between; one that arrives meanwhile retries).
+        if ($done -and (Get-Item -LiteralPath $target).Length -gt 300000) {
+            try {
+                $stream = [IO.File]::Open($target, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+                try {
+                    $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false), $false, 4096, $true)
+                    $all = @($reader.ReadToEnd() -split "`r?`n" | Where-Object { $_ })
+                    if ($all.Count -gt 5000) {
+                        $keep = [Text.UTF8Encoding]::new($false).GetBytes((@($all | Select-Object -Last 5000) -join [Environment]::NewLine) + [Environment]::NewLine)
+                        $stream.SetLength(0); $stream.Write($keep, 0, $keep.Length)
+                    }
+                } finally { $stream.Dispose() }
+            } catch { }
+        }    } catch { }
 }
 Write-SessionAccount
 $claudeArgs = @(Get-ClaudeArgs)

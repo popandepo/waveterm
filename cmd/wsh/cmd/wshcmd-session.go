@@ -330,6 +330,7 @@ type sessionTabOps interface {
 	tabCreator
 	SetTabStyle(tabId string, meta map[string]any) error
 	CreateBlock(tabId string, meta map[string]any) (string, error)
+	CloseTab(wsId string, tabId string) error
 }
 
 type rpcSessionOps struct {
@@ -338,6 +339,16 @@ type rpcSessionOps struct {
 
 func (rpcSessionOps) SetTabStyle(tabId string, meta map[string]any) error {
 	return wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{ORef: waveobj.MakeORef(waveobj.OType_Tab, tabId), Meta: meta}, &wshrpc.RpcOpts{Timeout: 2000})
+}
+
+func (rpcSessionOps) CloseTab(wsId string, tabId string) error {
+	rtn, err := wshclient.SessionCloseTabCommand(RpcClient, wshrpc.CommandSessionCloseTabData{WorkspaceId: wsId, TabId: tabId, Force: true}, &wshrpc.RpcOpts{Timeout: 15000})
+	if err != nil {
+		return err
+	}
+	return wshclient.ElectronTabClosedCommand(RpcClient, wshrpc.CommandElectronTabClosedData{
+		WorkspaceId: wsId, TabId: tabId, NewActiveTabId: rtn.NewActiveTabId, CloseWindow: rtn.CloseWindow,
+	}, &wshrpc.RpcOpts{Timeout: 15000, Route: wshutil.ElectronRoute})
 }
 
 func (rpcSessionOps) CreateBlock(tabId string, meta map[string]any) (string, error) {
@@ -352,6 +363,15 @@ func (rpcSessionOps) CreateBlock(tabId string, meta map[string]any) (string, err
 	return oref.OID, nil
 }
 
+// closeLeftoverTab closes the empty tab this call just made, so a failed start leaves nothing behind. When that fails too, the
+// tab id is returned so the caller can close it by hand.
+func closeLeftoverTab(c sessionTabOps, wsId string, tabId string, cause error) (string, string, error) {
+	if err := c.CloseTab(wsId, tabId); err != nil {
+		return tabId, "", fmt.Errorf("%w; the empty tab %s could not be closed again: %v", cause, tabId, err)
+	}
+	return "", "", fmt.Errorf("%w; the empty tab was closed again", cause)
+}
+
 // createSessionTab makes the tab and its program block and loads the tab's page LAST. The page queues a clean-up of orphaned
 // blocks (blocks of the tab that are not in its layout) when it first loads; a block created after that is in the tab's block
 // list before its layout insert has run, and the clean-up deletes it, leaving a bare shell. With the block there first, its
@@ -363,12 +383,12 @@ func createSessionTab(c sessionTabOps, wsId string, name string, styleMeta map[s
 	}
 	if len(styleMeta) > 0 {
 		if err := c.SetTabStyle(tabId, styleMeta); err != nil {
-			return tabId, "", fmt.Errorf("tab %s was created but styling it failed: %w", tabId, err)
+			return closeLeftoverTab(c, wsId, tabId, fmt.Errorf("tab %s was created but styling it failed: %w", tabId, err))
 		}
 	}
 	blockId, err := c.CreateBlock(tabId, blockMeta)
 	if err != nil {
-		return tabId, "", fmt.Errorf("tab %s was created but the block could not be: %w", tabId, err)
+		return closeLeftoverTab(c, wsId, tabId, fmt.Errorf("tab %s was created but the block could not be: %w", tabId, err))
 	}
 	tabData := wshrpc.CommandElectronTabData{WorkspaceId: wsId, TabId: tabId}
 	if err := c.PreloadTab(tabData); err != nil {

@@ -15,6 +15,12 @@ type fakeSessionOps struct {
 	fakeTabCreator
 	blockErr error
 	styleErr error
+	closeErr error
+}
+
+func (f *fakeSessionOps) CloseTab(wsId string, tabId string) error {
+	f.calls = append(f.calls, "close "+tabId)
+	return f.closeErr
 }
 
 func (f *fakeSessionOps) SetTabStyle(tabId string, meta map[string]any) error {
@@ -58,9 +64,9 @@ func TestSessionTabActivatesOnlyWhenAskedAndAfterTheLoad(t *testing.T) {
 
 func TestSessionTabFailuresNameTheTabThatWasLeft(t *testing.T) {
 	f := &fakeSessionOps{blockErr: fmt.Errorf("boom")}
-	tabId, _, err := createSessionTab(f, "ws1", "s1", nil, map[string]any{"view": "term"}, false)
-	if err == nil || tabId != "tab-new" || !strings.Contains(err.Error(), "tab-new") {
-		t.Fatalf("a failed block must name the tab, got %q %v", tabId, err)
+	_, _, err := createSessionTab(f, "ws1", "s1", nil, map[string]any{"view": "term"}, false)
+	if err == nil || !strings.Contains(err.Error(), "tab-new") {
+		t.Fatalf("a failed block must name the tab, got %v", err)
 	}
 	for _, c := range f.calls {
 		if strings.HasPrefix(c, "preload") {
@@ -71,6 +77,44 @@ func TestSessionTabFailuresNameTheTabThatWasLeft(t *testing.T) {
 	tabId, blockId, err := createSessionTab(f, "ws1", "s1", nil, map[string]any{"view": "term"}, false)
 	if err == nil || tabId != "tab-new" || blockId != "block-new" || !strings.Contains(err.Error(), "tab-new") {
 		t.Fatalf("a failed load must name the tab and keep the block id, got %q %q %v", tabId, blockId, err)
+	}
+}
+
+// A tab this call made must not be left behind empty when styling it or creating its block fails.
+func TestAFailedStyleOrBlockClosesTheTabJustCreated(t *testing.T) {
+	for name, f := range map[string]*fakeSessionOps{
+		"block": {blockErr: fmt.Errorf("boom")},
+		"style": {styleErr: fmt.Errorf("boom")},
+	} {
+		tabId, _, err := createSessionTab(f, "ws1", "s1", map[string]any{"tab:color": "#fff"}, map[string]any{"view": "term"}, false)
+		if err == nil || !strings.Contains(err.Error(), "tab-new") {
+			t.Fatalf("%s: the error must name the tab, got %v", name, err)
+		}
+		if tabId != "" {
+			t.Fatalf("%s: a closed tab must not be handed back as a leftover, got %q", name, tabId)
+		}
+		if f.calls[len(f.calls)-1] != "close tab-new" {
+			t.Fatalf("%s: the tab just created must be closed last, calls %v", name, f.calls)
+		}
+	}
+}
+
+func TestIfTheLeftoverTabCannotBeClosedTheErrorSaysSoAndKeepsItsId(t *testing.T) {
+	f := &fakeSessionOps{blockErr: fmt.Errorf("boom"), closeErr: fmt.Errorf("nope")}
+	tabId, _, err := createSessionTab(f, "ws1", "s1", nil, map[string]any{"view": "term"}, false)
+	if err == nil || tabId != "tab-new" || !strings.Contains(err.Error(), "nope") || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("both failures must be named and the tab id kept, got %q %v", tabId, err)
+	}
+}
+
+// A load failure leaves a tab WITH its block: nothing is closed, the caller gets both ids.
+func TestAFailedLoadDoesNotCloseATabThatHasItsBlock(t *testing.T) {
+	f := &fakeSessionOps{fakeTabCreator: fakeTabCreator{preloadErr: fmt.Errorf("slow")}}
+	_, _, _ = createSessionTab(f, "ws1", "s1", nil, map[string]any{"view": "term"}, false)
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "close") {
+			t.Fatalf("a tab with its block must be kept: %v", f.calls)
+		}
 	}
 }
 

@@ -149,7 +149,11 @@ func handleBlockCloseEvent(event *wps.WaveEvent) {
 
 // Public API Functions
 
-var resyncForBootStart = ResyncController
+var makeShellControllerFn = MakeShellController
+
+// Blocks the boot pass started that no frontend resync has seen yet. A command that ends before its view mounts leaves a
+// done controller, and the first mount must not destroy and rerun it.
+var bootStartedBlocks = ds.MakeSyncMap[bool]()
 
 // StartRestartBlocks starts every restart block (cmd:runonstart, not run once) at backend start. Without it a block waits
 // for the frontend to mount its view, which never happens for a tab nobody shows after a reboot.
@@ -163,18 +167,52 @@ func StartRestartBlocks(ctx context.Context) {
 		if !isRestartBlock(block) {
 			continue
 		}
-		tabId, err := wstore.DBFindTabForBlockId(ctx, block.OID)
-		if err != nil {
-			log.Printf("[bootstart] block %s: no tab: %v\n", block.OID, err)
-			continue
-		}
-		err = resyncForBootStart(ctx, tabId, block.OID, nil, false)
+		started, err := bootStartBlock(ctx, block.OID)
 		if err != nil {
 			log.Printf("[bootstart] block %s: %v\n", block.OID, err)
 			continue
 		}
-		log.Printf("[bootstart] started restart block %s (tab %s)\n", block.OID, tabId)
+		if started {
+			log.Printf("[bootstart] started restart block %s\n", block.OID)
+		}
 	}
+}
+
+// bootStartBlock decides under the block's resync lock, from the block as it is now: the list the boot pass read may be
+// stale, and a frontend resync may already have given the block a controller.
+func bootStartBlock(ctx context.Context, blockId string) (bool, error) {
+	mu := getBlockResyncMutex(blockId)
+	mu.Lock()
+	defer mu.Unlock()
+
+	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		return false, fmt.Errorf("error getting block: %w", err)
+	}
+	if block == nil || !isRestartBlock(block) {
+		return false, nil
+	}
+	if getController(blockId) != nil {
+		return false, nil
+	}
+	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
+	if err != nil {
+		return false, fmt.Errorf("no tab: %w", err)
+	}
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
+	if err != nil {
+		return false, fmt.Errorf("error getting tab: %w", err)
+	}
+	if tab == nil {
+		return false, fmt.Errorf("tab %s is gone", tabId)
+	}
+	bootStartedBlocks.Set(blockId, true)
+	err = resyncControllerLocked(ctx, tabId, blockId, nil, false, false)
+	if err != nil {
+		bootStartedBlocks.Delete(blockId)
+		return false, err
+	}
+	return true, nil
 }
 
 // Only an explicit runonstart counts: for the shell controller an unset runonstart defaults to true, which would start every terminal.
@@ -195,6 +233,12 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	mu.Lock()
 	defer mu.Unlock()
 
+	_, bootStarted := bootStartedBlocks.GetEx(blockId)
+	bootStartedBlocks.Delete(blockId)
+	return resyncControllerLocked(ctx, tabId, blockId, rtOpts, force, bootStarted)
+}
+
+func resyncControllerLocked(ctx context.Context, tabId string, blockId string, rtOpts *waveobj.RuntimeOpts, force bool, bootStarted bool) error {
 	blockData, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
 		return fmt.Errorf("error getting block: %w", err)
@@ -268,6 +312,9 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	if existing != nil {
 		status := existing.GetRuntimeStatus()
 		if status.ShellProcStatus == Status_Done {
+			if bootStarted && !force {
+				return nil
+			}
 			log.Printf("destroying blockcontroller %s with done status before restart\n", blockId)
 			DestroyBlockController(blockId)
 			time.Sleep(100 * time.Millisecond)
@@ -286,7 +333,7 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 			if shouldUseDurableShellController {
 				controller = MakeDurableShellController(tabId, blockId, controllerName, connName)
 			} else {
-				controller = MakeShellController(tabId, blockId, controllerName, connName)
+				controller = makeShellControllerFn(tabId, blockId, controllerName, connName)
 			}
 			registerController(blockId, controller)
 

@@ -24,6 +24,7 @@ param(
     [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
     [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
     [string]$AccountDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\session-accounts' } else { '' }),
+    [string]$AccountAt = '',   # test seam: a fixed UTC time for the record (an unparsable value is ignored)
     [string[]]$TrustRoot = @('C:\Projects\Personal'),
     [ValidateRange(5, 300)][int]$TrustWaitSeconds = 90,
     [string[]]$TrustExclude = @('C:\Projects\Personal\_wt', 'C:\Projects\Personal\_archive'),
@@ -494,13 +495,14 @@ try {
 } catch { }
 # ---- which account a session runs on -------------------------------------------------------------------------------------------------------------------------
 # Nothing else records it (a session file has no account, both accounts' transcripts sit in one folder), and the budget scan needs it to split tokens per account.
-# ONE SMALL FILE PER START: <AccountDir>\<session id>-<at as yyyyMMddHHmmssfff>-<account>.json holding {"at","session","account"}. There is no shared file, so no lock, no
+# ONE SMALL FILE PER START: <AccountDir>\<session id>-<at as yyyyMMddHHmmssfff>-<account>-<6 hex>.json (the suffix keeps two starts of one session in one millisecond apart) holding {"at","session","account"}. There is no shared file, so no lock, no
 # append, no trim and no lost update (Wave restarts all --restart blocks at the same moment after a reboot: a shared file was rewritten by each and the later start lost the earlier
 # record). The reader takes every file of a session, sorted by "at", so a session moved between accounts keeps both records. Written to a fresh temporary file in the same
 # folder (CreateNew) and then moved into place, so a reader never sees a half-written record. Only the two personal config folders count (.claude-personal = 1,
 # .claude-personal2 = 2); a throwaway config or a dry run writes nothing. The folder is judged like the starter log: its FINAL path must be at or below -LogRoot and never at or
 # below .claude or .claude-work, and a folder that is itself a link is never written into. Any error is ignored: this step can never stop the session.
-# Pruning (files older than 30 days) is a step of the manager's daily chores, not of the starter.
+# Scope: ACCIDENTAL faults (parallel starts, a link set up by mistake, a folder in the wrong place). A hostile swap of the folder between check and write, and a stalled disk, are out of scope.
+# Pruning (records older than 30 days, and .session-account-*.tmp files older than a day) is a step of the manager's daily chores, not of the starter.
 function Write-SessionAccount {
     try {
         if (-not $AccountDir -or $DryRun) { return }
@@ -523,9 +525,10 @@ function Write-SessionAccount {
         foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { return } }
         if (-not (Test-Path -LiteralPath $AccountDir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
         $at = (Get-Date).ToUniversalTime()
+        if ($AccountAt) { $fixed = [datetime]::MinValue; if ([datetime]::TryParse($AccountAt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$fixed)) { $at = $fixed } }
         $sid = $SessionId.ToLowerInvariant()
         $json = ([ordered]@{ at = $at.ToString('yyyy-MM-ddTHH:mm:ssZ'); session = $sid; account = $account } | ConvertTo-Json -Compress)
-        $name = '{0}-{1}-{2}.json' -f $sid, $at.ToString('yyyyMMddHHmmssfff'), $account
+        $name = '{0}-{1}-{2}-{3}.json' -f $sid, $at.ToString('yyyyMMddHHmmssfff'), $account, [guid]::NewGuid().ToString('N').Substring(0, 6)
         $tmp = Join-Path $finalDir ('.session-account-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.tmp')
         try {
             $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)

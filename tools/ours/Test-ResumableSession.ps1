@@ -114,6 +114,7 @@ if ($env:RESUMABLE_TEST_WSHROOT -and -not $env:RESUMABLE_TEST_NOROOT) { $extra.W
 if ($env:RESUMABLE_TEST_LOG) { $extra.LogPath = $env:RESUMABLE_TEST_LOG }
 if ($env:RESUMABLE_TEST_LOGROOT) { $extra.LogRoot = $env:RESUMABLE_TEST_LOGROOT }
 if ($env:RESUMABLE_TEST_ACCOUNTLOG) { $extra.AccountDir = $env:RESUMABLE_TEST_ACCOUNTLOG }
+if ($env:RESUMABLE_TEST_ACCOUNTAT) { $extra.AccountAt = $env:RESUMABLE_TEST_ACCOUNTAT }
 if ($env:RESUMABLE_TEST_NOLOCALAPPDATA) { Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue }
 if ($env:RESUMABLE_TEST_INHERIT) { $env:WAVETERM_JWT = 'inherited-jwt'; $env:WAVETERM_BLOCKID = 'inherited-block'; $env:WAVETERM_TABID = 'inherited-tab'; $env:WAVETERM_WORKSPACEID = 'inherited-ws' }
 if ($env:RESUMABLE_TEST_DECOYDIR) { $env:PATH = $env:RESUMABLE_TEST_DECOYDIR + $sep + $env:PATH }
@@ -752,7 +753,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     function Acct-Rows([string]$dir = $acctDir) { return @(Acct-Files $dir | ForEach-Object { try { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json -DateKind String } catch { $null } }) }
     $r = Run-Child 'unset' $cfg
     $af = @(Acct-Files); $row = if ($af.Count) { Get-Content -LiteralPath $af[0].FullName -Raw | ConvertFrom-Json -DateKind String } else { $null }
-    Check 'account record: a start on account 1 writes ONE file named <session>-<yyyyMMddHHmmssfff>-1.json holding at, session, account and nothing else' ($af.Count -eq 1 -and $af[0].Name -match ('^' + [regex]::Escape($id) + '-\d{17}-1\.json$') -and $row.session -eq $id -and $row.account -eq 1 -and $row.at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$' -and (@($row.PSObject.Properties.Name) -join ',') -eq 'at,session,account') "files=$(($af | ForEach-Object { $_.Name }) -join ', ') $($r.Text)"
+    Check 'account record: a start on account 1 writes ONE file named <session>-<yyyyMMddHHmmssfff>-1-<6 hex>.json holding at, session, account and nothing else' ($af.Count -eq 1 -and $af[0].Name -match ('^' + [regex]::Escape($id) + '-\d{17}-1-[0-9a-f]{6}\.json$') -and $row.session -eq $id -and $row.account -eq 1 -and $row.at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$' -and (@($row.PSObject.Properties.Name) -join ',') -eq 'at,session,account') "files=$(($af | ForEach-Object { $_.Name }) -join ', ') $($r.Text)"
     Check 'account record: the session itself started (the stub ran, exit 0) and no temporary file is left' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and @(Get-ChildItem -LiteralPath $acctDir -Filter '.session-account-*.tmp' -Force).Count -eq 0) "exit=$($r.Code) $($r.Text)"
     Start-Sleep -Milliseconds 30
     $r = Run-Child 'unset' $cfg2
@@ -802,8 +803,20 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     $env:RESUMABLE_TEST_ACCOUNTLOG = Join-Path $oldLinkDir 'session-accounts'
     $r = Run-Child 'unset' $cfg
     Check 'account record: a junction below the log root that leads into .claude gets nothing and no new folder' ((-not (Test-Path -LiteralPath (Join-Path $oldDir 'session-accounts'))) -and $r.Code -eq 0 -and $r.Lines.Count -gt 0) "exit=$($r.Code)"
-    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctDir
-} finally {
+    # two starts of the SAME session on the SAME account in the SAME millisecond must both be recorded (a short random suffix in the name): -AccountAt fixes the time for the test
+    $sameDir = Join-Path $logDir 'session-accounts-same-ms'
+    $sameStub = Join-Path $root 'same-stub.ps1'; Make-File $sameStub 'exit 0'
+    $sameId = [guid]::NewGuid().ToString()
+    $sameProcs = @(1..6 | ForEach-Object {
+        Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', ('"' + $script + '"'), '-SessionId', $sameId, '-ConfigDir', ('"' + $cfg + '"'), '-Command', ('"' + $sameStub + '"'), '-AccountDir', ('"' + $sameDir + '"'), '-AccountAt', '2026-10-18T12:00:00.123Z', '-LogRoot', ('"' + $root + '"'), '-LogPath', ('"' + (Join-Path $logDir 'same-starter.log') + '"')) -PassThru -WindowStyle Hidden })
+    foreach ($pr in $sameProcs) { $null = $pr.WaitForExit(120000) }
+    $sameFiles = @(Acct-Files $sameDir)
+    Check 'account record: 6 starts of ONE session on ONE account in the same millisecond keep all 6 records (names differ by a random suffix), every start exits 0' ($sameFiles.Count -eq 6 -and @($sameFiles | Where-Object { $_.Name -notmatch ('^' + [regex]::Escape($sameId) + '-20261018120000123-1-[0-9a-f]{6}\.json$') }).Count -eq 0 -and @($sameProcs | Where-Object { $_.ExitCode -ne 0 }).Count -eq 0) "files=$($sameFiles.Count): $(($sameFiles | ForEach-Object { $_.Name }) -join ', ') exits=$(($sameProcs | ForEach-Object { $_.ExitCode }) -join ',')"
+    # a record that cannot be written never fails or stops a start (the scope is ACCIDENTAL faults: parallel starts, a link set up by mistake, a folder in the wrong place)
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctAsFile
+    $r = Run-Child 'unset' $cfg
+    Check 'account record: a record that cannot be written never fails or stops a start (exit 0, the stub ran with the resume arguments)' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and ($r.Text -match '--(resume|session-id)')) "exit=$($r.Code) $($r.Text)"
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctDir} finally {
     $env:USERPROFILE = $realProfile
     $env:LOCALAPPDATA = $realLocal
     Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue

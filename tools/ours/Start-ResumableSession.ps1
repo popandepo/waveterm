@@ -398,13 +398,13 @@ function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
 
 # One line "<time> <session name> swap=<code>" (on success also the NAMES of the variables set, never a value) in a small log, capped at 200 lines by
 # rewriting. Only fixed codes and names that passed the parser go in. A log that cannot be written is ignored.
-function Write-SwapLog([string]$code, [string[]]$names) {
+function Write-SwapLog([string]$code, [string[]]$names, [string]$label = 'swap') {
     try {
         if (-not $LogPath -or $DryRun) { return }
         if ($LogPath -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogPath)) { return }
         $who = $(if ($Name) { $Name } else { $SessionId }) -replace '[^A-Za-z0-9_.-]', '_'
         if ($who.Length -gt 40) { $who = $who.Substring(0, 40) }
-        $line = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $who + ' swap=' + $code
+        $line = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $who + ' ' + $label + '=' + $code
         if ($names -and $names.Count -gt 0) { $line += ' set=' + ($names -join ',') }
         $dir = Split-Path -Parent $LogPath
         # the log's FINAL folder (the deepest existing ancestor resolved, as for every other folder) must be at or below -LogRoot and never at or below .claude or
@@ -495,13 +495,14 @@ try {
 } catch { }
 # ---- which account a session runs on -------------------------------------------------------------------------------------------------------------------------
 # Nothing else records it (a session file has no account, both accounts' transcripts sit in one folder), and the budget scan needs it to split tokens per account.
-# ONE SMALL FILE PER START: <AccountDir>\<session id>-<at as yyyyMMddHHmmssfff>-<account>-<6 hex>.json (the suffix keeps two starts of one session in one millisecond apart) holding {"at","session","account"}. There is no shared file, so no lock, no
+# ONE SMALL FILE PER START: <AccountDir>\<session id>-<at as yyyyMMddHHmmssfff>-<account>-<6 hex>.json (the suffix, a full 32-hex guid, keeps two starts of one session in one millisecond apart) holding {"at","session","account"}. There is no shared file, so no lock, no
 # append, no trim and no lost update (Wave restarts all --restart blocks at the same moment after a reboot: a shared file was rewritten by each and the later start lost the earlier
 # record). The reader takes every file of a session, sorted by "at", so a session moved between accounts keeps both records. Written to a fresh temporary file in the same
 # folder (CreateNew) and then moved into place, so a reader never sees a half-written record. Only the two personal config folders count (.claude-personal = 1,
 # .claude-personal2 = 2); a throwaway config or a dry run writes nothing. The folder is judged like the starter log: its FINAL path must be at or below -LogRoot and never at or
 # below .claude or .claude-work, and a folder that is itself a link is never written into. Any error is ignored: this step can never stop the session.
-# Scope: ACCIDENTAL faults (parallel starts, a link set up by mistake, a folder in the wrong place). A hostile swap of the folder between check and write, and a stalled disk, are out of scope.
+# What is promised: every start is recorded unless a guard refuses the folder (a file, a link, outside the log root, under .claude); a refused or failed record never stops the start, and the refusal
+# is noted in starter.log as "account-record=<code>" (a fixed word, never a path). Scope: ACCIDENTAL faults (parallel starts, a link set up by mistake, a folder in the wrong place). A hostile swap of the folder between check and write, and a stalled disk, are out of scope.
 # Pruning (records older than 30 days, and .session-account-*.tmp files older than a day) is a step of the manager's daily chores, not of the starter.
 function Write-SessionAccount {
     try {
@@ -512,23 +513,23 @@ function Write-SessionAccount {
         $account = $null
         if (Test-Under $ConfigDir "$homeFinal\.claude-personal2") { $account = 2 } elseif (Test-Under $ConfigDir "$homeFinal\.claude-personal") { $account = 1 }
         if (-not $account) { return }
-        if ($AccountDir -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $AccountDir)) { return }
-        if ($LogRoot -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogRoot)) { return }
+        if ($AccountDir -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $AccountDir)) { Write-SwapLog 'folder-forbidden' @() 'account-record'; return }
+        if ($LogRoot -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogRoot)) { Write-SwapLog 'logroot-refused' @() 'account-record'; return }
         # the folder itself must not be a link (its final path would hide where the files really go)
         if (Test-Path -LiteralPath $AccountDir) {
             $item = Get-Item -LiteralPath $AccountDir -Force
-            if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+            if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { Write-SwapLog 'folder-is-file-or-link' @() 'account-record'; return }
         }
         $finalDir = Get-FinalPath $AccountDir
         $rootFinal = Get-FinalPath $LogRoot
-        if (-not $finalDir -or -not $rootFinal -or -not (Test-Under $finalDir $rootFinal)) { return }
-        foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { return } }
+        if (-not $finalDir -or -not $rootFinal -or -not (Test-Under $finalDir $rootFinal)) { Write-SwapLog 'folder-outside-log-root' @() 'account-record'; return }
+        foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { Write-SwapLog 'folder-under-claude' @() 'account-record'; return } }
         if (-not (Test-Path -LiteralPath $AccountDir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
         $at = (Get-Date).ToUniversalTime()
         if ($AccountAt) { $fixed = [datetime]::MinValue; if ([datetime]::TryParse($AccountAt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$fixed)) { $at = $fixed } }
         $sid = $SessionId.ToLowerInvariant()
         $json = ([ordered]@{ at = $at.ToString('yyyy-MM-ddTHH:mm:ssZ'); session = $sid; account = $account } | ConvertTo-Json -Compress)
-        $name = '{0}-{1}-{2}-{3}.json' -f $sid, $at.ToString('yyyyMMddHHmmssfff'), $account, [guid]::NewGuid().ToString('N').Substring(0, 6)
+        $name = '{0}-{1}-{2}-{3}.json' -f $sid, $at.ToString('yyyyMMddHHmmssfff'), $account, [guid]::NewGuid().ToString('N')
         $tmp = Join-Path $finalDir ('.session-account-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.tmp')
         try {
             $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
@@ -536,6 +537,7 @@ function Write-SessionAccount {
             [IO.File]::Move($tmp, (Join-Path $finalDir $name), $false)
         } catch {
             try { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } } catch { }
+            Write-SwapLog 'write-failed' @() 'account-record'
         }
     } catch { }
 }

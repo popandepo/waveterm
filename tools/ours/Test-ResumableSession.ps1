@@ -753,7 +753,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     function Acct-Rows([string]$dir = $acctDir) { return @(Acct-Files $dir | ForEach-Object { try { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json -DateKind String } catch { $null } }) }
     $r = Run-Child 'unset' $cfg
     $af = @(Acct-Files); $row = if ($af.Count) { Get-Content -LiteralPath $af[0].FullName -Raw | ConvertFrom-Json -DateKind String } else { $null }
-    Check 'account record: a start on account 1 writes ONE file named <session>-<yyyyMMddHHmmssfff>-1-<6 hex>.json holding at, session, account and nothing else' ($af.Count -eq 1 -and $af[0].Name -match ('^' + [regex]::Escape($id) + '-\d{17}-1-[0-9a-f]{6}\.json$') -and $row.session -eq $id -and $row.account -eq 1 -and $row.at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$' -and (@($row.PSObject.Properties.Name) -join ',') -eq 'at,session,account') "files=$(($af | ForEach-Object { $_.Name }) -join ', ') $($r.Text)"
+    Check 'account record: a start on account 1 writes ONE file named <session>-<yyyyMMddHHmmssfff>-1-<32 hex>.json holding at, session, account and nothing else' ($af.Count -eq 1 -and $af[0].Name -match ('^' + [regex]::Escape($id) + '-\d{17}-1-[0-9a-f]{32}\.json$') -and $row.session -eq $id -and $row.account -eq 1 -and $row.at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$' -and (@($row.PSObject.Properties.Name) -join ',') -eq 'at,session,account') "files=$(($af | ForEach-Object { $_.Name }) -join ', ') $($r.Text)"
     Check 'account record: the session itself started (the stub ran, exit 0) and no temporary file is left' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and @(Get-ChildItem -LiteralPath $acctDir -Filter '.session-account-*.tmp' -Force).Count -eq 0) "exit=$($r.Code) $($r.Text)"
     Start-Sleep -Milliseconds 30
     $r = Run-Child 'unset' $cfg2
@@ -811,11 +811,33 @@ $env:RESUMABLE_TEST_LOGROOT = $root
         Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', ('"' + $script + '"'), '-SessionId', $sameId, '-ConfigDir', ('"' + $cfg + '"'), '-Command', ('"' + $sameStub + '"'), '-AccountDir', ('"' + $sameDir + '"'), '-AccountAt', '2026-10-18T12:00:00.123Z', '-LogRoot', ('"' + $root + '"'), '-LogPath', ('"' + (Join-Path $logDir 'same-starter.log') + '"')) -PassThru -WindowStyle Hidden })
     foreach ($pr in $sameProcs) { $null = $pr.WaitForExit(120000) }
     $sameFiles = @(Acct-Files $sameDir)
-    Check 'account record: 6 starts of ONE session on ONE account in the same millisecond keep all 6 records (names differ by a random suffix), every start exits 0' ($sameFiles.Count -eq 6 -and @($sameFiles | Where-Object { $_.Name -notmatch ('^' + [regex]::Escape($sameId) + '-20261018120000123-1-[0-9a-f]{6}\.json$') }).Count -eq 0 -and @($sameProcs | Where-Object { $_.ExitCode -ne 0 }).Count -eq 0) "files=$($sameFiles.Count): $(($sameFiles | ForEach-Object { $_.Name }) -join ', ') exits=$(($sameProcs | ForEach-Object { $_.ExitCode }) -join ',')"
+    Check 'account record: 6 starts of ONE session on ONE account in the same millisecond keep all 6 records (names differ by a random 32-hex suffix), every start exits 0' ($sameFiles.Count -eq 6 -and @($sameFiles | Where-Object { $_.Name -notmatch ('^' + [regex]::Escape($sameId) + '-20261018120000123-1-[0-9a-f]{32}\.json$') }).Count -eq 0 -and @($sameProcs | Where-Object { $_.ExitCode -ne 0 }).Count -eq 0) "files=$($sameFiles.Count): $(($sameFiles | ForEach-Object { $_.Name }) -join ', ') exits=$(($sameProcs | ForEach-Object { $_.ExitCode }) -join ',')"
     # a record that cannot be written never fails or stops a start (the scope is ACCIDENTAL faults: parallel starts, a link set up by mistake, a folder in the wrong place)
     $env:RESUMABLE_TEST_ACCOUNTLOG = $acctAsFile
     $r = Run-Child 'unset' $cfg
     Check 'account record: a record that cannot be written never fails or stops a start (exit 0, the stub ran with the resume arguments)' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and ($r.Text -match '--(resume|session-id)')) "exit=$($r.Code) $($r.Text)"
+    # a refused or failed record is NOTED in starter.log (a fixed code, never a path) and the start still runs
+    $env:RESUMABLE_TEST_LOG = $swapLog
+    $noteCases = @(
+        @('a file in place of the folder', $acctAsFile, 'folder-is-file-or-link'),
+        @('a link in place of the folder', $linkDir, 'folder-is-file-or-link'),
+        @('a folder written plainly below .claude', (Join-Path $oldDir 'logs\session-accounts'), 'folder-forbidden'),
+        @('a junction below the log root that leads into .claude', (Join-Path $oldLinkDir 'session-accounts'), 'folder-under-claude'),
+        @('a folder outside the log root', (Join-Path $env:TEMP ('acct-outside-' + [guid]::NewGuid().ToString('N') + '\session-accounts')), 'folder-outside-log-root'))
+    foreach ($nc in $noteCases) {
+        Make-File $swapLog ''
+        $env:RESUMABLE_TEST_ACCOUNTLOG = $nc[1]
+        $r = Run-Child 'unset' $cfg
+        $noted = @(Get-Content -LiteralPath $swapLog | Where-Object { $_ -match ' account-record=' })
+        Check ("account record: " + $nc[0] + " is refused, the refusal is noted in starter.log as account-record=" + $nc[2] + " (no path in the line), and the start runs") ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and $noted.Count -eq 1 -and $noted[0] -match (' account-record=' + [regex]::Escape($nc[2]) + '$')) "exit=$($r.Code) noted=$($noted -join ' | ') $($r.Text)"
+    }
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctDir
+    Make-File $swapLog ''
+    $r = Run-Child 'unset' $cfg
+    Check 'account record: a recorded start leaves no account-record line in starter.log' ($r.Code -eq 0 -and @(Get-Content -LiteralPath $swapLog | Where-Object { $_ -match 'account-record=' }).Count -eq 0) "exit=$($r.Code)"
+    # the name carries the FULL 32-hex guid as its suffix
+    $fullNames = @(Acct-Files | ForEach-Object { $_.Name })
+    Check 'account record: the name ends with a full 32-hex guid (<session>-<at>-<account>-<32 hex>.json)' ($fullNames.Count -ge 1 -and @($fullNames | Where-Object { $_ -notmatch '-\d{17}-[12]-[0-9a-f]{32}\.json$' }).Count -eq 0) ($fullNames -join ', ')
     $env:RESUMABLE_TEST_ACCOUNTLOG = $acctDir} finally {
     $env:USERPROFILE = $realProfile
     $env:LOCALAPPDATA = $realLocal

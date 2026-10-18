@@ -149,6 +149,43 @@ func handleBlockCloseEvent(event *wps.WaveEvent) {
 
 // Public API Functions
 
+var resyncForBootStart = ResyncController
+
+// StartRestartBlocks starts every restart block (cmd:runonstart, not run once) at backend start. Without it a block waits
+// for the frontend to mount its view, which never happens for a tab nobody shows after a reboot.
+func StartRestartBlocks(ctx context.Context) {
+	blocks, err := wstore.DBGetAllObjsByType[*waveobj.Block](ctx, waveobj.OType_Block)
+	if err != nil {
+		log.Printf("[bootstart] error listing blocks: %v\n", err)
+		return
+	}
+	for _, block := range blocks {
+		if !isRestartBlock(block) {
+			continue
+		}
+		tabId, err := wstore.DBFindTabForBlockId(ctx, block.OID)
+		if err != nil {
+			log.Printf("[bootstart] block %s: no tab: %v\n", block.OID, err)
+			continue
+		}
+		err = resyncForBootStart(ctx, tabId, block.OID, nil, false)
+		if err != nil {
+			log.Printf("[bootstart] block %s: %v\n", block.OID, err)
+			continue
+		}
+		log.Printf("[bootstart] started restart block %s (tab %s)\n", block.OID, tabId)
+	}
+}
+
+// Only an explicit runonstart counts: for the shell controller an unset runonstart defaults to true, which would start every terminal.
+func isRestartBlock(block *waveobj.Block) bool {
+	controllerName := block.Meta.GetString(waveobj.MetaKey_Controller, "")
+	if controllerName != BlockController_Shell && controllerName != BlockController_Cmd {
+		return false
+	}
+	return getBoolFromMeta(block.Meta, waveobj.MetaKey_CmdRunOnStart, false) && !getBoolFromMeta(block.Meta, waveobj.MetaKey_CmdRunOnce, false)
+}
+
 func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts *waveobj.RuntimeOpts, force bool) error {
 	if tabId == "" || blockId == "" {
 		return fmt.Errorf("invalid tabId or blockId passed to ResyncController")

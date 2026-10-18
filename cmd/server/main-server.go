@@ -618,6 +618,12 @@ func main() {
 	}()
 	go wshutil.RunWshRpcOverListener(unixListener, nil)
 	wavesrvapi.Start()
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("StartRestartBlocks", recover())
+		}()
+		blockcontroller.StartRestartBlocks(context.Background())
+	}()
 	web.RunWebServer(webListener) // blocking
 	runtime.KeepAlive(waveLock)
 }

@@ -113,6 +113,7 @@ $extra = @{}
 if ($env:RESUMABLE_TEST_WSHROOT -and -not $env:RESUMABLE_TEST_NOROOT) { $extra.WshRoot = $env:RESUMABLE_TEST_WSHROOT }
 if ($env:RESUMABLE_TEST_LOG) { $extra.LogPath = $env:RESUMABLE_TEST_LOG }
 if ($env:RESUMABLE_TEST_LOGROOT) { $extra.LogRoot = $env:RESUMABLE_TEST_LOGROOT }
+if ($env:RESUMABLE_TEST_ACCOUNTLOG) { $extra.AccountLogPath = $env:RESUMABLE_TEST_ACCOUNTLOG }
 if ($env:RESUMABLE_TEST_NOLOCALAPPDATA) { Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue }
 if ($env:RESUMABLE_TEST_INHERIT) { $env:WAVETERM_JWT = 'inherited-jwt'; $env:WAVETERM_BLOCKID = 'inherited-block'; $env:WAVETERM_TABID = 'inherited-tab'; $env:WAVETERM_WORKSPACEID = 'inherited-ws' }
 if ($env:RESUMABLE_TEST_DECOYDIR) { $env:PATH = $env:RESUMABLE_TEST_DECOYDIR + $sep + $env:PATH }
@@ -740,7 +741,49 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Check 'a folder name inside .claude-personal that does not exist yet is accepted' ($dry[1] -like '*\cfg') ($dry -join ' | ')
     $dry = & $script -SessionId $id -ConfigDir ($personal + '\cfg\..\cfg') -DryRun
     Check 'the folder handed on is the resolved full path' ($dry[1] -eq "config=$cfg") ($dry -join ' | ')
-} finally {
+    # ---- the session-to-account record (so the budget scan can split tokens per account): one JSON line per real start, written failure-safe ----
+    $acctLog = Join-Path $logDir 'session-accounts.jsonl'
+    $personal2 = Join-Path $profileDir '.claude-personal2'
+    $cfg2 = Join-Path $personal2 'cfg'
+    Make-Dir $personal2; Make-Dir $cfg2; Make-Dir (Join-Path $cfg2 'projects')
+    $made.Add($acctLog)
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctLog
+    function Acct-Lines { if (Test-Path -LiteralPath $acctLog) { return @(Get-Content -LiteralPath $acctLog | Where-Object { $_ }) } else { return @() } }
+    $r = Run-Child 'unset' $cfg
+    $al = @(Acct-Lines)
+    $row = if ($al.Count) { $al[-1] | ConvertFrom-Json -DateKind String } else { $null }
+    Check 'account record: a start on account 1 writes session id and account 1, with a time and nothing else' ($al.Count -eq 1 -and $row.session -eq $id -and $row.account -eq 1 -and $row.at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$' -and (@($row.PSObject.Properties.Name) -join ',') -eq 'at,session,account') "lines=$($al -join ' | ') $($r.Text)"
+    $r = Run-Child 'unset' $cfg2
+    $al = @(Acct-Lines); $row = if ($al.Count) { $al[-1] | ConvertFrom-Json -DateKind String } else { $null }
+    Check 'account record: a start on account 2 appends a line with account 2 (the newest line for a session wins)' ($al.Count -eq 2 -and $row.account -eq 2 -and $row.session -eq $id) "lines=$($al -join ' | ')"
+    Check 'account record: the session itself still started (the stub ran, exit 0)' ($r.Code -eq 0 -and $r.Lines.Count -gt 0) "exit=$($r.Code) $($r.Text)"
+    $dry = & $script -SessionId $id -ConfigDir $cfg -DryRun -AccountLogPath $acctLog
+    Check 'account record: a dry run writes nothing' (@(Acct-Lines).Count -eq 2) "lines=$(@(Acct-Lines).Count)"
+    # failure-safe: a folder where the file should be, a read-only file, a path below .claude, a log root elsewhere
+    $acctDir = Join-Path $logDir 'acct-as-dir'; Make-Dir $acctDir
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctDir
+    $r = Run-Child 'unset' $cfg
+    Check 'account record: a folder in place of the file does not stop the start' ($r.Code -eq 0 -and $r.Lines.Count -gt 0) "exit=$($r.Code) $($r.Text)"
+    $roAcct = Join-Path $logDir 'acct-readonly.jsonl'; Make-File $roAcct 'kept'
+    Set-ItemProperty -LiteralPath $roAcct -Name IsReadOnly -Value $true
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $roAcct
+    $r = Run-Child 'unset' $cfg
+    $roKept2 = ((Get-Content -LiteralPath $roAcct -Raw).Trim() -eq 'kept')
+    Set-ItemProperty -LiteralPath $roAcct -Name IsReadOnly -Value $false
+    Check 'account record: a read-only file does not stop the start and is left as it was' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and $roKept2) "exit=$($r.Code) kept=$roKept2"
+    $env:RESUMABLE_TEST_ACCOUNTLOG = Join-Path $oldDir 'logs\session-accounts.jsonl'
+    $r = Run-Child 'unset' $cfg
+    Check 'account record: a path below .claude is refused (nothing created there), the session starts' ((-not (Test-Path -LiteralPath (Join-Path $oldDir 'logs'))) -and $r.Code -eq 0 -and $r.Lines.Count -gt 0) "exit=$($r.Code)"
+    $env:RESUMABLE_TEST_ACCOUNTLOG = Join-Path $env:TEMP ('acct-outside-' + [guid]::NewGuid().ToString('N') + '\session-accounts.jsonl')
+    $r = Run-Child 'unset' $cfg
+    Check 'account record: a file outside the log root is refused, nothing is created, the session starts' ((-not (Test-Path -LiteralPath (Split-Path -Parent $env:RESUMABLE_TEST_ACCOUNTLOG))) -and $r.Code -eq 0 -and $r.Lines.Count -gt 0) "exit=$($r.Code)"
+    # capped: an old file of 6000 lines keeps the newest 5000 at most, the new line last
+    Make-File $acctLog ([string]::Join([string][char]10, @(1..6000 | ForEach-Object { '{"at":"2026-10-01T00:00:00Z","session":"old-' + $_ + '","account":1}' })))
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctLog
+    $r = Run-Child 'unset' $cfg
+    $capped = @(Acct-Lines)
+    Check 'account record: the file keeps 5000 lines at most, the newest last, no temporary file left' ($capped.Count -eq 5000 -and ($capped[-1] | ConvertFrom-Json -DateKind String).session -eq $id -and @(Get-ChildItem -LiteralPath $logDir -Filter '.session-accounts-*.tmp' -Force).Count -eq 0) "count=$($capped.Count)"
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctLog} finally {
     $env:USERPROFILE = $realProfile
     $env:LOCALAPPDATA = $realLocal
     Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue

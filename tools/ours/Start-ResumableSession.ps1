@@ -23,6 +23,7 @@ param(
     [string]$WshRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin' } else { '' }),
     [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
     [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
+    [string]$AccountLogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\session-accounts.jsonl' } else { '' }),
     [string[]]$TrustRoot = @('C:\Projects\Personal'),
     [ValidateRange(5, 300)][int]$TrustWaitSeconds = 90,
     [string[]]$TrustExclude = @('C:\Projects\Personal\_wt', 'C:\Projects\Personal\_archive'),
@@ -491,5 +492,43 @@ try {
         }
     }
 } catch { }
+# ---- which account a session runs on -------------------------------------------------------------------------------------------------------------------------
+# Nothing else records it (a session file has no account, both accounts' transcripts sit in one folder), and the budget scan needs it to split tokens per account.
+# One JSON line per real start: {"at":"<UTC time>","session":"<id>","account":1|2}. The newest line for a session wins (a session moved between accounts is started
+# again). Only the two personal config folders count (.claude-personal = 1, .claude-personal2 = 2); a throwaway config writes nothing. The file is judged like the
+# starter log: its FINAL folder must be at or below -LogRoot and never at or below .claude or .claude-work, a file that is itself a link is not written, the new
+# content goes into a new file that then replaces the old (a hard-linked file is never written into), 5000 lines at most. A record that cannot be written is ignored:
+# this step can never stop the session (any error leaves the start as it was).
+function Write-SessionAccount {
+    try {
+        if (-not $AccountLogPath -or $DryRun) { return }
+        if ($SessionId -notmatch '^[0-9A-Fa-f-]{8,64}$') { return }
+        $homeFinal = Get-FinalPath $env:USERPROFILE
+        if (-not $homeFinal) { return }
+        $account = $null
+        if (Test-Under $ConfigDir "$homeFinal\.claude-personal2") { $account = 2 } elseif (Test-Under $ConfigDir "$homeFinal\.claude-personal") { $account = 1 }
+        if (-not $account) { return }
+        if ($AccountLogPath -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $AccountLogPath)) { return }
+        if ($LogRoot -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $LogRoot)) { return }
+        $dir = Split-Path -Parent $AccountLogPath
+        $finalDir = Get-FinalPath $dir
+        $rootFinal = Get-FinalPath $LogRoot
+        if (-not $finalDir -or -not $rootFinal -or -not (Test-Under $finalDir $rootFinal)) { return }
+        foreach ($bad in '.claude', '.claude-work') { if (Test-Under $finalDir "$homeFinal\$bad") { return } }
+        if ((Test-Path -LiteralPath $AccountLogPath) -and ((Get-Item -LiteralPath $AccountLogPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { return }
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { $null = New-Item -ItemType Directory -Path $finalDir -Force }
+        $line = ([ordered]@{ at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); session = $SessionId.ToLowerInvariant(); account = $account } | ConvertTo-Json -Compress)
+        $old = @(); if (Test-Path -LiteralPath $AccountLogPath -PathType Leaf) { $old = @(Get-Content -LiteralPath $AccountLogPath -Tail 4999 | Where-Object { $_ }) }
+        $tmp = Join-Path $finalDir ('.session-accounts-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.tmp')
+        try {
+            $stream = [IO.File]::Open($tmp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            try { $bytes = [Text.UTF8Encoding]::new($false).GetBytes((((@($old) + $line) -join [Environment]::NewLine) + [Environment]::NewLine)); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+            [IO.File]::Move($tmp, (Join-Path $finalDir (Split-Path -Leaf $AccountLogPath)), $true)
+        } catch {
+            try { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } } catch { }
+        }
+    } catch { }
+}
+Write-SessionAccount
 $claudeArgs = @(Get-ClaudeArgs)
 & $Command @claudeArgs

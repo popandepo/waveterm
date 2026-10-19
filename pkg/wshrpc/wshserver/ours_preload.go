@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -19,32 +20,36 @@ import (
 
 const (
 	preloadRequestTimeoutMs = 30000
-	preloadMaxAttempts      = 5
+	preloadMaxAttempts      = 5  // requests made while one block waits
+	preloadMaxRounds        = 15 // requests one worker makes in its life, however many blocks join
 	preloadLookupTimeout    = 5 * time.Second
 )
+
+var errNoWorkspace = errors.New("no workspace for the tab")
 
 // A block's controller starts, and its screen exists, only while its tab's page is loaded. A block made in a tab nobody
 // has shown would otherwise sit unstarted until someone looks at the tab. The request is idempotent in the window (a loaded
 // tab answers at once). Whether the page really picked the new blocks up is not assumed: after each request the controller of
-// every block still waiting is looked at, and the request is repeated, a few times with growing waits, while one that should
-// have a controller has none. A failed request counts as "not picked up" whatever the look says. A failure is only logged:
-// the block exists either way.
+// every block still waiting is looked at, and the request is repeated, with growing waits, while one that should have a
+// controller has none. A failed request, or a failed lookup of the tab's workspace, counts as "not picked up" whatever the
+// look says. A failure is only logged: the block exists either way.
 //
-// One worker per tab: blocks made in a tab while a worker is on it join that worker's list (and give it a fresh set of
-// attempts), so a burst of new blocks in a hidden tab is one series of requests, not one per block.
+// One worker per tab: blocks made in a tab while a worker is on it join that worker's list. Limits: each block gets at most
+// preloadMaxAttempts requests while it waits (a block that joins late does not give the others more), and one worker makes at
+// most preloadMaxRounds requests however many blocks join, so a busy tab cannot keep a worker alive for good.
 type preloadRequester struct {
 	workspaceOf func(ctx context.Context, tabId string) (string, error)
 	preload     func(data wshrpc.CommandElectronTabData) error
 	needsStart  func(ctx context.Context, blockId string) bool
-	wait        func(attempt int)
+	wait        func(round int)
 
 	lock     sync.Mutex
 	inflight map[string]*tabLoad
 }
 
 type tabLoad struct {
-	pending  map[string]bool
-	attempts int
+	pending map[string]int // block id -> requests made while it waited
+	rounds  int
 }
 
 func makeLivePreloadRequester() *preloadRequester {
@@ -55,7 +60,7 @@ func makeLivePreloadRequester() *preloadRequester {
 			return wshclient.ElectronPreloadTabCommand(GetMainRpcClient(), data, opts)
 		},
 		needsStart: blockWantsAControllerAndHasNone,
-		wait:       func(attempt int) { time.Sleep(time.Duration(attempt+1) * time.Second) },
+		wait:       func(round int) { time.Sleep(time.Duration(round+1) * time.Second) },
 		inflight:   map[string]*tabLoad{},
 	}
 }
@@ -75,41 +80,48 @@ func (p *preloadRequester) join(tabId string, blockId string) bool {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	if tl, ok := p.inflight[tabId]; ok {
-		if blockId != "" {
-			tl.pending[blockId] = true
-			tl.attempts = 0
+		if _, waiting := tl.pending[blockId]; blockId != "" && !waiting {
+			tl.pending[blockId] = 0
 		}
 		return false
 	}
-	tl := &tabLoad{pending: map[string]bool{}}
+	tl := &tabLoad{pending: map[string]int{}}
 	if blockId != "" {
-		tl.pending[blockId] = true
+		tl.pending[blockId] = 0
 	}
 	p.inflight[tabId] = tl
 	return true
 }
 
-func (p *preloadRequester) release(tabId string) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	delete(p.inflight, tabId)
-}
-
-// nextRound reserves the next attempt and returns the blocks waiting; ok is false when the attempts are used up.
-func (p *preloadRequester) nextRound(tabId string) (attempt int, ids []string, ok bool) {
+// nextRound reserves the next request and returns the blocks that are still waiting for it; gaveUp are the blocks that have
+// used their requests. ok is false when the worker is done: the round limit is reached, or every block left has used its requests.
+func (p *preloadRequester) nextRound(tabId string) (round int, ids []string, gaveUp []string, ok bool) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	tl := p.inflight[tabId]
-	if tl.attempts >= preloadMaxAttempts {
+	if tl.rounds >= preloadMaxRounds {
+		for id := range tl.pending {
+			gaveUp = append(gaveUp, id)
+		}
 		delete(p.inflight, tabId)
-		return 0, nil, false
+		return 0, nil, gaveUp, false
 	}
-	attempt = tl.attempts
-	tl.attempts++
-	for id := range tl.pending {
+	round = tl.rounds
+	tl.rounds++
+	for id, n := range tl.pending {
+		if n >= preloadMaxAttempts {
+			gaveUp = append(gaveUp, id)
+			delete(tl.pending, id)
+			continue
+		}
+		tl.pending[id] = n + 1
 		ids = append(ids, id)
 	}
-	return attempt, ids, true
+	if round > 0 && len(ids) == 0 {
+		delete(p.inflight, tabId)
+		return 0, nil, gaveUp, false
+	}
+	return round, ids, gaveUp, true
 }
 
 // settle drops the blocks that started and ends the worker when none is left waiting. New blocks that joined during the round stay.
@@ -131,26 +143,31 @@ func (p *preloadRequester) request(tabId string, blockId string) {
 	if tabId == "" || !p.join(tabId, blockId) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), preloadLookupTimeout)
-	workspaceId, err := p.workspaceOf(ctx, tabId)
-	cancel()
-	if err != nil || workspaceId == "" {
-		log.Printf("preload: no workspace found for tab %s: %v\n", tabId, err)
-		p.release(tabId)
-		return
-	}
-	data := wshrpc.CommandElectronTabData{WorkspaceId: workspaceId, TabId: tabId}
+	workspaceId := ""
 	for {
-		attempt, ids, ok := p.nextRound(tabId)
+		round, ids, gaveUp, ok := p.nextRound(tabId)
+		for _, id := range gaveUp {
+			log.Printf("preload: block %s in tab %s still has no controller after its requests\n", id, tabId)
+		}
 		if !ok {
-			log.Printf("preload: blocks in tab %s still have no controller after %d requests\n", tabId, preloadMaxAttempts)
 			return
 		}
-		requestErr := p.preload(data)
-		if requestErr != nil {
-			log.Printf("preload: loading tab %s in the background failed (attempt %d): %v\n", tabId, attempt+1, requestErr)
+		var requestErr error
+		if workspaceId == "" {
+			ctx, cancel := context.WithTimeout(context.Background(), preloadLookupTimeout)
+			workspaceId, requestErr = p.workspaceOf(ctx, tabId)
+			cancel()
+			if requestErr == nil && workspaceId == "" {
+				requestErr = errNoWorkspace
+			}
 		}
-		p.wait(attempt)
+		if requestErr == nil {
+			requestErr = p.preload(wshrpc.CommandElectronTabData{WorkspaceId: workspaceId, TabId: tabId})
+		}
+		if requestErr != nil {
+			log.Printf("preload: loading tab %s in the background failed (request %d): %v\n", tabId, round+1, requestErr)
+		}
+		p.wait(min(round, preloadMaxAttempts-1))
 		var started []string
 		if requestErr == nil {
 			for _, id := range ids {

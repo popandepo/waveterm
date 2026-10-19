@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -20,20 +21,26 @@ type preloadFake struct {
 	lock        sync.Mutex
 	requests    []wshrpc.CommandElectronTabData
 	waits       []int
-	missing     map[string]int // looks per block that still say it has no controller
+	missing     map[string]int // looks per block that still say it has no controller; a negative number is for ever
 	looked      []string
+	lookups     int
 	preloadErr  error
-	preloadGate func() // called inside the request, to hold it
+	preloadGate func(tabId string) // called inside the request, to hold it
 	workspaceOf func(ctx context.Context, tabId string) (string, error)
 }
 
 func (f *preloadFake) requester() *preloadRequester {
-	workspaceOf := f.workspaceOf
-	if workspaceOf == nil {
-		workspaceOf = func(ctx context.Context, tabId string) (string, error) { return "ws-of-" + tabId, nil }
-	}
 	return &preloadRequester{
-		workspaceOf: workspaceOf,
+		workspaceOf: func(ctx context.Context, tabId string) (string, error) {
+			f.lock.Lock()
+			f.lookups++
+			lookup := f.workspaceOf
+			f.lock.Unlock()
+			if lookup != nil {
+				return lookup(ctx, tabId)
+			}
+			return "ws-of-" + tabId, nil
+		},
 		preload: func(d wshrpc.CommandElectronTabData) error {
 			f.lock.Lock()
 			f.requests = append(f.requests, d)
@@ -41,7 +48,7 @@ func (f *preloadFake) requester() *preloadRequester {
 			gate := f.preloadGate
 			f.lock.Unlock()
 			if gate != nil {
-				gate()
+				gate(d.TabId)
 			}
 			return err
 		},
@@ -49,15 +56,30 @@ func (f *preloadFake) requester() *preloadRequester {
 			f.lock.Lock()
 			defer f.lock.Unlock()
 			f.looked = append(f.looked, blockId)
-			if f.missing[blockId] > 0 {
+			switch n := f.missing[blockId]; {
+			case n < 0:
+				return true
+			case n > 0:
 				f.missing[blockId]--
 				return true
 			}
 			return false
 		},
-		wait:     func(attempt int) { f.lock.Lock(); f.waits = append(f.waits, attempt); f.lock.Unlock() },
+		wait:     func(round int) { f.lock.Lock(); f.waits = append(f.waits, round); f.lock.Unlock() },
 		inflight: map[string]*tabLoad{},
 	}
+}
+
+func (f *preloadFake) looksAt(blockId string) int {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	n := 0
+	for _, id := range f.looked {
+		if id == blockId {
+			n++
+		}
+	}
+	return n
 }
 
 func TestPreloadIsRequestedForTheTabsWorkspaceAndStopsOnceTheBlockHasAController(t *testing.T) {
@@ -83,10 +105,14 @@ func TestAPageThatMissedTheBlockIsAskedAgainUntilItStarts(t *testing.T) {
 }
 
 func TestARequestThatNeverTakesIsGivenUpAfterTheLimit(t *testing.T) {
-	f := &preloadFake{missing: map[string]int{"blk1": 1000}}
-	f.requester().request("tab1", "blk1")
+	f := &preloadFake{missing: map[string]int{"blk1": -1}}
+	r := f.requester()
+	r.request("tab1", "blk1")
 	if len(f.requests) != preloadMaxAttempts {
 		t.Fatalf("requests %d, limit %d", len(f.requests), preloadMaxAttempts)
+	}
+	if len(r.inflight) != 0 {
+		t.Fatalf("the tab is released at the end: %v", r.inflight)
 	}
 }
 
@@ -124,21 +150,78 @@ func TestARequestThatFailsOnceThenWorksStopsWhenTheBlockStarted(t *testing.T) {
 	}
 }
 
-func TestPreloadNeedsATabAndAWorkspace(t *testing.T) {
-	f := &preloadFake{workspaceOf: func(ctx context.Context, tabId string) (string, error) {
-		if tabId == "orphan" {
-			return "", errors.New("not found")
+// A tab whose workspace cannot be found is looked up again at every round, so a block that waits is not lost to one bad lookup.
+func TestAFailedWorkspaceLookupIsRetriedAndTheBlockIsNotLost(t *testing.T) {
+	f := &preloadFake{}
+	tries := 0
+	f.workspaceOf = func(ctx context.Context, tabId string) (string, error) {
+		tries++
+		if tries < 3 {
+			return "", errors.New("store busy")
 		}
 		return "ws", nil
-	}}
+	}
+	f.requester().request("tab1", "blk1")
+	if len(f.requests) != 1 || f.requests[0].WorkspaceId != "ws" {
+		t.Fatalf("the third lookup works and the request goes out: %+v", f.requests)
+	}
+	if f.looksAt("blk1") != 1 {
+		t.Fatalf("the block is looked at after the request: %v", f.looked)
+	}
+}
+
+func TestATabWithoutAWorkspaceIsGivenUpAndLeavesNothingBehind(t *testing.T) {
+	f := &preloadFake{workspaceOf: func(ctx context.Context, tabId string) (string, error) { return "", errors.New("not found") }}
 	r := f.requester()
 	r.request("", "blk1")
 	r.request("orphan", "blk1")
 	if len(f.requests) != 0 {
 		t.Fatalf("a missing tab or workspace must not reach the window, requests=%d", len(f.requests))
 	}
+	if f.lookups != preloadMaxAttempts {
+		t.Fatalf("the lookup is repeated up to the limit, lookups=%d", f.lookups)
+	}
 	if len(r.inflight) != 0 {
 		t.Fatalf("a tab without a workspace must not stay marked as being worked on: %v", r.inflight)
+	}
+}
+
+// A block that joins while the worker is in a failed lookup stays pending and is served once the lookup works.
+func TestABlockThatJoinsDuringAFailedLookupIsStillServed(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	f := &preloadFake{}
+	calls := 0
+	f.workspaceOf = func(ctx context.Context, tabId string) (string, error) {
+		calls++
+		if calls == 1 {
+			once.Do(func() { close(entered) })
+			<-release
+			return "", errors.New("store busy")
+		}
+		return "ws", nil
+	}
+	r := f.requester()
+	done := make(chan struct{})
+	go func() { r.request("tab1", "blk1"); close(done) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lookup never started")
+	}
+	r.request("tab1", "blk2")
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker never finished")
+	}
+	if f.looksAt("blk1") != 1 || f.looksAt("blk2") != 1 {
+		t.Fatalf("both blocks must be served after the lookup works: %v", f.looked)
+	}
+	if len(f.requests) != 1 {
+		t.Fatalf("one request serves both: %d", len(f.requests))
 	}
 }
 
@@ -155,7 +238,7 @@ func TestBlocksMadeWhileAWorkerIsOnTheTabJoinItInsteadOfStartingOthers(t *testin
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	f := &preloadFake{preloadGate: func() {
+	f := &preloadFake{preloadGate: func(string) {
 		once.Do(func() { close(entered) })
 		<-release
 	}}
@@ -202,13 +285,77 @@ func TestBlocksMadeWhileAWorkerIsOnTheTabJoinItInsteadOfStartingOthers(t *testin
 	}
 }
 
-func TestDifferentTabsAreWorkedOnSeparately(t *testing.T) {
-	f := &preloadFake{}
+// A block that joins late does not give the blocks already waiting more requests, and a stream of new blocks cannot keep one worker for ever.
+func TestBlocksKeepTheirOwnLimitAndTheWorkerEndsEvenWhenNewBlocksKeepComing(t *testing.T) {
+	f := &preloadFake{missing: map[string]int{"first": -1}}
 	r := f.requester()
-	r.request("tab1", "blk1")
-	r.request("tab2", "blk2")
-	if len(f.requests) != 2 || f.requests[0].TabId != "tab1" || f.requests[1].TabId != "tab2" {
-		t.Fatalf("requests: %+v", f.requests)
+	n := 0
+	f.preloadGate = func(tabId string) {
+		n++
+		id := fmt.Sprintf("late%d", n)
+		f.lock.Lock()
+		f.missing[id] = -1
+		f.lock.Unlock()
+		r.request(tabId, id)
+	}
+	done := make(chan struct{})
+	go func() { r.request("tab1", "first"); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the worker never ended although every block stayed missing")
+	}
+	if len(f.requests) > preloadMaxRounds {
+		t.Fatalf("one worker makes at most %d requests, made %d", preloadMaxRounds, len(f.requests))
+	}
+	if got := f.looksAt("first"); got != preloadMaxAttempts {
+		t.Fatalf("the first block is looked at once per request it waited for: %d, want %d, whatever joined later", got, preloadMaxAttempts)
+	}
+	for i := 1; i <= n; i++ {
+		if got := f.looksAt(fmt.Sprintf("late%d", i)); got > preloadMaxAttempts {
+			t.Fatalf("late%d was looked at %d times, limit %d", i, got, preloadMaxAttempts)
+		}
+	}
+	if len(r.inflight) != 0 {
+		t.Fatalf("the tab is released at the end: %v", r.inflight)
+	}
+}
+
+// Two tabs are worked on at the same time, each by its own worker: the first request is held open while the second tab is requested.
+func TestDifferentTabsAreWorkedOnConcurrently(t *testing.T) {
+	enteredTab1 := make(chan struct{})
+	enteredTab2 := make(chan struct{})
+	release := make(chan struct{})
+	f := &preloadFake{preloadGate: func(tabId string) {
+		switch tabId {
+		case "tab1":
+			close(enteredTab1)
+		case "tab2":
+			close(enteredTab2)
+		}
+		<-release
+	}}
+	r := f.requester()
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); r.request("tab1", "blk1") }()
+	select {
+	case <-enteredTab1:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tab1 never reached the window")
+	}
+	go func() { defer wg.Done(); r.request("tab2", "blk2") }()
+	select {
+	case <-enteredTab2:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tab2 must be requested while tab1's request is still open")
+	}
+	close(release)
+	wg.Wait()
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	if len(f.requests) != 2 || len(r.inflight) != 0 {
+		t.Fatalf("requests %d, inflight %v", len(f.requests), r.inflight)
 	}
 }
 

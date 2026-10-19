@@ -37,7 +37,7 @@ import {
     type ShellIntegrationStatus,
 } from "./osc-handlers";
 import { makeTermLinkHandlers } from "./term-links";
-import { firstTermSize } from "./termsize";
+import { TermSizer } from "./termsize";
 import {
     bufferLinesToText,
     createTempFileFromBlob,
@@ -90,7 +90,7 @@ export class TermWrap {
     loaded: boolean;
     heldData: Uint8Array[];
     handleResize_debounced: () => void;
-    hasResized: boolean;
+    sizer: TermSizer;
     multiInputCallback: (data: string) => void;
     sendDataHandler: (data: string) => void;
     onSearchResultsDidChange?: (result: { resultIndex: number; resultCount: number }) => void;
@@ -138,7 +138,18 @@ export class TermWrap {
         this.nodeModel = waveOptions.nodeModel;
         this.ptyOffset = 0;
         this.dataBytesProcessed = 0;
-        this.hasResized = false;
+        this.sizer = new TermSizer({
+            get: () => ({ cols: this.terminal.cols, rows: this.terminal.rows }),
+            fit: () => this.fitAddon.fit(),
+            set: (d) => this.terminal.resize(d.cols, d.rows),
+            sendSize: (d) => {
+                console.log("[termwrap] resize", `${d.rows}x${d.cols}`);
+                RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, termsize: { rows: d.rows, cols: d.cols } });
+            },
+            resync: () => {
+                this.resyncController("initial resize");
+            },
+        });
         this.lastUpdated = Date.now();
         this.promptMarkers = [];
         this.shellIntegrationStatusAtom = jotai.atom(null) as jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
@@ -557,31 +568,13 @@ export class TermWrap {
         }
     }
 
+    get hasResized(): boolean {
+        return this.sizer.hasResynced;
+    }
+
     handleResize() {
-        const oldRows = this.terminal.rows;
-        const oldCols = this.terminal.cols;
-        this.fitAddon.fit();
-        if (!this.hasResized) {
-            const first = firstTermSize({ cols: this.terminal.cols, rows: this.terminal.rows });
-            if (first.cols !== this.terminal.cols || first.rows !== this.terminal.rows) {
-                this.terminal.resize(first.cols, first.rows);
-            }
-        }
-        if (oldRows !== this.terminal.rows || oldCols !== this.terminal.cols) {
-            const termSize: TermSize = { rows: this.terminal.rows, cols: this.terminal.cols };
-            console.log(
-                "[termwrap] resize",
-                `${oldRows}x${oldCols}`,
-                "->",
-                `${this.terminal.rows}x${this.terminal.cols}`
-            );
-            RpcApi.ControllerInputCommand(TabRpcClient, { blockid: this.blockId, termsize: termSize });
-        }
-        dlog("resize", `${this.terminal.rows}x${this.terminal.cols}`, `${oldRows}x${oldCols}`, this.hasResized);
-        if (!this.hasResized) {
-            this.hasResized = true;
-            this.resyncController("initial resize");
-        }
+        this.sizer.handle();
+        dlog("resize", `${this.terminal.rows}x${this.terminal.cols}`, this.hasResized);
     }
 
     processAndCacheData() {

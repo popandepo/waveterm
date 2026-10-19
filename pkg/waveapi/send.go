@@ -60,7 +60,8 @@ var (
 // the whole check depends on how Claude Code draws its input box; a layout this does not know is read as "no input
 // box" and the send is refused, never guessed
 var (
-	promptRegexp = regexp.MustCompile(`^\s*│?\s*[>❯](?:\s(.*?))?\s*│?\s*$`)
+	// the text follows the prompt mark with no separator at all once something is typed (live: "❯Reply with ..."), after a no-break space when the box is empty
+	promptRegexp = regexp.MustCompile(`^\s*│?\s*[>❯](?:\s?(.*?))?\s*│?\s*$`)
 	menuRegexp   = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|do you want to|❯\s*\d+\.`)
 	busyRegexp   = regexp.MustCompile(`(?i)esc to interrupt`)
 	// the lines Claude Code writes under its input box; a menu's own footer (enter to select, esc to exit) is not one of them

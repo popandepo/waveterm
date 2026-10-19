@@ -10,17 +10,21 @@ import (
 	"testing"
 )
 
-// The lines of a live Claude Code session as the local API returned them (19 Oct 2026): the prompt mark is followed by a
-// no-break space, and the top rule carries the session's name.
+// The lines of a live Claude Code session as the local API returned them (19 Oct 2026): the top rule carries the session's name;
+// the prompt mark is followed by a no-break space in an empty box, and by NO separator once text is typed ("❯Reply with only ...").
 var nbsp = string(rune(noBreakSpace))
 
 func liveIdleScreen(prompt string) []string {
+	promptLine := "❯" + nbsp
+	if prompt != "" {
+		promptLine = "❯" + prompt
+	}
 	return []string{
-		"✻ Worked for 5s · done 14:02",
+		"✻ Worked for 2s · done 21:24",
 		"",
-		strings.Repeat("─", 24) + " throwaway-chat ─",
-		"❯" + nbsp + prompt,
-		strings.Repeat("─", 41),
+		strings.Repeat("─", 102) + " throwaway-chat3 ─",
+		promptLine,
+		strings.Repeat("─", 120),
 		"  ⏵⏵ auto mode on (shift+tab to cycle)",
 	}
 }
@@ -35,6 +39,28 @@ func TestTheLiveIdleBoxIsRecognized(t *testing.T) {
 func TestTextInTheLiveBoxIsRead(t *testing.T) {
 	v := readScreen(liveIdleScreen("Reply with only the word pong."))
 	if !v.hasBox || v.box != "Reply with only the word pong." {
+		t.Fatalf("view %+v", v)
+	}
+}
+
+// Found by the first live idle send on the swapped Wave: it answered 409 not sent because the box with text in it was not recognized.
+// Every layout of the prompt line seen or imagined reads the same text: no separator (live), a plain space, a no-break space.
+func TestTheTextIsReadWhateverFollowsThePromptMark(t *testing.T) {
+	const text = "Reply with only the word pong."
+	for name, mark := range map[string]string{"no separator": "❯", "plain space": "❯ ", "no-break space": "❯" + nbsp, "greater-than": "> "} {
+		lines := liveIdleScreen("")
+		lines[3] = mark + text
+		v := readScreen(lines)
+		if !v.hasBox || v.box != text {
+			t.Fatalf("%s: view %+v", name, v)
+		}
+	}
+}
+
+// With no separator after the mark a numbered row still is a menu row and never a box.
+func TestAMenuRowWithNoSeparatorIsStillAMenu(t *testing.T) {
+	v := readScreen([]string{" Pick one", " ❯1. Yes", "   2. No"})
+	if v.hasBox || !v.menu {
 		t.Fatalf("view %+v", v)
 	}
 }

@@ -87,9 +87,23 @@ type screenView struct {
 	busy   bool
 }
 
+const noBreakSpace = 0xa0
+
+// Claude Code can write a name into its top rule ("──────── name ─"); the label must be short text between two runs of the rule.
+var labeledRuleRegexp = regexp.MustCompile(`^─{10,} [^─]{1,60} ─+$`)
+
 func isRule(line string) bool {
 	t := strings.TrimSpace(line)
-	return strings.HasPrefix(t, "╰") || strings.Count(t, "─") >= minRuleRunes && strings.Trim(t, "─╭╮╰╯ ") == ""
+	return strings.HasPrefix(t, "╰") || strings.Count(t, "─") >= minRuleRunes && strings.Trim(t, "─╭╮╰╯ ") == "" || labeledRuleRegexp.MatchString(t)
+}
+
+// Claude Code writes a no-break space after its prompt mark and in other places; Go's \s does not match it, so it is read as the plain space it stands for.
+func plainSpaces(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = strings.ReplaceAll(l, string(rune(noBreakSpace)), " ")
+	}
+	return out
 }
 
 // hasFooter looks at the few lines under the frame for one of Claude's own footer lines.
@@ -111,6 +125,7 @@ func boxContent(line string) string {
 }
 
 func readScreen(lines []string) screenView {
+	lines = plainSpaces(lines)
 	if len(lines) > screenTail {
 		lines = lines[len(lines)-screenTail:]
 	}

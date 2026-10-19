@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sync"
+	"time"
 )
 
 var (
@@ -19,7 +21,11 @@ var (
 	ErrNotFound  = errors.New("not found")
 	ErrMismatch  = errors.New("address parts do not belong together")
 	ErrNotActive = errors.New("the tab of this block is not the active tab; use goto")
+
+	ErrWrongSession = errors.New("the block does not run the expected session")
 )
+
+const blockStatusRunning = "running"
 
 var idRegexp = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
@@ -34,6 +40,8 @@ type Block struct {
 	// Status is running, exited or notstarted for a block that has a program; empty when it has none or when it is not known.
 	Status   string `json:"status,omitempty"`
 	ExitCode *int   `json:"exitcode,omitempty"`
+	// SessionId is the Claude session the block was opened for (block meta session:id), only when it is a lowercase uuid.
+	SessionId string `json:"sessionid,omitempty"`
 }
 
 type Tab struct {
@@ -62,10 +70,20 @@ type Backend interface {
 	FocusWindow(ctx context.Context, windowId string) error
 	SetActiveTab(ctx context.Context, workspaceId string, tabId string) error
 	SetBlockFocus(ctx context.Context, tabId string, blockId string) error
+	// Screen returns the lines of one terminal block as its view shows them.
+	Screen(ctx context.Context, blockId string) ([]string, error)
+	// Input writes raw bytes to the program of one terminal block.
+	Input(ctx context.Context, blockId string, data []byte) error
 }
 
 type Service struct {
 	B Backend
+	// Pause and Logf are replaced in tests; nil means time.Sleep and the standard logger.
+	Pause func(time.Duration)
+	Logf  func(format string, args ...any)
+
+	lockMu sync.Mutex
+	locks  map[string]*sync.Mutex
 }
 
 func metaString(meta map[string]any, key string) string {
@@ -84,6 +102,9 @@ func BlockFromMeta(blockId string, meta map[string]any) Block {
 		Controller: metaString(meta, "controller"),
 		Connection: metaString(meta, "connection"),
 		Title:      metaString(meta, "frame:title"),
+	}
+	if id := metaString(meta, "session:id"); idRegexp.MatchString(id) {
+		rtn.SessionId = id
 	}
 	u, err := url.Parse(metaString(meta, "url"))
 	if err != nil || u.Scheme == "" || u.Host == "" {

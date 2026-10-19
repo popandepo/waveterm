@@ -41,6 +41,33 @@ type fakeBackend struct {
 	tree    []Workspace
 	treeErr error
 	calls   []string
+
+	// writes holds every byte string handed to Input, in order; screenFn builds the screen from them so a test can
+	// change what is shown between two looks.
+	writes    []string
+	screenFn  func(writes []string) []string
+	screenErr error
+	inputErr  error
+	looks     int
+}
+
+func (f *fakeBackend) Screen(ctx context.Context, blockId string) ([]string, error) {
+	f.looks++
+	if f.screenErr != nil {
+		return nil, f.screenErr
+	}
+	if f.screenFn == nil {
+		return nil, nil
+	}
+	return f.screenFn(f.writes), nil
+}
+
+func (f *fakeBackend) Input(ctx context.Context, blockId string, data []byte) error {
+	if f.inputErr != nil {
+		return f.inputErr
+	}
+	f.writes = append(f.writes, string(data))
+	return nil
 }
 
 func (f *fakeBackend) Tree(ctx context.Context) ([]Workspace, error) { return f.tree, f.treeErr }
@@ -89,8 +116,17 @@ func TestBlockFromMetaAllowList(t *testing.T) {
 		"cmd":         "pwsh -secret",
 		"url":         "https://example.com/reset/SECRETPATH?token=abc#frag",
 		"cmd:cwd":     "C:/private",
+		"session:id":  "0a1b2c3d-0000-4000-8000-0123456789ab",
 	}
 	b := BlockFromMeta(blk1, meta)
+	if b.SessionId != "0a1b2c3d-0000-4000-8000-0123456789ab" {
+		t.Fatalf("session id missing: %+v", b)
+	}
+	for _, bad := range []any{"not-a-guid", "0A1B2C3D-0000-4000-8000-0123456789AB", 7, nil} {
+		if got := BlockFromMeta(blk1, map[string]any{"session:id": bad}).SessionId; got != "" {
+			t.Fatalf("session id %v must not pass: %q", bad, got)
+		}
+	}
 	if b.View != "term" || b.Slot != "left" || b.Controller != "shell" || b.Connection != "livedb" || b.Title != "my title" {
 		t.Fatalf("allowed keys missing: %+v", b)
 	}

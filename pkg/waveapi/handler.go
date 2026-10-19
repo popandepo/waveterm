@@ -26,6 +26,8 @@ const (
 var (
 	addressKeys = []string{"workspaceid", "tabid", "blockid"}
 	gotoKeys    = []string{"workspaceid", "tabid", "blockid", "window"}
+	screenKeys  = []string{"blockid"}
+	sendKeys    = []string{"blockid", "expectsession", "text"}
 )
 
 func truncateForError(s string) string {
@@ -74,7 +76,10 @@ func statusForError(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrMismatch), errors.Is(err, ErrNotActive):
+	case errors.Is(err, ErrRefusedText):
+		return http.StatusBadRequest
+	case errors.Is(err, ErrMismatch), errors.Is(err, ErrNotActive), errors.Is(err, ErrWrongSession), errors.Is(err, ErrNotRunning),
+		errors.Is(err, ErrBusy), errors.Is(err, ErrOnPrompt), errors.Is(err, ErrNoInputBox), errors.Is(err, ErrNotSent):
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
@@ -197,6 +202,30 @@ func MakeHandler(token string, svc *Service) http.Handler {
 			return
 		}
 		if err := svc.Goto(r.Context(), req.Address, req.Window); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJson(w, http.StatusOK, okResponse{Ok: true})
+	})
+	mux.HandleFunc("/v1/screen", func(w http.ResponseWriter, r *http.Request) {
+		var req screenRequest
+		if !readBody(w, r, &req, screenKeys) {
+			return
+		}
+		lines, err := svc.ScreenOf(r.Context(), req.BlockId)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJson(w, http.StatusOK, screenResponse{Lines: lines})
+	})
+	// The answer never holds screen text, whatever happened.
+	mux.HandleFunc("/v1/send", func(w http.ResponseWriter, r *http.Request) {
+		var req SendRequest
+		if !readBody(w, r, &req, sendKeys) {
+			return
+		}
+		if err := svc.Send(r.Context(), req); err != nil {
 			writeError(w, err)
 			return
 		}

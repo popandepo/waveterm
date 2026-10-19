@@ -314,7 +314,7 @@ func TestBlockHasOnlyTheAllowListedFields(t *testing.T) {
 	for i := 0; i < typ.NumField(); i++ {
 		got = append(got, typ.Field(i).Name)
 	}
-	want := []string{"BlockId", "View", "Slot", "Controller", "Connection", "Title", "Url", "Status", "ExitCode"}
+	want := []string{"BlockId", "View", "Slot", "Controller", "Connection", "Title", "Url", "Status", "ExitCode", "SessionId"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Block fields changed: %v. A new field leaks meta unless this allow-list test is updated with it.", got)
 	}

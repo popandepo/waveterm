@@ -5,14 +5,26 @@ param([string]$ApiDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\api'
 
 $token = (Get-Content -Raw (Join-Path $ApiDir 'api-token')).Trim()
 $sock = Join-Path $ApiDir 'wave-api.sock'
-$handler = [System.Net.Http.SocketsHttpHandler]::new()
-$handler.ConnectCallback = {
-    param($ctx, $ct)
-    $s = [System.Net.Sockets.Socket]::new([System.Net.Sockets.AddressFamily]::Unix, [System.Net.Sockets.SocketType]::Stream, [System.Net.Sockets.ProtocolType]::Unspecified)
-    $s.Connect([System.Net.Sockets.UnixDomainSocketEndPoint]::new($sock))
-    [System.Threading.Tasks.ValueTask[System.IO.Stream]]::new([System.Net.Sockets.NetworkStream]::new($s, $true))
+# The connect callback runs on a pool thread that has no PowerShell runspace, so it has to be compiled code, not a script block.
+Add-Type -TypeDefinition @'
+using System.Net.Http;
+using System.Net.Sockets;
+public static class UnixHttp
+{
+    public static HttpClient Make(string path)
+    {
+        var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = async (ctx, ct) =>
+        {
+            var s = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            await s.ConnectAsync(new UnixDomainSocketEndPoint(path), ct);
+            return new NetworkStream(s, true);
+        };
+        return new HttpClient(handler);
+    }
 }
-$http = [System.Net.Http.HttpClient]::new($handler)
+'@
+$http = [UnixHttp]::Make($sock)
 $http.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $token)
 function Call($path, $body) {
     $content = [System.Net.Http.StringContent]::new(($body | ConvertTo-Json -Compress), [System.Text.Encoding]::UTF8, 'application/json')

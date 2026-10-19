@@ -47,6 +47,8 @@ var (
 	ErrNoInputBox  = errors.New("no input box")
 	ErrNotRunning  = errors.New("not a running terminal")
 	ErrNotSent     = errors.New("not sent")
+	// ErrNotLoaded is a block whose terminal view is not in the front end: the screen only exists there, so it cannot be read.
+	ErrNotLoaded = errors.New("the terminal view of this block is not loaded")
 )
 
 // the whole check depends on how Claude Code draws its input box; a layout this does not know is read as "no input

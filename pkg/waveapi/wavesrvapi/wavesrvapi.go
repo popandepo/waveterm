@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
@@ -112,6 +113,9 @@ func (b *Backend) Screen(ctx context.Context, blockId string) ([]string, error) 
 	opts := &wshrpc.RpcOpts{Route: wshutil.MakeFeBlockRouteId(blockId), Timeout: screenTimeoutMs}
 	result, err := wshclient.TermGetScrollbackLinesCommand(wshserver.GetMainRpcClient(), wshrpc.CommandTermGetScrollbackLinesData{}, opts)
 	if err != nil {
+		if strings.Contains(err.Error(), "no route for") {
+			return nil, fmt.Errorf("%w: block %s", waveapi.ErrNotLoaded, blockId)
+		}
 		return nil, fmt.Errorf("could not read block %s: %w", blockId, err)
 	}
 	return result.Lines, nil

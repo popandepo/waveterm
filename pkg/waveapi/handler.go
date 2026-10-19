@@ -79,7 +79,7 @@ func statusForError(err error) int {
 	case errors.Is(err, ErrRefusedText):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrMismatch), errors.Is(err, ErrNotActive), errors.Is(err, ErrWrongSession), errors.Is(err, ErrNotRunning),
-		errors.Is(err, ErrBusy), errors.Is(err, ErrOnPrompt), errors.Is(err, ErrNoInputBox), errors.Is(err, ErrNotSent):
+		errors.Is(err, ErrBusy), errors.Is(err, ErrOnPrompt), errors.Is(err, ErrNoInputBox), errors.Is(err, ErrNotSent), errors.Is(err, ErrNotLoaded):
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError

@@ -18,8 +18,9 @@ import (
 
 const (
 	// Claude Code folds a long paste into a placeholder, and then the input box no longer shows the text this
-	// check looks for. The live check on a throwaway session sets the real value; a text above it is refused.
-	MaxSendChars = 4000
+	// check looks for. Measured on a live session (Claude Code 2.1.303): 202, 602 and 992 characters stayed in the box,
+	// 1002 and more were folded. A text above this cap is refused.
+	MaxSendChars = 900
 
 	// A paste of one character into an open selection menu is taken as a key press and answers it (measured on a live session:
 	// a bracketed paste of "1" chose "Yes"); a paste of two or more characters, even starting with a digit, left the menu open.

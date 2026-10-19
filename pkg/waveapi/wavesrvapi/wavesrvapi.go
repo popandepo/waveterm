@@ -7,6 +7,7 @@ package wavesrvapi
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -26,10 +27,11 @@ import (
 )
 
 const (
-	ApiDirName     = "api"
-	rpcTimeoutMs   = 3000
-	tabRoutePrefix = "tab:"
-	StartWarnAfter = 10 * time.Second
+	ApiDirName      = "api"
+	rpcTimeoutMs    = 3000
+	screenTimeoutMs = 5000
+	tabRoutePrefix  = "tab:"
+	StartWarnAfter  = 10 * time.Second
 )
 
 type Backend struct{}
@@ -103,6 +105,21 @@ func (b *Backend) SetActiveTab(ctx context.Context, workspaceId string, tabId st
 func (b *Backend) SetBlockFocus(ctx context.Context, tabId string, blockId string) error {
 	opts := &wshrpc.RpcOpts{Route: tabRoutePrefix + tabId, Timeout: rpcTimeoutMs}
 	return wshclient.SetBlockFocusCommand(wshserver.GetMainRpcClient(), blockId, opts)
+}
+
+// Screen reads through the terminal view, so it fails when the block's tab was never shown.
+func (b *Backend) Screen(ctx context.Context, blockId string) ([]string, error) {
+	opts := &wshrpc.RpcOpts{Route: wshutil.MakeFeBlockRouteId(blockId), Timeout: screenTimeoutMs}
+	result, err := wshclient.TermGetScrollbackLinesCommand(wshserver.GetMainRpcClient(), wshrpc.CommandTermGetScrollbackLinesData{}, opts)
+	if err != nil {
+		return nil, fmt.Errorf("could not read block %s: %w", blockId, err)
+	}
+	return result.Lines, nil
+}
+
+func (b *Backend) Input(ctx context.Context, blockId string, data []byte) error {
+	input := wshrpc.CommandBlockInputData{BlockId: blockId, InputData64: base64.StdEncoding.EncodeToString(data)}
+	return wshclient.ControllerInputCommand(wshserver.GetMainRpcClient(), input, &wshrpc.RpcOpts{Timeout: rpcTimeoutMs})
 }
 
 // The local API is optional, so it must never hold wavesrv back: it starts in the background, and a start

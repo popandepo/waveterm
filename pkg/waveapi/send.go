@@ -57,18 +57,23 @@ var (
 	ErrNotLoaded = errors.New("the terminal view of this block is not loaded")
 )
 
+// A numbered row of a selection menu as it is drawn: at the start of the line (a frame bar and spaces may come first), the arrow or a
+// greater-than, the number, a dot, and then a space or the end of the line. Output that only mentions "> 2.0" or ">3.5" in the middle of
+// a line, or a decimal number, is not a menu row.
+const menuRowPattern = `^\s*│?\s*[>❯]\s*\d+\.(?:\s|$)`
+
 // the whole check depends on how Claude Code draws its input box; a layout this does not know is read as "no input
 // box" and the send is refused, never guessed
 var (
 	// the text follows the prompt mark with no separator at all once something is typed (live: "❯Reply with ..."), after a no-break space when the box is empty
 	promptRegexp = regexp.MustCompile(`^\s*│?\s*[>❯](?:\s?(.*?))?\s*│?\s*$`)
-	menuRegexp   = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|do you want to|[>❯]\s*\d+\.`)
+	menuRegexp   = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|do you want to|` + menuRowPattern)
 	busyRegexp   = regexp.MustCompile(`(?i)esc to interrupt`)
 	// the lines Claude Code writes under its input box; a menu's own footer (enter to select, esc to exit) is not one of them
 	footerRegexp = regexp.MustCompile(`(?i)\? for shortcuts|shift\+tab|⏵⏵|⏸|accept edits|bypass permissions|plan mode|esc to interrupt|context left`)
 	// a numbered row of a selection menu looks like a prompt line; text that starts with "1." after the prompt mark is
 	// read as a menu too, which refuses the send rather than risk answering one
-	optionRegexp = regexp.MustCompile(`[>❯]\s*\d+\.`)
+	optionRegexp = regexp.MustCompile(menuRowPattern)
 )
 
 type SendRequest struct {

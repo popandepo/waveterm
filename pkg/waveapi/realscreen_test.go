@@ -83,6 +83,27 @@ func TestAFramedMenuRowIsAMenuNotABox(t *testing.T) {
 	}
 }
 
+// Output that merely contains a comparison or a number after a greater-than, above an idle box, is not a menu: the send is not refused as "on a prompt".
+func TestComparisonsAndDecimalsInOutputAreNotMenuRows(t *testing.T) {
+	for _, output := range []string{
+		"version > 2.0 is required",
+		"needs node >3.5 or newer",
+		">3.5 is the ratio",
+		"> 3.5 is the ratio",
+		"row ❯ 1. in the middle of a line",
+		"the answer was 2. Then it stopped",
+		"│ x > 2.0",
+	} {
+		v := readScreen(append([]string{output}, liveIdleScreen("")...))
+		if v.menu || !v.hasBox {
+			t.Fatalf("%q: view %+v", output, v)
+		}
+		if err := checkIdle(v); err != nil {
+			t.Fatalf("%q: an idle box was refused: %v", output, err)
+		}
+	}
+}
+
 // A box that wraps over two lines is read whole.
 func TestAFramedTwoLineBoxIsReadWhole(t *testing.T) {
 	lines := liveIdleScreen("")

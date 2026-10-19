@@ -4,6 +4,8 @@
 package waveapi
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -84,6 +86,36 @@ func TestOnlyAShortLabelInAnOtherwiseUnbrokenRuleCountsAsARule(t *testing.T) {
 	} {
 		if got := isRule(tc.line); got != tc.want {
 			t.Fatalf("%s: isRule(%q) = %v, want %v", tc.name, tc.line, got, tc.want)
+		}
+	}
+}
+
+// The comparison after the paste removes every white space on both sides, so a no-break space inside the text is found whether the box shows it
+// as a no-break space or as a plain space.
+func TestTextWithAnInnerNoBreakSpaceIsFoundInTheBox(t *testing.T) {
+	text := "ok" + nbsp + "there"
+	for name, shown := range map[string]string{"as sent": text, "as a plain space": "ok there", "as two spaces": "ok  there"} {
+		svc, fb, _ := newSendSvc(func(w []string) []string {
+			if len(w) == 0 {
+				return boxLines("")
+			}
+			return boxLines(shown)
+		})
+		if err := svc.Send(context.Background(), req(text)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(fb.writes) != 2 || fb.writes[0] != pasteOf(text) || fb.writes[1] != enterKey {
+			t.Fatalf("%s: writes %q", name, fb.writes)
+		}
+	}
+}
+
+// The text rule's lower edge: one character is refused (it can answer an open menu), two are the shortest that may be sent.
+func TestTheShortestTextThatMayBeSentIsTwoCharacters(t *testing.T) {
+	for text, refused := range map[string]bool{"1": true, "y": true, " 1 ": true, "12": false, "ok": false, "1 ": true, "\U0001F600": true, "\U0001F600\U0001F600": false} {
+		err := CheckSendText(text)
+		if refused != errors.Is(err, ErrRefusedText) {
+			t.Fatalf("%q: refused=%v, want %v (%v)", text, errors.Is(err, ErrRefusedText), refused, err)
 		}
 	}
 }

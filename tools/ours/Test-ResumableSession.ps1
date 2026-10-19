@@ -750,8 +750,21 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Set-Content -LiteralPath (Join-Path $personal 'settings.json') -Value '{"hooks":"two"}'
     $r = Run-Child 'unset' $acct2
     Check 'account 2 copy: a later start replaces an older copy' ($r.Code -eq 0 -and (Text-Of (Join-Path $acct2 'CLAUDE.md')) -eq 'rules two' -and (Text-Of (Join-Path $acct2 'settings.json')) -eq '{"hooks":"two"}') $r.Text
+    # the start itself leaves the proof in the starter log: the first 12 hex of each file's SHA-256 after the copy, equal to the source's
+    function Hash12([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant() }
+    $want = 'account2copy=ok set=CLAUDE.md:' + (Hash12 (Join-Path $personal 'CLAUDE.md')) + ',settings.json:' + (Hash12 (Join-Path $personal 'settings.json'))
+    $lastLog = if (Test-Path -LiteralPath $swapLog) { [string](Get-Content -LiteralPath $swapLog -Tail 1) } else { '<no log>' }
+    Check 'account 2 copy: the start logs account2copy=ok with the hashes of what it copied, equal to account 1''s files' ($lastLog.EndsWith($want)) "last log line: $lastLog // wanted the end: $want"
+    $before = if (Test-Path -LiteralPath $swapLog) { @(Get-Content -LiteralPath $swapLog).Count } else { 0 }
+    $null = & $script -SessionId $id -ConfigDir $acct2 -DryRun 2>&1
+    $after = if (Test-Path -LiteralPath $swapLog) { @(Get-Content -LiteralPath $swapLog).Count } else { 0 }
+    Check 'account 2 copy: a dry run logs nothing' ($before -eq $after) "log lines $before -> $after"
     $dry = & $script -SessionId $id -ConfigDir $cfg -DryRun
     Check 'account 2 copy: a start on account 1 copies nothing' ($dry[4] -eq 'copy=') ($dry -join ' | ')
+    $beforeA1 = @(Get-Content -LiteralPath $swapLog).Count
+    $null = Run-Child 'unset' $cfg
+    $a1Lines = @(Get-Content -LiteralPath $swapLog)
+    Check 'account 2 copy: a start on account 1 logs no account2copy line' ($a1Lines.Count -eq $beforeA1 -or -not ($a1Lines[-1] -match 'account2copy')) ($a1Lines[-1])
     $below = Join-Path $acct2 'cfg'; Make-Dir $below
     $r = Run-Child 'unset' $below
     Check 'account 2 copy: a folder below the account 2 folder is not the account folder and copies nothing' ($r.Code -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $below 'CLAUDE.md')) -and -not (Test-Path -LiteralPath (Join-Path $below 'settings.json'))) $r.Text

@@ -62,13 +62,13 @@ var (
 var (
 	// the text follows the prompt mark with no separator at all once something is typed (live: "❯Reply with ..."), after a no-break space when the box is empty
 	promptRegexp = regexp.MustCompile(`^\s*│?\s*[>❯](?:\s?(.*?))?\s*│?\s*$`)
-	menuRegexp   = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|do you want to|❯\s*\d+\.`)
+	menuRegexp   = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|do you want to|[>❯]\s*\d+\.`)
 	busyRegexp   = regexp.MustCompile(`(?i)esc to interrupt`)
 	// the lines Claude Code writes under its input box; a menu's own footer (enter to select, esc to exit) is not one of them
 	footerRegexp = regexp.MustCompile(`(?i)\? for shortcuts|shift\+tab|⏵⏵|⏸|accept edits|bypass permissions|plan mode|esc to interrupt|context left`)
 	// a numbered row of a selection menu looks like a prompt line; text that starts with "1." after the prompt mark is
 	// read as a menu too, which refuses the send rather than risk answering one
-	optionRegexp = regexp.MustCompile(`❯\s*\d+\.`)
+	optionRegexp = regexp.MustCompile(`[>❯]\s*\d+\.`)
 )
 
 type SendRequest struct {

@@ -57,11 +57,52 @@ func TestTheTextIsReadWhateverFollowsThePromptMark(t *testing.T) {
 	}
 }
 
-// With no separator after the mark a numbered row still is a menu row and never a box.
+// With no separator after the mark a numbered row still is a menu row and never a box, drawn with the arrow or with an ASCII greater-than,
+// with or without a space after the mark.
 func TestAMenuRowWithNoSeparatorIsStillAMenu(t *testing.T) {
-	v := readScreen([]string{" Pick one", " ❯1. Yes", "   2. No"})
-	if v.hasBox || !v.menu {
+	for _, row := range []string{" ❯1. Yes", " ❯ 1. Yes", " >1. Yes", " > 1. Yes", " ❯" + nbsp + "1. Yes"} {
+		v := readScreen([]string{" Pick one", row, "   2. No"})
+		if v.hasBox || !v.menu {
+			t.Fatalf("%q: view %+v", row, v)
+		}
+	}
+}
+
+// A numbered menu row sitting inside a frame (rule above and below and a footer) is a menu, not a box with text in it: the send is refused.
+func TestAFramedMenuRowIsAMenuNotABox(t *testing.T) {
+	for _, row := range []string{">1. Yes", "> 1. Yes", "❯1. Yes", "❯ 1. Yes"} {
+		lines := liveIdleScreen("")
+		lines[3] = row
+		v := readScreen(lines)
+		if !v.menu {
+			t.Fatalf("%q: view %+v", row, v)
+		}
+		if err := checkIdle(v); err == nil {
+			t.Fatalf("%q: a framed menu row passed the idle check", row)
+		}
+	}
+}
+
+// A box that wraps over two lines is read whole.
+func TestAFramedTwoLineBoxIsReadWhole(t *testing.T) {
+	lines := liveIdleScreen("")
+	lines = append(lines[:4], append([]string{"  the second half of the text"}, lines[4:]...)...)
+	lines[3] = "❯the first half of the text"
+	v := readScreen(lines)
+	if !v.hasBox || v.box != "the first half of the text the second half of the text" || v.menu {
 		t.Fatalf("view %+v", v)
+	}
+}
+
+// A line of output that starts with a greater-than mark above an idle box changes nothing.
+func TestAQuotedOutputLineAboveAnIdleBoxChangesNothing(t *testing.T) {
+	lines := append([]string{"> a quoted line of output", "> 2 more lines were quoted"}, liveIdleScreen("")...)
+	v := readScreen(lines)
+	if !v.hasBox || v.box != "" || v.menu || v.busy {
+		t.Fatalf("view %+v", v)
+	}
+	if err := checkIdle(v); err != nil {
+		t.Fatalf("an idle box with quoted output above it was refused: %v", err)
 	}
 }
 

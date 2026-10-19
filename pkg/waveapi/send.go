@@ -18,8 +18,14 @@ import (
 
 const (
 	// Claude Code folds a long paste into a placeholder, and then the input box no longer shows the text this
-	// check looks for. The live check on a throwaway session sets the real value; a text above it is refused.
-	MaxSendChars = 4000
+	// check looks for. Measured on a live session (Claude Code 2.1.303): 202, 602 and 992 characters stayed in the box,
+	// 1002 and more were folded. A text above this cap is refused.
+	MaxSendChars = 900
+
+	// A paste of one character into an open selection menu is taken as a key press and answers it (measured on a live session:
+	// a bracketed paste of "1" chose "Yes"); a paste of two or more characters, even starting with a digit, left the menu open.
+	// A menu can open between the last look at the screen and the paste, so a text of one character is refused.
+	MinSendChars = 2
 
 	pasteStart = "\x1b[200~"
 	pasteEnd   = "\x1b[201~"
@@ -87,9 +93,23 @@ type screenView struct {
 	busy   bool
 }
 
+const noBreakSpace = 0xa0
+
+// Claude Code can write a name into its top rule ("──────── name ─"); the label must be short text between two runs of the rule.
+var labeledRuleRegexp = regexp.MustCompile(`^─{10,} [^─]{1,60} ─+$`)
+
 func isRule(line string) bool {
 	t := strings.TrimSpace(line)
-	return strings.HasPrefix(t, "╰") || strings.Count(t, "─") >= minRuleRunes && strings.Trim(t, "─╭╮╰╯ ") == ""
+	return strings.HasPrefix(t, "╰") || strings.Count(t, "─") >= minRuleRunes && strings.Trim(t, "─╭╮╰╯ ") == "" || labeledRuleRegexp.MatchString(t)
+}
+
+// Claude Code writes a no-break space after its prompt mark and in other places; Go's \s does not match it, so it is read as the plain space it stands for.
+func plainSpaces(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = strings.ReplaceAll(l, string(rune(noBreakSpace)), " ")
+	}
+	return out
 }
 
 // hasFooter looks at the few lines under the frame for one of Claude's own footer lines.
@@ -111,6 +131,7 @@ func boxContent(line string) string {
 }
 
 func readScreen(lines []string) screenView {
+	lines = plainSpaces(lines)
 	if len(lines) > screenTail {
 		lines = lines[len(lines)-screenTail:]
 	}
@@ -168,6 +189,9 @@ func CheckSendText(text string) error {
 	}
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("%w: empty", ErrRefusedText)
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(text)) < MinSendChars {
+		return fmt.Errorf("%w: shorter than %d characters", ErrRefusedText, MinSendChars)
 	}
 	if utf8.RuneCountInString(text) > MaxSendChars {
 		return fmt.Errorf("%w: longer than %d characters", ErrRefusedText, MaxSendChars)

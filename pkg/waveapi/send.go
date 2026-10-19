@@ -21,6 +21,11 @@ const (
 	// check looks for. The live check on a throwaway session sets the real value; a text above it is refused.
 	MaxSendChars = 4000
 
+	// A paste of one character into an open selection menu is taken as a key press and answers it (measured on a live session:
+	// a bracketed paste of "1" chose "Yes"); a paste of two or more characters, even starting with a digit, left the menu open.
+	// A menu can open between the last look at the screen and the paste, so a text of one character is refused.
+	MinSendChars = 2
+
 	pasteStart = "\x1b[200~"
 	pasteEnd   = "\x1b[201~"
 	enterKey   = "\r"
@@ -183,6 +188,9 @@ func CheckSendText(text string) error {
 	}
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("%w: empty", ErrRefusedText)
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(text)) < MinSendChars {
+		return fmt.Errorf("%w: shorter than %d characters", ErrRefusedText, MinSendChars)
 	}
 	if utf8.RuneCountInString(text) > MaxSendChars {
 		return fmt.Errorf("%w: longer than %d characters", ErrRefusedText, MaxSendChars)

@@ -188,11 +188,11 @@ func TestSendMenuAfterPasteGetsNoEnterAndNoKey(t *testing.T) {
 		}
 		return menuLines()
 	})
-	err := svc.Send(context.Background(), req("1"))
+	err := svc.Send(context.Background(), req("1 ok"))
 	if !errors.Is(err, ErrNotSent) {
 		t.Fatalf("got %v", err)
 	}
-	if len(fb.writes) != 1 || fb.writes[0] != pasteOf("1") {
+	if len(fb.writes) != 1 || fb.writes[0] != pasteOf("1 ok") {
 		t.Fatalf("anything besides the paste reached the program: %q", fb.writes)
 	}
 }
@@ -204,7 +204,7 @@ func TestSendMenuBesideTheTextGetsNoEnterAndNoKey(t *testing.T) {
 		}
 		return append(boxLines(typedAfter(w)), menuLines()...)
 	})
-	if err := svc.Send(context.Background(), req("1")); !errors.Is(err, ErrNotSent) {
+	if err := svc.Send(context.Background(), req("1 ok")); !errors.Is(err, ErrNotSent) {
 		t.Fatalf("got %v", err)
 	}
 	if len(fb.writes) != 1 {
@@ -344,6 +344,10 @@ func TestSendRefusesText(t *testing.T) {
 		"c1":            "a\u0085b",
 		"line sep":      "a\u2028b",
 		"too long":      strings.Repeat("x", MaxSendChars+1),
+		"one digit":     "1",
+		"one letter":    "y",
+		"padded digit":  "  2 ",
+		"one emoji":     "\U0001F600",
 		"unicode space": "\u00a0!echo x",
 	}
 	for name, text := range cases {
@@ -360,7 +364,7 @@ func TestSendRefusesText(t *testing.T) {
 }
 
 func TestSendAcceptsTextAtTheCapAndPlainSymbols(t *testing.T) {
-	for _, text := range []string{strings.Repeat("x", MaxSendChars), "what about 100% of it? a!b c/d e#f g@h", "ok 1", "1"} {
+	for _, text := range []string{strings.Repeat("x", MaxSendChars), "what about 100% of it? a!b c/d e#f g@h", "ok 1", "1 ok", "ok"} {
 		svc, fb, _ := newSendSvc(followsPaste)
 		if err := svc.Send(context.Background(), req(text)); err != nil {
 			t.Fatalf("%.20q: %v", text, err)
@@ -398,7 +402,7 @@ func TestSendRefusesALayoutThatIsNotPositivelyAnInputBox(t *testing.T) {
 	for name, lines := range cases {
 		lines := lines
 		svc, fb, _ := newSendSvc(func([]string) []string { return lines })
-		if err := svc.Send(context.Background(), req("1")); err == nil {
+		if err := svc.Send(context.Background(), req("1 ok")); err == nil {
 			t.Fatalf("%s: was sent", name)
 		}
 		wantNoWrites(t, fb)

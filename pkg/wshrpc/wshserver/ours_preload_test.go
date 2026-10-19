@@ -170,6 +170,26 @@ func TestAFailedWorkspaceLookupIsRetriedAndTheBlockIsNotLost(t *testing.T) {
 	}
 }
 
+// Failed lookups send no request, so they must not use up the block's requests: after four of them the block still gets all five.
+func TestFailedLookupsDoNotUseUpABlocksRequests(t *testing.T) {
+	f := &preloadFake{missing: map[string]int{"blk1": -1}}
+	tries := 0
+	f.workspaceOf = func(ctx context.Context, tabId string) (string, error) {
+		tries++
+		if tries <= preloadMaxLookupFailures-1 {
+			return "", errors.New("store busy")
+		}
+		return "ws", nil
+	}
+	f.requester().request("tab1", "blk1")
+	if len(f.requests) != preloadMaxAttempts {
+		t.Fatalf("the block gets all its requests after %d failed lookups: %d", preloadMaxLookupFailures-1, len(f.requests))
+	}
+	if f.looksAt("blk1") != preloadMaxAttempts {
+		t.Fatalf("and a look after each: %d", f.looksAt("blk1"))
+	}
+}
+
 func TestATabWithoutAWorkspaceIsGivenUpAndLeavesNothingBehind(t *testing.T) {
 	f := &preloadFake{workspaceOf: func(ctx context.Context, tabId string) (string, error) { return "", errors.New("not found") }}
 	r := f.requester()
@@ -178,7 +198,7 @@ func TestATabWithoutAWorkspaceIsGivenUpAndLeavesNothingBehind(t *testing.T) {
 	if len(f.requests) != 0 {
 		t.Fatalf("a missing tab or workspace must not reach the window, requests=%d", len(f.requests))
 	}
-	if f.lookups != preloadMaxAttempts {
+	if f.lookups != preloadMaxLookupFailures {
 		t.Fatalf("the lookup is repeated up to the limit, lookups=%d", f.lookups)
 	}
 	if len(r.inflight) != 0 {
@@ -285,12 +305,17 @@ func TestBlocksMadeWhileAWorkerIsOnTheTabJoinItInsteadOfStartingOthers(t *testin
 	}
 }
 
-// A block that joins late does not give the blocks already waiting more requests, and a stream of new blocks cannot keep one worker for ever.
-func TestBlocksKeepTheirOwnLimitAndTheWorkerEndsEvenWhenNewBlocksKeepComing(t *testing.T) {
+// Every block gets exactly its own five requests whenever it joined (also one that joins during what used to be the last round of a
+// worker), a late block does not give the blocks already waiting more, and the worker ends once every block has used its requests.
+func TestEveryBlockGetsItsOwnRequestsWheneverItJoinedAndTheWorkerEnds(t *testing.T) {
+	const late = 12
 	f := &preloadFake{missing: map[string]int{"first": -1}}
 	r := f.requester()
 	n := 0
 	f.preloadGate = func(tabId string) {
+		if n >= late {
+			return
+		}
 		n++
 		id := fmt.Sprintf("late%d", n)
 		f.lock.Lock()
@@ -305,16 +330,16 @@ func TestBlocksKeepTheirOwnLimitAndTheWorkerEndsEvenWhenNewBlocksKeepComing(t *t
 	case <-time.After(10 * time.Second):
 		t.Fatal("the worker never ended although every block stayed missing")
 	}
-	if len(f.requests) > preloadMaxRounds {
-		t.Fatalf("one worker makes at most %d requests, made %d", preloadMaxRounds, len(f.requests))
-	}
 	if got := f.looksAt("first"); got != preloadMaxAttempts {
 		t.Fatalf("the first block is looked at once per request it waited for: %d, want %d, whatever joined later", got, preloadMaxAttempts)
 	}
-	for i := 1; i <= n; i++ {
-		if got := f.looksAt(fmt.Sprintf("late%d", i)); got > preloadMaxAttempts {
-			t.Fatalf("late%d was looked at %d times, limit %d", i, got, preloadMaxAttempts)
+	for i := 1; i <= late; i++ {
+		if got := f.looksAt(fmt.Sprintf("late%d", i)); got != preloadMaxAttempts {
+			t.Fatalf("late%d was looked at %d times, want %d (never dropped, never given more)", i, got, preloadMaxAttempts)
 		}
+	}
+	if len(f.requests) <= 15 {
+		t.Fatalf("the test must go past 15 requests to cover the old round limit: %d", len(f.requests))
 	}
 	if len(r.inflight) != 0 {
 		t.Fatalf("the tab is released at the end: %v", r.inflight)

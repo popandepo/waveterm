@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	preloadRequestTimeoutMs = 30000
-	preloadMaxAttempts      = 5  // requests made while one block waits
-	preloadMaxRounds        = 15 // requests one worker makes in its life, however many blocks join
-	preloadLookupTimeout    = 5 * time.Second
+	preloadRequestTimeoutMs  = 30000
+	preloadMaxAttempts       = 5 // requests really sent while one block waits
+	preloadMaxLookupFailures = 5 // workspace lookups that fail in a row before a tab is given up
+	preloadLookupTimeout     = 5 * time.Second
 )
 
 var errNoWorkspace = errors.New("no workspace for the tab")
@@ -31,12 +31,14 @@ var errNoWorkspace = errors.New("no workspace for the tab")
 // has shown would otherwise sit unstarted until someone looks at the tab. The request is idempotent in the window (a loaded
 // tab answers at once). Whether the page really picked the new blocks up is not assumed: after each request the controller of
 // every block still waiting is looked at, and the request is repeated, with growing waits, while one that should have a
-// controller has none. A failed request, or a failed lookup of the tab's workspace, counts as "not picked up" whatever the
-// look says. A failure is only logged: the block exists either way.
+// controller has none. A failed request counts as "not picked up" whatever the look says. A failure is only logged: the
+// block exists either way.
 //
-// One worker per tab: blocks made in a tab while a worker is on it join that worker's list. Limits: each block gets at most
-// preloadMaxAttempts requests while it waits (a block that joins late does not give the others more), and one worker makes at
-// most preloadMaxRounds requests however many blocks join, so a busy tab cannot keep a worker alive for good.
+// One worker per tab: blocks made in a tab while a worker is on it join that worker's list. Limits: a block gets at most
+// preloadMaxAttempts requests that were really sent while it waited (a block that joins late does not give the others more,
+// and does not get fewer for joining late); a tab whose workspace cannot be looked up preloadMaxLookupFailures times in a
+// row is given up, and those failed lookups do not use up any block's requests. The worker therefore ends once every block
+// has started or used its requests; it can only go on for as long as new blocks keep coming.
 type preloadRequester struct {
 	workspaceOf func(ctx context.Context, tabId string) (string, error)
 	preload     func(data wshrpc.CommandElectronTabData) error
@@ -48,8 +50,9 @@ type preloadRequester struct {
 }
 
 type tabLoad struct {
-	pending map[string]int // block id -> requests made while it waited
-	rounds  int
+	pending      map[string]int // block id -> requests sent while it waited
+	rounds       int
+	lookupFailed int
 }
 
 func makeLivePreloadRequester() *preloadRequester {
@@ -93,19 +96,12 @@ func (p *preloadRequester) join(tabId string, blockId string) bool {
 	return true
 }
 
-// nextRound reserves the next request and returns the blocks that are still waiting for it; gaveUp are the blocks that have
-// used their requests. ok is false when the worker is done: the round limit is reached, or every block left has used its requests.
+// nextRound returns the blocks that are still waiting and have requests left; gaveUp are the ones that have used theirs (they
+// are dropped). ok is false when the worker is done: no block is left after the first round.
 func (p *preloadRequester) nextRound(tabId string) (round int, ids []string, gaveUp []string, ok bool) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	tl := p.inflight[tabId]
-	if tl.rounds >= preloadMaxRounds {
-		for id := range tl.pending {
-			gaveUp = append(gaveUp, id)
-		}
-		delete(p.inflight, tabId)
-		return 0, nil, gaveUp, false
-	}
 	round = tl.rounds
 	tl.rounds++
 	for id, n := range tl.pending {
@@ -114,7 +110,6 @@ func (p *preloadRequester) nextRound(tabId string) (round int, ids []string, gav
 			delete(tl.pending, id)
 			continue
 		}
-		tl.pending[id] = n + 1
 		ids = append(ids, id)
 	}
 	if round > 0 && len(ids) == 0 {
@@ -122,6 +117,39 @@ func (p *preloadRequester) nextRound(tabId string) (round int, ids []string, gav
 		return 0, nil, gaveUp, false
 	}
 	return round, ids, gaveUp, true
+}
+
+// charge records that a request was really sent for these blocks.
+func (p *preloadRequester) charge(tabId string, ids []string) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	tl := p.inflight[tabId]
+	for _, id := range ids {
+		if _, waiting := tl.pending[id]; waiting {
+			tl.pending[id]++
+		}
+	}
+}
+
+// lookupResult counts the lookups of the tab's workspace that failed in a row; true means the tab is given up (the worker is
+// released and the blocks still waiting are dropped).
+func (p *preloadRequester) lookupResult(tabId string, failed bool) (giveUp bool, dropped []string) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	tl := p.inflight[tabId]
+	if !failed {
+		tl.lookupFailed = 0
+		return false, nil
+	}
+	tl.lookupFailed++
+	if tl.lookupFailed < preloadMaxLookupFailures {
+		return false, nil
+	}
+	for id := range tl.pending {
+		dropped = append(dropped, id)
+	}
+	delete(p.inflight, tabId)
+	return true, dropped
 }
 
 // settle drops the blocks that started and ends the worker when none is left waiting. New blocks that joined during the round stay.
@@ -152,18 +180,32 @@ func (p *preloadRequester) request(tabId string, blockId string) {
 		if !ok {
 			return
 		}
-		var requestErr error
 		if workspaceId == "" {
 			ctx, cancel := context.WithTimeout(context.Background(), preloadLookupTimeout)
-			workspaceId, requestErr = p.workspaceOf(ctx, tabId)
+			found, err := p.workspaceOf(ctx, tabId)
 			cancel()
-			if requestErr == nil && workspaceId == "" {
-				requestErr = errNoWorkspace
+			if err == nil && found == "" {
+				err = errNoWorkspace
 			}
+			giveUp, dropped := p.lookupResult(tabId, err != nil)
+			if err != nil {
+				log.Printf("preload: no workspace found for tab %s: %v\n", tabId, err)
+				if giveUp {
+					for _, id := range dropped {
+						log.Printf("preload: block %s in tab %s was not served: its tab has no workspace\n", id, tabId)
+					}
+					return
+				}
+				p.wait(min(round, preloadMaxAttempts-1))
+				if p.settle(tabId, nil) {
+					return
+				}
+				continue
+			}
+			workspaceId = found
 		}
-		if requestErr == nil {
-			requestErr = p.preload(wshrpc.CommandElectronTabData{WorkspaceId: workspaceId, TabId: tabId})
-		}
+		p.charge(tabId, ids)
+		requestErr := p.preload(wshrpc.CommandElectronTabData{WorkspaceId: workspaceId, TabId: tabId})
 		if requestErr != nil {
 			log.Printf("preload: loading tab %s in the background failed (request %d): %v\n", tabId, round+1, requestErr)
 		}

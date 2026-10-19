@@ -251,15 +251,27 @@ function Get-Account2CopyPlan {
     $homeFinal = Get-FinalPath $env:USERPROFILE
     if (-not $homeFinal -or $ConfigDir -ine "$homeFinal\.claude-personal2") { return @() }
     $from = "$homeFinal\.claude-personal"
+    # account 1's folder must be a real folder in its place: if it is a link, its files are somewhere else (possibly .claude or .claude-work)
+    if ((Get-FinalPath $from) -ine $from) {
+        [Console]::Error.WriteLine("Account 2 config: nothing was copied, $from is not a real folder in its place (a link?).")
+        return @()
+    }
     $plan = @()
     foreach ($name in 'CLAUDE.md', 'settings.json') {
         $src = Join-Path $from $name
+        $dst = Join-Path $ConfigDir $name
         $item = Get-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue
         if (-not $item -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
             [Console]::Error.WriteLine("Account 2 config: $name was not copied, $src is missing or not a plain file.")
             continue
         }
-        $plan += [pscustomobject]@{ Name = $name; From = $src; To = Join-Path $ConfigDir $name }
+        # Copy-Item -Force writes through a link, so a destination that is a link (or a folder) would put the file wherever it points
+        $existing = Get-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue
+        if ($existing -and ($existing.PSIsContainer -or ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint))) {
+            [Console]::Error.WriteLine("Account 2 config: $name was not copied, $dst is a link or a folder.")
+            continue
+        }
+        $plan += [pscustomobject]@{ Name = $name; From = $src; To = $dst }
     }
     return $plan
 }

@@ -10,17 +10,21 @@ import (
 	"testing"
 )
 
-// The lines of a live Claude Code session as the local API returned them (19 Oct 2026): the prompt mark is followed by a
-// no-break space, and the top rule carries the session's name.
+// The lines of a live Claude Code session as the local API returned them (19 Oct 2026): the top rule carries the session's name;
+// the prompt mark is followed by a no-break space in an empty box, and by NO separator once text is typed ("❯Reply with only ...").
 var nbsp = string(rune(noBreakSpace))
 
 func liveIdleScreen(prompt string) []string {
+	promptLine := "❯" + nbsp
+	if prompt != "" {
+		promptLine = "❯" + prompt
+	}
 	return []string{
-		"✻ Worked for 5s · done 14:02",
+		"✻ Worked for 2s · done 21:24",
 		"",
-		strings.Repeat("─", 24) + " throwaway-chat ─",
-		"❯" + nbsp + prompt,
-		strings.Repeat("─", 41),
+		strings.Repeat("─", 102) + " throwaway-chat3 ─",
+		promptLine,
+		strings.Repeat("─", 120),
 		"  ⏵⏵ auto mode on (shift+tab to cycle)",
 	}
 }
@@ -36,6 +40,90 @@ func TestTextInTheLiveBoxIsRead(t *testing.T) {
 	v := readScreen(liveIdleScreen("Reply with only the word pong."))
 	if !v.hasBox || v.box != "Reply with only the word pong." {
 		t.Fatalf("view %+v", v)
+	}
+}
+
+// Found by the first live idle send on the swapped Wave: it answered 409 not sent because the box with text in it was not recognized.
+// Every layout of the prompt line seen or imagined reads the same text: no separator (live), a plain space, a no-break space.
+func TestTheTextIsReadWhateverFollowsThePromptMark(t *testing.T) {
+	const text = "Reply with only the word pong."
+	for name, mark := range map[string]string{"no separator": "❯", "plain space": "❯ ", "no-break space": "❯" + nbsp, "greater-than": "> "} {
+		lines := liveIdleScreen("")
+		lines[3] = mark + text
+		v := readScreen(lines)
+		if !v.hasBox || v.box != text {
+			t.Fatalf("%s: view %+v", name, v)
+		}
+	}
+}
+
+// With no separator after the mark a numbered row still is a menu row and never a box, drawn with the arrow or with an ASCII greater-than,
+// with or without a space after the mark.
+func TestAMenuRowWithNoSeparatorIsStillAMenu(t *testing.T) {
+	for _, row := range []string{" ❯1. Yes", " ❯ 1. Yes", " >1. Yes", " > 1. Yes", " ❯" + nbsp + "1. Yes"} {
+		v := readScreen([]string{" Pick one", row, "   2. No"})
+		if v.hasBox || !v.menu {
+			t.Fatalf("%q: view %+v", row, v)
+		}
+	}
+}
+
+// A numbered menu row sitting inside a frame (rule above and below and a footer) is a menu, not a box with text in it: the send is refused.
+func TestAFramedMenuRowIsAMenuNotABox(t *testing.T) {
+	for _, row := range []string{">1. Yes", "> 1. Yes", "❯1. Yes", "❯ 1. Yes"} {
+		lines := liveIdleScreen("")
+		lines[3] = row
+		v := readScreen(lines)
+		if !v.menu {
+			t.Fatalf("%q: view %+v", row, v)
+		}
+		if err := checkIdle(v); err == nil {
+			t.Fatalf("%q: a framed menu row passed the idle check", row)
+		}
+	}
+}
+
+// Output that merely contains a comparison or a number after a greater-than, above an idle box, is not a menu: the send is not refused as "on a prompt".
+func TestComparisonsAndDecimalsInOutputAreNotMenuRows(t *testing.T) {
+	for _, output := range []string{
+		"version > 2.0 is required",
+		"needs node >3.5 or newer",
+		">3.5 is the ratio",
+		"> 3.5 is the ratio",
+		"row ❯ 1. in the middle of a line",
+		"the answer was 2. Then it stopped",
+		"│ x > 2.0",
+	} {
+		v := readScreen(append([]string{output}, liveIdleScreen("")...))
+		if v.menu || !v.hasBox {
+			t.Fatalf("%q: view %+v", output, v)
+		}
+		if err := checkIdle(v); err != nil {
+			t.Fatalf("%q: an idle box was refused: %v", output, err)
+		}
+	}
+}
+
+// A box that wraps over two lines is read whole.
+func TestAFramedTwoLineBoxIsReadWhole(t *testing.T) {
+	lines := liveIdleScreen("")
+	lines = append(lines[:4], append([]string{"  the second half of the text"}, lines[4:]...)...)
+	lines[3] = "❯the first half of the text"
+	v := readScreen(lines)
+	if !v.hasBox || v.box != "the first half of the text the second half of the text" || v.menu {
+		t.Fatalf("view %+v", v)
+	}
+}
+
+// A line of output that starts with a greater-than mark above an idle box changes nothing.
+func TestAQuotedOutputLineAboveAnIdleBoxChangesNothing(t *testing.T) {
+	lines := append([]string{"> a quoted line of output", "> 2 more lines were quoted"}, liveIdleScreen("")...)
+	v := readScreen(lines)
+	if !v.hasBox || v.box != "" || v.menu || v.busy {
+		t.Fatalf("view %+v", v)
+	}
+	if err := checkIdle(v); err != nil {
+		t.Fatalf("an idle box with quoted output above it was refused: %v", err)
 	}
 }
 

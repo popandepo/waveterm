@@ -761,10 +761,32 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Check 'account 2 copy: a dry run logs nothing' ($before -eq $after) "log lines $before -> $after"
     $dry = & $script -SessionId $id -ConfigDir $cfg -DryRun
     Check 'account 2 copy: a start on account 1 copies nothing' ($dry[4] -eq 'copy=') ($dry -join ' | ')
-    $beforeA1 = @(Get-Content -LiteralPath $swapLog).Count
-    $null = Run-Child 'unset' $cfg
-    $a1Lines = @(Get-Content -LiteralPath $swapLog)
-    Check 'account 2 copy: a start on account 1 logs no account2copy line' ($a1Lines.Count -eq $beforeA1 -or -not ($a1Lines[-1] -match 'account2copy')) ($a1Lines[-1])
+    # every line a start adds to the log is looked at, not only the last
+    # (the starter log keeps only its last 200 lines, so a count before and after cannot tell what one start added: each run gets a fresh log file instead)
+    function Lines-Added-By([scriptblock]$run) {
+        $saved = $env:RESUMABLE_TEST_LOG
+        $fresh = Join-Path $logDir ('fresh-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.log')
+        $made.Add($fresh)
+        $env:RESUMABLE_TEST_LOG = $fresh
+        try { $null = & $run } finally { $env:RESUMABLE_TEST_LOG = $saved }
+        if (Test-Path -LiteralPath $fresh) { return @(Get-Content -LiteralPath $fresh) } else { return @() }
+    }
+    $added = Lines-Added-By { Run-Child 'unset' $cfg }
+    Check 'account 2 copy: a start on account 1 adds no account2copy line' (@($added | Where-Object { $_ -match 'account2copy' }).Count -eq 0) ($added -join ' // ')
+    $added = Lines-Added-By { Run-Child 'unset' $acct2 }
+    $mine = @($added | Where-Object { $_ -match 'account2copy' })
+    Check 'account 2 copy: a start on account 2 adds exactly one account2copy line, ok, with both hashes' ($mine.Count -eq 1 -and $mine[0].EndsWith($want)) ($added -join ' // ')
+    # a copy that cannot finish: the destination is held open by another program (the share mode none), so Copy-Item cannot write it
+    $holdFile = Join-Path $acct2 'CLAUDE.md'
+    $hold = [IO.File]::Open($holdFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try { $added = Lines-Added-By { Run-Child 'unset' $acct2 } } finally { $hold.Dispose() }
+    $mine = @($added | Where-Object { $_ -match 'account2copy' })
+    Check 'account 2 copy: one file that cannot be copied is ONE line, partial, naming the failed file and the hash of the other' ($mine.Count -eq 1 -and $mine[0] -match ' account2copy=partial set=CLAUDE\.md:failed,settings\.json:' + (Hash12 (Join-Path $personal 'settings.json')) + '$') ($added -join ' // ')
+    $holdA = [IO.File]::Open((Join-Path $acct2 'CLAUDE.md'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    $holdB = [IO.File]::Open((Join-Path $acct2 'settings.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try { $added = Lines-Added-By { Run-Child 'unset' $acct2 } } finally { $holdA.Dispose(); $holdB.Dispose() }
+    $mine = @($added | Where-Object { $_ -match 'account2copy' })
+    Check 'account 2 copy: no file copied is ONE line, failed, naming both' ($mine.Count -eq 1 -and $mine[0] -match ' account2copy=failed set=CLAUDE\.md:failed,settings\.json:failed$') ($added -join ' // ')
     $below = Join-Path $acct2 'cfg'; Make-Dir $below
     $r = Run-Child 'unset' $below
     Check 'account 2 copy: a folder below the account 2 folder is not the account folder and copies nothing' ($r.Code -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $below 'CLAUDE.md')) -and -not (Test-Path -LiteralPath (Join-Path $below 'settings.json'))) $r.Text

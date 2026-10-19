@@ -478,21 +478,23 @@ if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
     }
 }
 # ---- account 2: the copy of account 1's CLAUDE.md and settings.json (planned above) ---------------------------------------------------------------------------
-# One line in the starter log per start that copied: account2copy=ok set=<file>:<first 12 hex of its SHA-256 after the copy>, so that a start can be shown to have
-# copied (and what), not only to have found equal files. A copy that failed is account2copy=failed with the names. The session starts either way.
+# ONE line in the starter log per start that tried to copy: account2copy=<ok|partial|failed> set=<file>:<first 12 hex of its SHA-256 after the copy, or "failed">,...
+# so that a start can be shown to have copied (and what), not only to have found equal files. ok: every planned file was copied; failed: none was; partial: some
+# were (the set says which). The session starts either way.
 if ($account2Copy.Count -gt 0) {
-    $copiedNames = @(); $failedNames = @()
+    $copyResults = @(); $copiedCount = 0
     foreach ($c in $account2Copy) {
         try {
             Copy-Item -LiteralPath $c.From -Destination $c.To -Force
-            $copiedNames += $c.Name + ':' + (Get-FileHash -LiteralPath $c.To -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+            $copyResults += $c.Name + ':' + (Get-FileHash -LiteralPath $c.To -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+            $copiedCount++
         } catch {
             [Console]::Error.WriteLine("Account 2 config: $($c.Name) was not copied: $($_.Exception.Message)")
-            $failedNames += $c.Name
+            $copyResults += $c.Name + ':failed'
         }
     }
-    if ($copiedNames.Count -gt 0) { Write-SwapLog 'ok' $copiedNames 'account2copy' }
-    if ($failedNames.Count -gt 0) { Write-SwapLog 'failed' $failedNames 'account2copy' }
+    $copyCode = if ($copiedCount -eq $account2Copy.Count) { 'ok' } elseif ($copiedCount -eq 0) { 'failed' } else { 'partial' }
+    Write-SwapLog $copyCode $copyResults 'account2copy'
 }
 # ---- the "trust this folder" question ---------------------------------------------------------------------------------------------------------------------
 # Claude asks once per folder whether to trust it, and the default answer is "No, exit". A session opened in a background tile then sits on that question

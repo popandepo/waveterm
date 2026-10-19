@@ -381,7 +381,71 @@ func TestSendCountsCharactersNotBytes(t *testing.T) {
 	}
 }
 
-func TestSendLogsLengthAndHashNeverTheText(t *testing.T) {
+// a screen is an input box only when its whole frame and Claude's footer are there; everything else is refused, whatever it looks like
+func TestSendRefusesALayoutThatIsNotPositivelyAnInputBox(t *testing.T) {
+	full := boxLines("")
+	cases := map[string][]string{
+		"prompt mark alone at the bottom": {"Pick one:", "  alpha", "❯"},
+		"a choice row without a number":   {" Allow this tool?", " ❯ Yes", "   No"},
+		"frame without the footer":        full[:4],
+		"footer without the frame":        {"> ", "  ? for shortcuts"},
+		"a menu's footer under the frame": append(append([]string{}, full[:4]...), "  Enter to select · Esc to exit"),
+		"no top border":                   {"  out", "│ >                  │", "╰────────────────────────────────────╯", "  ? for shortcuts"},
+		"no bottom border":                {"  out", "╭────────────────────────────────────╮", "│ >                  │", "  ? for shortcuts"},
+		"footer far below the frame":      append(append([]string{}, full[:4]...), "", "", "", "", "  ? for shortcuts"),
+		"a list menu with a prompt mark":  {"  Select a model", "╭────────────────────────────────────╮", "│ ❯                                  │", "╰────────────────────────────────────╯", "  Enter to select"},
+	}
+	for name, lines := range cases {
+		lines := lines
+		svc, fb, _ := newSendSvc(func([]string) []string { return lines })
+		if err := svc.Send(context.Background(), req("1")); err == nil {
+			t.Fatalf("%s: was sent", name)
+		}
+		wantNoWrites(t, fb)
+	}
+}
+
+func TestSendNoEnterWhenTheSecondLookIsNotPositivelyAnInputBox(t *testing.T) {
+	svc, fb, _ := newSendSvc(func(w []string) []string {
+		if len(w) == 0 {
+			return boxLines("")
+		}
+		return []string{"> " + typedAfter(w)}
+	})
+	if err := svc.Send(context.Background(), req("hi")); !errors.Is(err, ErrNotSent) {
+		t.Fatalf("got %v", err)
+	}
+	if len(fb.writes) != 1 {
+		t.Fatalf("a key followed the paste: %q", fb.writes)
+	}
+}
+
+func TestSendNoEnterWhenTheBlockChangedBeforeEnter(t *testing.T) {
+	for name, change := range map[string]func(*fakeBackend){
+		"the program exited": func(fb *fakeBackend) { fb.tree = sendTree("term", "exited", sessA) },
+		"another session":    func(fb *fakeBackend) { fb.tree = sendTree("term", "running", sessB) },
+		"the block is gone":  func(fb *fakeBackend) { fb.tree = []Workspace{} },
+	} {
+		var fb *fakeBackend
+		var svc *Service
+		svc, fb, _ = newSendSvc(func(w []string) []string {
+			if len(w) > 0 {
+				change(fb)
+			}
+			return followsPaste(w)
+		})
+		if err := svc.Send(context.Background(), req("hi")); err == nil {
+			t.Fatalf("%s: was sent", name)
+		}
+		for _, w := range fb.writes {
+			if w == "\r" {
+				t.Fatalf("%s: Enter written", name)
+			}
+		}
+	}
+}
+
+func TestSendLogsLengthNeverTheTextOrAHashOfIt(t *testing.T) {
 	svc, _, logs := newSendSvc(followsPaste)
 	secret := "hunter2-private-words"
 	if err := svc.Send(context.Background(), req(secret)); err != nil {
@@ -398,6 +462,12 @@ func TestSendLogsLengthAndHashNeverTheText(t *testing.T) {
 	}
 	if !strings.Contains((*logs)[0], fmt.Sprintf("len=%d", len(secret))) {
 		t.Fatalf("length missing: %q", (*logs)[0])
+	}
+	// a short text is recoverable from a short hash of it
+	for _, l := range *logs {
+		if strings.Contains(strings.ToLower(l), "hash") {
+			t.Fatalf("a hash of the text was logged: %q", l)
+		}
 	}
 }
 

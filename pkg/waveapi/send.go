@@ -5,8 +5,6 @@ package waveapi
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -32,11 +30,11 @@ const (
 	lookEvery    = 100 * time.Millisecond
 
 	// the input box is at the bottom of the screen; older lines can hold anything Claude printed
-	screenTail     = 30
-	promptTail     = 12
-	maxBoxLines    = 40
-	minRuleRunes   = 10
-	sendLogHashLen = 8
+	screenTail   = 30
+	promptTail   = 12
+	maxBoxLines  = 40
+	minRuleRunes = 10
+	footerLooks  = 3
 
 	// first characters that make Claude's input box act instead of send
 	boxCommandChars = "!/#@"
@@ -57,6 +55,8 @@ var (
 	promptRegexp = regexp.MustCompile(`^\s*│?\s*[>❯](?:\s(.*?))?\s*│?\s*$`)
 	menuRegexp   = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|do you want to|❯\s*\d+\.`)
 	busyRegexp   = regexp.MustCompile(`(?i)esc to interrupt`)
+	// the lines Claude Code writes under its input box; a menu's own footer (enter to select, esc to exit) is not one of them
+	footerRegexp = regexp.MustCompile(`(?i)\? for shortcuts|shift\+tab|⏵⏵|⏸|accept edits|bypass permissions|plan mode|esc to interrupt|context left`)
 	// a numbered row of a selection menu looks like a prompt line; text that starts with "1." after the prompt mark is
 	// read as a menu too, which refuses the send rather than risk answering one
 	optionRegexp = regexp.MustCompile(`❯\s*\d+\.`)
@@ -90,6 +90,17 @@ func isRule(line string) bool {
 	return strings.HasPrefix(t, "╰") || strings.Count(t, "─") >= minRuleRunes && strings.Trim(t, "─╭╮╰╯ ") == ""
 }
 
+// hasFooter looks at the few lines under the frame for one of Claude's own footer lines.
+func hasFooter(below []string) bool {
+	for i := 0; i < len(below) && i < footerLooks; i++ {
+		if strings.TrimSpace(below[i]) == "" {
+			continue
+		}
+		return footerRegexp.MatchString(below[i])
+	}
+	return false
+}
+
 func boxContent(line string) string {
 	t := strings.TrimSpace(line)
 	t = strings.TrimPrefix(t, "│")
@@ -110,8 +121,7 @@ func readScreen(lines []string) screenView {
 	}
 	var view screenView
 	end := start
-	if start >= 0 {
-		view.hasBox = true
+	if start >= 0 && start > 0 && isRule(lines[start-1]) {
 		m := promptRegexp.FindStringSubmatch(lines[start])
 		var parts []string
 		if m[1] != "" {
@@ -120,11 +130,17 @@ func readScreen(lines []string) screenView {
 		for end = start + 1; end < len(lines) && end-start < maxBoxLines && !isRule(lines[end]); end++ {
 			parts = append(parts, boxContent(lines[end]))
 		}
-		view.box = strings.Join(parts, " ")
+		// The prompt mark alone is not an input box: a selection menu draws one too. The box is the whole frame, a rule above
+		// and a rule below, with Claude's own footer under it; anything short of that is not recognized.
+		if end < len(lines) && hasFooter(lines[end+1:]) {
+			view.hasBox = true
+			view.box = strings.Join(parts, " ")
+			start--
+		}
 		end--
 	}
 	for i, l := range lines {
-		if view.hasBox && i >= start && i <= end {
+		if view.hasBox && i >= start && i <= end+1 {
 			continue
 		}
 		view.menu = view.menu || menuRegexp.MatchString(l)
@@ -169,11 +185,6 @@ func CheckSendText(text string) error {
 		break
 	}
 	return nil
-}
-
-func textHash(text string) string {
-	sum := sha256.Sum256([]byte(text))
-	return hex.EncodeToString(sum[:])[:sendLogHashLen]
 }
 
 func (s *Service) logf(format string, args ...any) {
@@ -234,14 +245,19 @@ func (s *Service) ScreenOf(ctx context.Context, blockId string) ([]string, error
 // Send puts one message into the input box of the Claude session in a block and submits it. The checks and the writes
 // are one sequence under the block's lock, and every write follows a look made in the same sequence: the text goes in as
 // one bracketed paste, so a menu that opened after the look cannot take it as an answer, and Enter is written only after
-// a second look shows the text in the box and nothing else going on.
+// a second look shows the text in the box and nothing else going on. The block's session and state are read again right
+// before Enter.
+//
+// Known limit: between the last look and the byte reaching the program a few milliseconds remain in which Claude's own screen
+// can change (a menu opening after the look). The paste keeps that from answering a menu, but an Enter in that window is
+// not prevented. The log holds the block id and the length only: a short text is recoverable from a short hash of it.
 func (s *Service) Send(ctx context.Context, r SendRequest) (rtnErr error) {
 	defer func() {
 		result := "sent"
 		if rtnErr != nil {
 			result = rtnErr.Error()
 		}
-		s.logf("waveapi: send block=%s len=%d hash=%s result=%q", truncateForError(r.BlockId), utf8.RuneCountInString(r.Text), textHash(r.Text), truncateForError(result))
+		s.logf("waveapi: send block=%s len=%d result=%q", truncateForError(r.BlockId), utf8.RuneCountInString(r.Text), truncateForError(result))
 	}()
 	if err := CheckSendText(r.Text); err != nil {
 		return err
@@ -256,15 +272,8 @@ func (s *Service) Send(ctx context.Context, r SendRequest) (rtnErr error) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	blk, err := s.locateTerminal(ctx, r.BlockId)
-	if err != nil {
+	if err := s.checkTarget(ctx, r); err != nil {
 		return err
-	}
-	if blk.SessionId == "" || blk.SessionId != r.ExpectSession {
-		return ErrWrongSession
-	}
-	if blk.View != "term" || blk.Status != blockStatusRunning {
-		return ErrNotRunning
 	}
 
 	lines, err := s.B.Screen(ctx, r.BlockId)
@@ -278,6 +287,21 @@ func (s *Service) Send(ctx context.Context, r SendRequest) (rtnErr error) {
 		return err
 	}
 	return s.submitWhenShown(ctx, r)
+}
+
+// checkTarget reads the block again: it must still run the expected session, as a running terminal.
+func (s *Service) checkTarget(ctx context.Context, r SendRequest) error {
+	blk, err := s.locateTerminal(ctx, r.BlockId)
+	if err != nil {
+		return err
+	}
+	if blk.SessionId == "" || blk.SessionId != r.ExpectSession {
+		return ErrWrongSession
+	}
+	if blk.View != "term" || blk.Status != blockStatusRunning {
+		return ErrNotRunning
+	}
+	return nil
 }
 
 func checkIdle(v screenView) error {
@@ -312,6 +336,10 @@ func (s *Service) submitWhenShown(ctx context.Context, r SendRequest) error {
 		if v.busy {
 			_ = s.B.Input(ctx, r.BlockId, []byte(clearLine))
 			return ErrNotSent
+		}
+		// When the block changed after the first check, the box is not ours to touch: no Enter and no clearing.
+		if err := s.checkTarget(ctx, r); err != nil {
+			return err
 		}
 		return s.B.Input(ctx, r.BlockId, []byte(enterKey))
 	}

@@ -731,11 +731,37 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Check 'a folder under .claude-personal is accepted without the throwaway switch' ($dry[1] -eq "config=$cfg") ($dry -join ' | ')
     # account 2 (R-20261014-008): .claude-personal2 is the second personal folder; a look-alike is not
     $acct2 = Join-Path $profileDir '.claude-personal2'; Make-Dir $acct2
+    # account 2 keeps no CLAUDE.md or settings.json of its own: both are copied from account 1 at every start (a stale copy once missed a hook)
+    Make-File (Join-Path $personal 'CLAUDE.md') 'rules one'
+    Make-File (Join-Path $personal 'settings.json') '{"hooks":"one"}'
     $dry = @(& pwsh -NoProfile -File $script -SessionId $id -ConfigDir $acct2 -DryRun 2>&1)
     Check 'account 2: .claude-personal2 is accepted without the throwaway switch' ($dry.Count -ge 2 -and $dry[1] -eq "config=$acct2") ($dry -join ' | ')
     $look = Join-Path $profileDir '.claude-personal2x'; Make-Dir $look
     & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $look -DryRun 2>$null | Out-Null
     Check '.claude-personal2x is refused with exit code 2' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
+    $dry = @(& pwsh -NoProfile -File $script -SessionId $id -ConfigDir $acct2 -DryRun 2>&1)
+    Check 'account 2 copy: a dry run names both files and writes neither' ($dry.Count -ge 5 -and $dry[4] -eq 'copy=CLAUDE.md,settings.json' -and -not (Test-Path -LiteralPath (Join-Path $acct2 'CLAUDE.md')) -and -not (Test-Path -LiteralPath (Join-Path $acct2 'settings.json'))) ($dry -join ' | ')
+    $r = Run-Child 'unset' $acct2
+    Check 'account 2 copy: a start copies CLAUDE.md and settings.json from account 1 and the session starts' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and (Get-Content -LiteralPath (Join-Path $acct2 'CLAUDE.md') -Raw).Trim() -eq 'rules one' -and (Get-Content -LiteralPath (Join-Path $acct2 'settings.json') -Raw).Trim() -eq '{"hooks":"one"}') $r.Text
+    $made.Add((Join-Path $acct2 'CLAUDE.md')); $made.Add((Join-Path $acct2 'settings.json'))
+    Set-Content -LiteralPath (Join-Path $personal 'CLAUDE.md') -Value 'rules two'
+    Set-Content -LiteralPath (Join-Path $personal 'settings.json') -Value '{"hooks":"two"}'
+    $r = Run-Child 'unset' $acct2
+    Check 'account 2 copy: a later start replaces an older copy' ($r.Code -eq 0 -and (Get-Content -LiteralPath (Join-Path $acct2 'CLAUDE.md') -Raw).Trim() -eq 'rules two' -and (Get-Content -LiteralPath (Join-Path $acct2 'settings.json') -Raw).Trim() -eq '{"hooks":"two"}') $r.Text
+    $dry = & $script -SessionId $id -ConfigDir $cfg -DryRun
+    Check 'account 2 copy: a start on account 1 copies nothing' ($dry[4] -eq 'copy=') ($dry -join ' | ')
+    $below = Join-Path $acct2 'cfg'; Make-Dir $below
+    $r = Run-Child 'unset' $below
+    Check 'account 2 copy: a folder below the account 2 folder is not the account folder and copies nothing' ($r.Code -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $below 'CLAUDE.md')) -and -not (Test-Path -LiteralPath (Join-Path $below 'settings.json'))) $r.Text
+    $savedSettings = Join-Path $personal 'settings.json'
+    Remove-Item -LiteralPath $savedSettings
+    Set-Content -LiteralPath (Join-Path $personal 'CLAUDE.md') -Value 'rules three'
+    $r = Run-Child 'unset' $acct2
+    Check 'account 2 copy: a missing source is skipped with a warning, the other file is copied, the session starts' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and $r.Text -match 'settings.json was not copied' -and (Get-Content -LiteralPath (Join-Path $acct2 'CLAUDE.md') -Raw).Trim() -eq 'rules three' -and (Get-Content -LiteralPath (Join-Path $acct2 'settings.json') -Raw).Trim() -eq '{"hooks":"two"}') $r.Text
+    Make-Dir $savedSettings
+    $r = Run-Child 'unset' $acct2
+    Check 'account 2 copy: a folder in place of a source file is skipped, the session starts' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and $r.Text -match 'settings.json was not copied') $r.Text
+    [IO.Directory]::Delete($savedSettings); $made.Remove($savedSettings) | Out-Null
     $dry = & $script -SessionId $id -ConfigDir $throw -ThrowawayConfig -DryRun
     Check 'a throwaway folder is accepted with the switch' ($dry[1] -eq "config=$throw") ($dry -join ' | ')
     $dry = & $script -SessionId $id -ConfigDir $junc.Replace('to-old', 'cfg') -DryRun

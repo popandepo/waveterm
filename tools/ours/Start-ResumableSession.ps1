@@ -243,7 +243,32 @@ function Get-ClaudeArgs {
 # The manager session (and only it) compacts at 300k tokens instead of the default (R-20261016-007; the same line as
 # MalfestioMaster tools\Start-Session.ps1). It is set after the CLAUDE* clean-up below, which would otherwise remove it.
 $compactWindow = if ($SessionId -eq '3c641601-9a7a-44be-a93c-e5a89419429b') { '300000' } else { '' }
-if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; return }
+# Account 2 has its own login and nothing else of its own: CLAUDE.md and settings.json are copies of account 1's, refreshed at every start the way the
+# claude-personal2 command does it (a file link needs admin here). A session started without the refresh ran on an old copy and missed a hook.
+# Only when the folder IS the account 2 folder, and only plain files whose own final place is below account 1's folder (never a link, so nothing outside it
+# is ever read). A file that is missing or not plain is skipped with a warning on stderr; the session still starts.
+function Get-Account2CopyPlan {
+    $homeFinal = Get-FinalPath $env:USERPROFILE
+    if (-not $homeFinal -or $ConfigDir -ine "$homeFinal\.claude-personal2") { return @() }
+    $from = "$homeFinal\.claude-personal"
+    $plan = @()
+    foreach ($name in 'CLAUDE.md', 'settings.json') {
+        $src = Join-Path $from $name
+        $item = Get-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue
+        if (-not $item -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            [Console]::Error.WriteLine("Account 2 config: $name was not copied, $src is missing or not a plain file.")
+            continue
+        }
+        $plan += [pscustomobject]@{ Name = $name; From = $src; To = Join-Path $ConfigDir $name }
+    }
+    return $plan
+}
+$account2Copy = @(Get-Account2CopyPlan)
+if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; return }
+foreach ($c in $account2Copy) {
+    try { Copy-Item -LiteralPath $c.From -Destination $c.To -Force }
+    catch { [Console]::Error.WriteLine("Account 2 config: $($c.Name) was not copied: $($_.Exception.Message)") }
+}
 
 Get-ChildItem env: |
     Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',

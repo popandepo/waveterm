@@ -25,28 +25,29 @@ export async function preloadAllTabs(
     return loaded;
 }
 
-const SessionIdMetaKey = "session:id";
-const SessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const MaxPinnedTabs = 16;
 
-// A block is a session block when its meta names a Claude session the way the local API reads it (a lowercase uuid).
-export function isSessionBlock(block: { meta?: Record<string, any> } | null | undefined): boolean {
-    const id = block?.meta?.[SessionIdMetaKey];
-    return typeof id === "string" && SessionIdPattern.test(id);
-}
-
-// Only a tab that holds a session block is kept loaded: the phone needs the screens of sessions, and pinning every tab
-// that was ever shown would keep all their memory. Throws when an object cannot be read; the caller decides what that means.
-export async function tabHoldsSessionBlock(getObject: (oref: string) => Promise<any>, tabId: string): Promise<boolean> {
-    const tab = await getObject("tab:" + tabId);
-    for (const blockId of tab?.blockids ?? []) {
-        if (isSessionBlock(await getObject("block:" + blockId))) {
+// The tabs loaded at boot are pinned so the cache never unloads them (their blocks' screens exist only while the page is
+// loaded). A pin is never released, and only the boot pass pins, so the count cannot grow after boot. Past the cap a tab
+// is left unpinned and a line says so.
+export function makeTabPinner(cap: number, log: (line: string) => void): (view: { waveTabId: string; keepLoaded: boolean }) => boolean {
+    const pinned = new Set<string>();
+    return (view) => {
+        if (pinned.has(view.waveTabId)) {
+            view.keepLoaded = true;
             return true;
         }
-    }
-    return false;
+        if (pinned.size >= cap) {
+            log(`[error] tab ${view.waveTabId} is not kept loaded: ${cap} tabs are already pinned`);
+            return false;
+        }
+        pinned.add(view.waveTabId);
+        view.keepLoaded = true;
+        return true;
+    };
 }
 
-// A loaded view is dropped to make room only when it is not the active tab, was not pinned (it holds a session block),
+// A loaded view is dropped to make room only when it is not the active tab, was not pinned at boot,
 // and was not used a moment ago.
 export function canEvictTabView(view: { isActiveTab: boolean; keepLoaded: boolean }, msSinceUsed: number): boolean {
     if (view.isActiveTab || view.keepLoaded) {

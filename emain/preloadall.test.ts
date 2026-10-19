@@ -4,61 +4,57 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { canEvictTabView, isSessionBlock, preloadAllTabs, tabHoldsSessionBlock } from "./preloadall";
+import { canEvictTabView, makeTabPinner, MaxPinnedTabs, preloadAllTabs } from "./preloadall";
 
-const SessionA = "3c641601-9a7a-44be-a93c-e5a89419429b";
-
-function objects(tab: string[], blocks: Record<string, any>) {
-    return async (oref: string) => {
-        if (oref === "tab:t1") {
-            return { blockids: tab };
-        }
-        if (oref.startsWith("block:") && oref.slice(6) in blocks) {
-            return blocks[oref.slice(6)];
-        }
-        throw new Error("no such object " + oref);
-    };
+function view(id: string) {
+    return { waveTabId: id, keepLoaded: false };
 }
 
-describe("which tabs are kept loaded", () => {
-    test("a block is a session block only with a lowercase uuid in session:id", () => {
-        expect(isSessionBlock({ meta: { "session:id": SessionA } })).toBe(true);
-        expect(isSessionBlock({ meta: { "session:id": SessionA.toUpperCase() } })).toBe(false);
-        expect(isSessionBlock({ meta: { "session:id": "not-a-uuid" } })).toBe(false);
-        expect(isSessionBlock({ meta: { "session:id": 7 } })).toBe(false);
-        expect(isSessionBlock({ meta: {} })).toBe(false);
-        expect(isSessionBlock({})).toBe(false);
-        expect(isSessionBlock(null)).toBe(false);
+describe("pinning the tabs loaded at boot", () => {
+    test("the cap is 16", () => {
+        expect(MaxPinnedTabs).toBe(16);
     });
 
-    test("a tab holds a session block when any of its blocks is one", async () => {
-        const get = objects(["a", "b", "c"], {
-            a: { meta: { view: "term" } },
-            b: { meta: { view: "web" } },
-            c: { meta: { view: "term", "session:id": SessionA } },
-        });
-        expect(await tabHoldsSessionBlock(get, "t1")).toBe(true);
+    test("tabs are pinned up to the cap, and the first one past it is left unpinned with a log line", () => {
+        const lines: string[] = [];
+        const pin = makeTabPinner(3, (l) => lines.push(l));
+        const views = ["a", "b", "c", "d", "e"].map(view);
+        const results = views.map((v) => pin(v));
+        expect(results).toEqual([true, true, true, false, false]);
+        expect(views.map((v) => v.keepLoaded)).toEqual([true, true, true, false, false]);
+        expect(lines.length).toBe(2);
+        expect(lines[0]).toContain("tab d");
+        expect(lines[0]).toContain("3 tabs are already pinned");
     });
 
-    test("a tab of plain shells, or an empty tab, is not pinned", async () => {
-        expect(await tabHoldsSessionBlock(objects(["a"], { a: { meta: { view: "term" } } }), "t1")).toBe(false);
-        expect(await tabHoldsSessionBlock(objects([], {}), "t1")).toBe(false);
+    test("pinning a tab twice counts it once", () => {
+        const pin = makeTabPinner(2, () => {});
+        const a = view("a");
+        expect(pin(a)).toBe(true);
+        expect(pin(a)).toBe(true);
+        expect(pin(view("b"))).toBe(true);
+        expect(pin(view("c"))).toBe(false);
     });
 
-    test("an unreadable object is an error for the caller to decide on, not a quiet false", async () => {
-        await expect(tabHoldsSessionBlock(objects(["missing"], {}), "t1")).rejects.toThrow();
+    test("a pin is never released by the pinner", () => {
+        const pin = makeTabPinner(1, () => {});
+        const a = view("a");
+        pin(a);
+        pin(view("b"));
+        expect(a.keepLoaded).toBe(true);
     });
 
-    test("the window decides the pin from the tab's blocks at every load and every show, and never pins unconditionally", () => {
+    test("only the boot pass pins: the window pins the active tab and each tab it preloaded, and nothing else sets keepLoaded", () => {
         const src = readFileSync(path.join(__dirname, "emain-window.ts"), "utf8");
-        const pins = src.match(/keepLoaded = (.*);/g) ?? [];
-        expect(pins).toEqual(["keepLoaded = await tabHoldsSessionBlock((oref) => ObjectService.GetObject(oref), tabView.waveTabId);", "keepLoaded = true;"]);
-        const preload = src.slice(src.indexOf("async preloadTab("), src.indexOf("async preloadAllTabs("));
-        expect(preload).toContain("await this.pinIfSessionTab(tabView);");
+        expect(src.match(/keepLoaded/g) ?? []).toEqual([]);
+        const boot = src.slice(src.indexOf("async preloadAllTabs("), src.indexOf("async tabClosedInBackend("));
+        expect(boot).toContain("pinTabAtBoot(this.activeTabView)");
+        expect(boot).toContain("await this.preloadTab(tabId);");
+        expect(boot).toContain("pinTabAtBoot(view)");
         const show = src.slice(src.indexOf("private async setTabViewIntoWindow("), src.indexOf("private finalizePositioning("));
-        expect(show).toContain("this.pinIfSessionTab(tabView)");
-        const catchBlock = src.slice(src.indexOf("private async pinIfSessionTab("), src.indexOf("async preloadAllTabs("));
-        expect(catchBlock.indexOf("keepLoaded = true;")).toBeGreaterThan(catchBlock.indexOf("catch (err)"));
+        const preload = src.slice(src.indexOf("async preloadTab("), src.indexOf("async preloadAllTabs("));
+        expect(show).not.toContain("pinTabAtBoot");
+        expect(preload).not.toContain("pinTabAtBoot");
     });
 });
 
@@ -109,7 +105,7 @@ describe("preloading every tab", () => {
 });
 
 describe("which loaded views the cache may drop", () => {
-    test("a background-loaded view is never dropped, however old", () => {
+    test("a pinned view is never dropped, however old", () => {
         expect(canEvictTabView({ isActiveTab: false, keepLoaded: true }, 10 * 60 * 1000)).toBe(false);
     });
     test("the active tab is never dropped", () => {

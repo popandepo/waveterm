@@ -20,13 +20,14 @@ import {
 } from "./emain-activity";
 import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
-import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
+import { getOrCreateWebViewForTab, getWaveTabView, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
-import { preloadAllTabs, tabHoldsSessionBlock } from "./preloadall";
+import { makeTabPinner, MaxPinnedTabs, preloadAllTabs } from "./preloadall";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
 const DevInitDiagnosticMs = 5000;
+const pinTabAtBoot = makeTabPinner(MaxPinnedTabs, console.log);
 
 export type WindowOpts = {
     unamePlatform: NodeJS.Platform;
@@ -512,7 +513,6 @@ export class WaveBrowserWindow extends BaseWindow {
             return;
         }
         const oldActiveView = this.activeTabView;
-        fireAndForget(() => this.pinIfSessionTab(tabView));
         tabView.isActiveTab = true;
         if (oldActiveView != null) {
             oldActiveView.isActiveTab = false;
@@ -564,7 +564,6 @@ export class WaveBrowserWindow extends BaseWindow {
             throw new Error(`window ${this.waveWindowId} was closed before tab ${tabId} could be loaded`);
         }
         const [tabView, tabInitialized] = await getOrCreateWebViewForTab(this.waveWindowId, tabId);
-        await this.pinIfSessionTab(tabView);
         if (tabInitialized) {
             return;
         }
@@ -580,24 +579,23 @@ export class WaveBrowserWindow extends BaseWindow {
         }
     }
 
-    // Decided again at every load and every show, so a session block added later pins the tab and the last one removed releases it.
-    // When the tab cannot be read it stays pinned: a screen lost for good is worse than a view kept a while longer.
-    private async pinIfSessionTab(tabView: WaveTabView) {
-        try {
-            tabView.keepLoaded = await tabHoldsSessionBlock((oref) => ObjectService.GetObject(oref), tabView.waveTabId);
-        } catch (err) {
-            console.log(`[error] could not read tab ${tabView.waveTabId} to decide whether to keep it loaded:`, err);
-            tabView.keepLoaded = true;
-        }
-    }
-
-    // Loads every other tab of this window's workspace in the background (see preloadAllTabs), so each block has a screen.
+    // Boot only: pins the window's active tab, then loads and pins every other tab of its workspace (see preloadAllTabs and
+    // makeTabPinner), so each block has a screen that stays.
     async preloadAllTabs(): Promise<number> {
         const workspace = await WorkspaceService.GetWorkspace(this.workspaceId);
+        if (this.activeTabView != null) {
+            pinTabAtBoot(this.activeTabView);
+        }
         return await preloadAllTabs(
             workspace?.tabids ?? [],
             this.activeTabView?.waveTabId ?? workspace?.activetabid ?? "",
-            (tabId) => this.preloadTab(tabId),
+            async (tabId) => {
+                await this.preloadTab(tabId);
+                const view = getWaveTabView(tabId);
+                if (view != null) {
+                    pinTabAtBoot(view);
+                }
+            },
             (tabId, err) => console.log(`[error] background load of tab ${tabId} failed:`, err)
         );
     }

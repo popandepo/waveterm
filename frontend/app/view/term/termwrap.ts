@@ -37,6 +37,7 @@ import {
     type ShellIntegrationStatus,
 } from "./osc-handlers";
 import { makeTermLinkHandlers } from "./term-links";
+import { firstTermSize } from "./termsize";
 import {
     bufferLinesToText,
     createTempFileFromBlob,
@@ -560,6 +561,12 @@ export class TermWrap {
         const oldRows = this.terminal.rows;
         const oldCols = this.terminal.cols;
         this.fitAddon.fit();
+        if (!this.hasResized) {
+            const first = firstTermSize({ cols: this.terminal.cols, rows: this.terminal.rows });
+            if (first.cols !== this.terminal.cols || first.rows !== this.terminal.rows) {
+                this.terminal.resize(first.cols, first.rows);
+            }
+        }
         if (oldRows !== this.terminal.rows || oldCols !== this.terminal.cols) {
             const termSize: TermSize = { rows: this.terminal.rows, cols: this.terminal.cols };
             console.log(

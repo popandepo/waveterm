@@ -22,6 +22,7 @@ import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
 import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
+import { preloadAllTabs } from "./preloadall";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
@@ -562,6 +563,7 @@ export class WaveBrowserWindow extends BaseWindow {
             throw new Error(`window ${this.waveWindowId} was closed before tab ${tabId} could be loaded`);
         }
         const [tabView, tabInitialized] = await getOrCreateWebViewForTab(this.waveWindowId, tabId);
+        tabView.keepLoaded = true;
         if (tabInitialized) {
             return;
         }
@@ -575,6 +577,17 @@ export class WaveBrowserWindow extends BaseWindow {
             // Only reported: calling focus() here could itself take focus from another program.
             console.log(`[error] preloaded tab ${tabId} reports keyboard focus while parked off screen`);
         }
+    }
+
+    // Loads every other tab of this window's workspace in the background (see preloadAllTabs), so each block has a screen.
+    async preloadAllTabs(): Promise<number> {
+        const workspace = await WorkspaceService.GetWorkspace(this.workspaceId);
+        return await preloadAllTabs(
+            workspace?.tabids ?? [],
+            this.activeTabView?.waveTabId ?? workspace?.activetabid ?? "",
+            (tabId) => this.preloadTab(tabId),
+            (tabId, err) => console.log(`[error] background load of tab ${tabId} failed:`, err)
+        );
     }
 
     // The backend has already deleted the tab (SessionCloseTab); this tidies the window the way a close from the tab bar would.
@@ -1057,6 +1070,12 @@ export async function relaunchBrowserWindows() {
     for (const win of wins) {
         console.log("show window", win.waveWindowId);
         win.show();
+    }
+    for (const win of wins) {
+        fireAndForget(async () => {
+            const n = await win.preloadAllTabs();
+            console.log("relaunch -- loaded", n, "background tabs for window", win.waveWindowId);
+        });
     }
 }
 

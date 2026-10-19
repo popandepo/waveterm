@@ -67,8 +67,11 @@ const menuRowPattern = `^\s*│?\s*[>❯]\s*\d+\.(?:\s|$)`
 var (
 	// the text follows the prompt mark with no separator at all once something is typed (live: "❯Reply with ..."), after a no-break space when the box is empty
 	promptRegexp = regexp.MustCompile(`^\s*│?\s*[>❯](?:\s?(.*?))?\s*│?\s*$`)
-	menuRegexp   = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|do you want to|` + menuRowPattern)
-	busyRegexp   = regexp.MustCompile(`(?i)esc to interrupt`)
+	// The question of a permission menu is drawn at the start of its line, so it is anchored like the numbered rows; the footers (esc to cancel,
+	// enter to confirm) can come after other words on a line ("enter to select · esc to cancel") and are not. A line of output that itself
+	// starts with the question is still read as a menu, which refuses the send.
+	menuRegexp = regexp.MustCompile(`(?i)esc to cancel|enter to confirm|^\s*│?\s*do you want to\b|` + menuRowPattern)
+	busyRegexp = regexp.MustCompile(`(?i)esc to interrupt`)
 	// the lines Claude Code writes under its input box; a menu's own footer (enter to select, esc to exit) is not one of them
 	footerRegexp = regexp.MustCompile(`(?i)\? for shortcuts|shift\+tab|⏵⏵|⏸|accept edits|bypass permissions|plan mode|esc to interrupt|context left`)
 	// a numbered row of a selection menu looks like a prompt line; text that starts with "1." after the prompt mark is

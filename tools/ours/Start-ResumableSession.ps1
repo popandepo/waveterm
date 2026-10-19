@@ -485,8 +485,11 @@ if ($account2Copy.Count -gt 0) {
     $copyResults = @(); $copiedCount = 0
     foreach ($c in $account2Copy) {
         try {
-            Copy-Item -LiteralPath $c.From -Destination $c.To -Force
-            $copyResults += $c.Name + ':' + (Get-FileHash -LiteralPath $c.To -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
+            Copy-Item -LiteralPath $c.From -Destination $c.To -Force -ErrorAction Stop
+            # a copy that raised nothing but left the old file (a destination that denies writes) must not be logged as done
+            $copiedHash = (Get-FileHash -LiteralPath $c.To -Algorithm SHA256).Hash
+            if ($copiedHash -ne (Get-FileHash -LiteralPath $c.From -Algorithm SHA256).Hash) { throw 'the file at the destination is not the source' }
+            $copyResults += $c.Name + ':' + $copiedHash.Substring(0, 12).ToLowerInvariant()
             $copiedCount++
         } catch {
             [Console]::Error.WriteLine("Account 2 config: $($c.Name) was not copied: $($_.Exception.Message)")

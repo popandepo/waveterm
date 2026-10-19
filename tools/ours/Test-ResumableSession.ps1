@@ -787,6 +787,15 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     try { $added = Lines-Added-By { Run-Child 'unset' $acct2 } } finally { $holdA.Dispose(); $holdB.Dispose() }
     $mine = @($added | Where-Object { $_ -match 'account2copy' })
     Check 'account 2 copy: no file copied is ONE line, failed, naming both' ($mine.Count -eq 1 -and $mine[0] -match ' account2copy=failed set=CLAUDE\.md:failed,settings\.json:failed$') ($added -join ' // ')
+    # a destination that can be read but denies writes: the old file is still there, and the start must not log it as copied
+    Set-Content -LiteralPath (Join-Path $personal 'CLAUDE.md') -Value 'rules denied'
+    $denyFile = Join-Path $acct2 'CLAUDE.md'
+    $denyAcl = Get-Acl -LiteralPath $denyFile
+    $denyRule = [Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.WindowsIdentity]::GetCurrent().Name, 'WriteData,AppendData,WriteAttributes,WriteExtendedAttributes', 'Deny')
+    $denyAcl.AddAccessRule($denyRule); Set-Acl -LiteralPath $denyFile -AclObject $denyAcl
+    try { $added = Lines-Added-By { Run-Child 'unset' $acct2 } } finally { $undo = Get-Acl -LiteralPath $denyFile; $null = $undo.RemoveAccessRule($denyRule); Set-Acl -LiteralPath $denyFile -AclObject $undo }
+    $mine = @($added | Where-Object { $_ -match 'account2copy' })
+    Check 'account 2 copy: a destination that denies writes is logged as failed, never ok, and keeps its old content' ($mine.Count -eq 1 -and $mine[0] -match ' account2copy=partial set=CLAUDE\.md:failed,settings\.json:' -and (Text-Of $denyFile) -eq 'rules two') ($added -join ' // ') + " // content: $(Text-Of $denyFile)"
     $below = Join-Path $acct2 'cfg'; Make-Dir $below
     $r = Run-Child 'unset' $below
     Check 'account 2 copy: a folder below the account 2 folder is not the account folder and copies nothing' ($r.Code -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $below 'CLAUDE.md')) -and -not (Test-Path -LiteralPath (Join-Path $below 'settings.json'))) $r.Text

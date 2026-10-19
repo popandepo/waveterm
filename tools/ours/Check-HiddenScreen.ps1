@@ -1,7 +1,32 @@
 # Live check for the local API: every terminal block in a tab that is not the active one must answer /v1/screen with 200
 # and lines. Prints counts only, never screen text. Exit 0 when every hidden terminal block answers 200 with lines, 1 otherwise
 # (also when there is no hidden terminal block to look at, since then nothing was checked).
-param([string]$ApiDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\api'))
+param([string]$ApiDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\api'), [switch]$SelfTest)
+
+# The number of screen lines an answer holds: 0 for anything but 200, and for a 200 whose lines are missing, null or empty.
+function Get-ScreenLineCount([int]$status, [string]$text) {
+    if ($status -ne 200) { return 0 }
+    $lines = ($text | ConvertFrom-Json).lines
+    if ($null -eq $lines) { return 0 }
+    return @($lines).Count
+}
+
+if ($SelfTest) {
+    $cases = @(
+        @('200 with lines', 200, '{"lines":["a","b"]}', 2),
+        @('200 with one line', 200, '{"lines":["a"]}', 1),
+        @('200 with null lines', 200, '{"lines":null}', 0),
+        @('200 with an empty list', 200, '{"lines":[]}', 0),
+        @('200 without lines', 200, '{}', 0),
+        @('409 not loaded', 409, '{"error":"the terminal view of this block is not loaded"}', 0),
+        @('500', 500, '{"error":"internal error"}', 0))
+    $failed = 0
+    foreach ($c in $cases) {
+        $got = Get-ScreenLineCount $c[1] $c[2]
+        if ($got -eq $c[3]) { "GREEN $($c[0])" } else { $failed++; "RED   $($c[0]): got $got, want $($c[3])" }
+    }
+    exit $(if ($failed) { 1 } else { 0 })
+}
 
 $token = (Get-Content -Raw (Join-Path $ApiDir 'api-token')).Trim()
 $sock = Join-Path $ApiDir 'wave-api.sock'
@@ -43,8 +68,7 @@ foreach ($ws in $tree.workspaces) {
 $ok = 0; $bad = 0
 foreach ($b in $hidden) {
     $r = Call '/v1/screen' @{ blockid = $b.blockid }
-    $lines = if ($r.Status -eq 200) { ($r.Text | ConvertFrom-Json).lines } else { $null }
-    $n = if ($null -eq $lines) { 0 } else { @($lines).Count }
+    $n = Get-ScreenLineCount $r.Status $r.Text
     if ($r.Status -eq 200 -and $n -gt 0) { $ok++ } else { $bad++; "block $($b.blockid): status $($r.Status), $n lines" }
 }
 "hidden terminal blocks: $($hidden.Count), readable: $ok, not readable: $bad"

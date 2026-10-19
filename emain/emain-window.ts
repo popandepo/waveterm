@@ -22,7 +22,7 @@ import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
 import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
-import { preloadAllTabs } from "./preloadall";
+import { preloadAllTabs, tabHoldsSessionBlock } from "./preloadall";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
@@ -512,8 +512,7 @@ export class WaveBrowserWindow extends BaseWindow {
             return;
         }
         const oldActiveView = this.activeTabView;
-        // a tab that has been shown is pinned like a background-loaded one: unloading it later would take its blocks' screens away
-        tabView.keepLoaded = true;
+        fireAndForget(() => this.pinIfSessionTab(tabView));
         tabView.isActiveTab = true;
         if (oldActiveView != null) {
             oldActiveView.isActiveTab = false;
@@ -565,7 +564,7 @@ export class WaveBrowserWindow extends BaseWindow {
             throw new Error(`window ${this.waveWindowId} was closed before tab ${tabId} could be loaded`);
         }
         const [tabView, tabInitialized] = await getOrCreateWebViewForTab(this.waveWindowId, tabId);
-        tabView.keepLoaded = true;
+        await this.pinIfSessionTab(tabView);
         if (tabInitialized) {
             return;
         }
@@ -578,6 +577,17 @@ export class WaveBrowserWindow extends BaseWindow {
         if (tabView.webContents != null && !tabView.webContents.isDestroyed() && tabView.webContents.isFocused()) {
             // Only reported: calling focus() here could itself take focus from another program.
             console.log(`[error] preloaded tab ${tabId} reports keyboard focus while parked off screen`);
+        }
+    }
+
+    // Decided again at every load and every show, so a session block added later pins the tab and the last one removed releases it.
+    // When the tab cannot be read it stays pinned: a screen lost for good is worse than a view kept a while longer.
+    private async pinIfSessionTab(tabView: WaveTabView) {
+        try {
+            tabView.keepLoaded = await tabHoldsSessionBlock((oref) => ObjectService.GetObject(oref), tabView.waveTabId);
+        } catch (err) {
+            console.log(`[error] could not read tab ${tabView.waveTabId} to decide whether to keep it loaded:`, err);
+            tabView.keepLoaded = true;
         }
     }
 

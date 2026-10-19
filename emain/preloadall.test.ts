@@ -23,8 +23,30 @@ describe("pinning the tabs loaded at boot", () => {
         expect(results).toEqual([true, true, true, false, false]);
         expect(views.map((v) => v.keepLoaded)).toEqual([true, true, true, false, false]);
         expect(lines.length).toBe(2);
-        expect(lines[0]).toContain("tab d");
+        expect(lines[0].startsWith("[error] tab d ")).toBe(true);
         expect(lines[0]).toContain("3 tabs are already pinned");
+    });
+
+    test("the pinner the window uses takes 16 tabs and refuses the 17th", () => {
+        const lines: string[] = [];
+        const pin = makeTabPinner(MaxPinnedTabs, (l) => lines.push(l));
+        const results = Array.from({ length: 17 }, (_, i) => pin(view("t" + i)));
+        expect(results.filter((r) => r).length).toBe(16);
+        expect(results[16]).toBe(false);
+        expect(lines).toEqual(["[error] tab t16 is not kept loaded: 16 tabs are already pinned"]);
+        const src = readFileSync(path.join(__dirname, "emain-window.ts"), "utf8");
+        expect(src).toContain("const pinTabAtBoot = makeTabPinner(MaxPinnedTabs, console.log);");
+    });
+
+    test("two views with the same tab id take one slot", () => {
+        const pin = makeTabPinner(2, () => {});
+        const first = view("a");
+        const second = view("a");
+        expect(pin(first)).toBe(true);
+        expect(pin(second)).toBe(true);
+        expect(second.keepLoaded).toBe(true);
+        expect(pin(view("b"))).toBe(true);
+        expect(pin(view("c"))).toBe(false);
     });
 
     test("pinning a tab twice counts it once", () => {
@@ -55,6 +77,11 @@ describe("pinning the tabs loaded at boot", () => {
         const preload = src.slice(src.indexOf("async preloadTab("), src.indexOf("async preloadAllTabs("));
         expect(show).not.toContain("pinTabAtBoot");
         expect(preload).not.toContain("pinTabAtBoot");
+        // no other emain file sets a pin: the tab view only declares the field (false) and the cache only reads it
+        for (const file of ["emain-tabview.ts", "emain.ts", "emain-wsh.ts", "emain-ipc.ts"]) {
+            const other = readFileSync(path.join(__dirname, file), "utf8");
+            expect(other.match(/keepLoaded\s*=\s*true/g) ?? []).toEqual([]);
+        }
     });
 });
 

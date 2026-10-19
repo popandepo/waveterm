@@ -20,6 +20,7 @@ import {
     shNavHandler,
 } from "./emain-util";
 import { ElectronWshClient } from "./emain-wsh";
+import { canEvictTabView } from "./preloadall";
 
 function handleWindowsMenuAccelerators(
     waveEvent: WaveKeyboardEvent,
@@ -118,6 +119,8 @@ export function getWaveTabViewByWebContentsId(webContentsId: number): WaveTabVie
 export class WaveTabView extends WebContentsView {
     waveWindowId: string; // this will be set for any tabviews that are initialized. (unset for the hot spare)
     isActiveTab: boolean;
+    // set when the page was loaded in the background on purpose: the cache must not drop it, since its blocks' screens exist only while it is loaded
+    keepLoaded: boolean = false;
     isWaveAIOpen: boolean;
     private _waveTabId: string; // always set, WaveTabViews are unique per tab
     lastUsedTs: number; // ts milliseconds
@@ -255,11 +258,7 @@ function tryEvictEntry(waveTabId: string): boolean {
     if (!tabView) {
         return false;
     }
-    if (tabView.isActiveTab) {
-        return false;
-    }
-    const lastUsedDiff = Date.now() - tabView.lastUsedTs;
-    if (lastUsedDiff < 1000) {
+    if (!canEvictTabView(tabView, Date.now() - tabView.lastUsedTs)) {
         return false;
     }
     const ww = getWaveWindowById(tabView.waveWindowId);

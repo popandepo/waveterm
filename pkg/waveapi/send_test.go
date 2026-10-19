@@ -507,6 +507,23 @@ func TestScreenIsReadOnlyAndNeedsATerminal(t *testing.T) {
 	}
 }
 
+func TestUnloadedViewIsAConflictNotAnInternalError(t *testing.T) {
+	svc, fb, _ := newSendSvc(followsPaste)
+	fb.screenErr = fmt.Errorf("%w: block %s", ErrNotLoaded, blk1)
+	h := MakeHandler(testToken, svc)
+	bodies := map[string]string{
+		"/v1/screen": `{"blockid":"` + blk1 + `"}`,
+		"/v1/send":   `{"blockid":"` + blk1 + `","expectsession":"` + sessA + `","text":"hi"}`,
+	}
+	for path, body := range bodies {
+		rec := doCall(t, h, "POST", path, testToken, body)
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "not loaded") {
+			t.Fatalf("%s: status %d: %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	wantNoWrites(t, fb)
+}
+
 func TestSendHandlerMapsErrorsAndNeverReturnsScreen(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

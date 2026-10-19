@@ -20,12 +20,14 @@ import {
 } from "./emain-activity";
 import { log } from "./emain-log";
 import { getElectronAppBasePath, isDev, unamePlatform } from "./emain-platform";
-import { getOrCreateWebViewForTab, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
+import { getOrCreateWebViewForTab, getWaveTabView, getWaveTabViewByWebContentsId, WaveTabView } from "./emain-tabview";
 import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-util";
+import { makeTabPinner, MaxPinnedTabs, preloadAllTabs } from "./preloadall";
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
 const DevInitDiagnosticMs = 5000;
+const pinTabAtBoot = makeTabPinner(MaxPinnedTabs, console.log);
 
 export type WindowOpts = {
     unamePlatform: NodeJS.Platform;
@@ -577,6 +579,27 @@ export class WaveBrowserWindow extends BaseWindow {
         }
     }
 
+    // Boot only: pins the window's active tab, then loads and pins every other tab of its workspace (see preloadAllTabs and
+    // makeTabPinner), so each block has a screen that stays.
+    async preloadAllTabs(): Promise<number> {
+        const workspace = await WorkspaceService.GetWorkspace(this.workspaceId);
+        if (this.activeTabView != null) {
+            pinTabAtBoot(this.activeTabView);
+        }
+        return await preloadAllTabs(
+            workspace?.tabids ?? [],
+            this.activeTabView?.waveTabId ?? workspace?.activetabid ?? "",
+            async (tabId) => {
+                await this.preloadTab(tabId);
+                const view = getWaveTabView(tabId);
+                if (view != null) {
+                    pinTabAtBoot(view);
+                }
+            },
+            (tabId, err) => console.log(`[error] background load of tab ${tabId} failed:`, err)
+        );
+    }
+
     // The backend has already deleted the tab (SessionCloseTab); this tidies the window the way a close from the tab bar would.
     async tabClosedInBackend(tabId: string, newActiveTabId: string, closeWindow: boolean) {
         this.removeTabViewLater(tabId, 1000);
@@ -1057,6 +1080,12 @@ export async function relaunchBrowserWindows() {
     for (const win of wins) {
         console.log("show window", win.waveWindowId);
         win.show();
+    }
+    for (const win of wins) {
+        fireAndForget(async () => {
+            const n = await win.preloadAllTabs();
+            console.log("relaunch -- loaded", n, "background tabs for window", win.waveWindowId);
+        });
     }
 }
 

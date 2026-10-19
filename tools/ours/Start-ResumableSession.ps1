@@ -277,10 +277,6 @@ function Get-Account2CopyPlan {
 }
 $account2Copy = @(Get-Account2CopyPlan)
 if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; return }
-foreach ($c in $account2Copy) {
-    try { Copy-Item -LiteralPath $c.From -Destination $c.To -Force }
-    catch { [Console]::Error.WriteLine("Account 2 config: $($c.Name) was not copied: $($_.Exception.Message)") }
-}
 
 Get-ChildItem env: |
     Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
@@ -480,6 +476,28 @@ if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
         foreach ($n in 'WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID') { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
         [Console]::Error.WriteLine("Note: the Wave token could not be exchanged (swap=$swapCode), so this session starts without wsh access. Restarting the block gives a new token.")
     }
+}
+# ---- account 2: the copy of account 1's CLAUDE.md and settings.json (planned above) ---------------------------------------------------------------------------
+# ONE line in the starter log per start that tried to copy: account2copy=<ok|partial|failed> set=<file>:<first 12 hex of its SHA-256 after the copy, or "failed">,...
+# so that a start can be shown to have copied (and what), not only to have found equal files. ok: every planned file was copied; failed: none was; partial: some
+# were (the set says which). The session starts either way.
+if ($account2Copy.Count -gt 0) {
+    $copyResults = @(); $copiedCount = 0
+    foreach ($c in $account2Copy) {
+        try {
+            Copy-Item -LiteralPath $c.From -Destination $c.To -Force -ErrorAction Stop
+            # a copy that raised nothing but left the old file (a destination that denies writes) must not be logged as done
+            $copiedHash = (Get-FileHash -LiteralPath $c.To -Algorithm SHA256).Hash
+            if ($copiedHash -ne (Get-FileHash -LiteralPath $c.From -Algorithm SHA256).Hash) { throw 'the file at the destination is not the source' }
+            $copyResults += $c.Name + ':' + $copiedHash.Substring(0, 12).ToLowerInvariant()
+            $copiedCount++
+        } catch {
+            [Console]::Error.WriteLine("Account 2 config: $($c.Name) was not copied: $($_.Exception.Message)")
+            $copyResults += $c.Name + ':failed'
+        }
+    }
+    $copyCode = if ($copiedCount -eq $account2Copy.Count) { 'ok' } elseif ($copiedCount -eq 0) { 'failed' } else { 'partial' }
+    Write-SwapLog $copyCode $copyResults 'account2copy'
 }
 # ---- the "trust this folder" question ---------------------------------------------------------------------------------------------------------------------
 # Claude asks once per folder whether to trust it, and the default answer is "No, exit". A session opened in a background tile then sits on that question

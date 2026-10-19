@@ -43,7 +43,8 @@ foreach ($ws in $tree.workspaces) {
 $ok = 0; $bad = 0
 foreach ($b in $hidden) {
     $r = Call '/v1/screen' @{ blockid = $b.blockid }
-    $n = if ($r.Status -eq 200) { @(($r.Text | ConvertFrom-Json).lines).Count } else { 0 }
+    $lines = if ($r.Status -eq 200) { ($r.Text | ConvertFrom-Json).lines } else { $null }
+    $n = if ($null -eq $lines) { 0 } else { @($lines).Count }
     if ($r.Status -eq 200 -and $n -gt 0) { $ok++ } else { $bad++; "block $($b.blockid): status $($r.Status), $n lines" }
 }
 "hidden terminal blocks: $($hidden.Count), readable: $ok, not readable: $bad"

@@ -113,12 +113,18 @@ func (b *Backend) Screen(ctx context.Context, blockId string) ([]string, error) 
 	opts := &wshrpc.RpcOpts{Route: wshutil.MakeFeBlockRouteId(blockId), Timeout: screenTimeoutMs}
 	result, err := wshclient.TermGetScrollbackLinesCommand(wshserver.GetMainRpcClient(), wshrpc.CommandTermGetScrollbackLinesData{}, opts)
 	if err != nil {
-		if strings.Contains(err.Error(), "no route for") {
+		if isNoViewRoute(err, blockId) {
 			return nil, fmt.Errorf("%w: block %s", waveapi.ErrNotLoaded, blockId)
 		}
 		return nil, fmt.Errorf("could not read block %s: %w", blockId, err)
 	}
 	return result.Lines, nil
+}
+
+// isNoViewRoute is true only for the router's answer that this block's own front-end route does not exist. The error crosses
+// the RPC as text, so any other failure mentioning a route (another block, another kind of route) stays an internal error.
+func isNoViewRoute(err error, blockId string) bool {
+	return strings.Contains(err.Error(), fmt.Sprintf("no route for %q", wshutil.MakeFeBlockRouteId(blockId)))
 }
 
 func (b *Backend) Input(ctx context.Context, blockId string, data []byte) error {

@@ -403,7 +403,7 @@ func (ws *WshServer) CreateBlockCommand(ctx context.Context, data wshrpc.Command
 	}
 	updates := waveobj.ContextGetUpdatesRtn(ctx)
 	wps.Broker.SendUpdateEvents(updates)
-	requestTabPageLoad(tabId)
+	requestTabPageLoad(tabId, blockData.OID)
 	return &waveobj.ORef{OType: waveobj.OType_Block, OID: blockData.OID}, nil
 }
 

@@ -48,6 +48,27 @@ func TestStartInBackgroundSurvivesAFailureAndAPanic(t *testing.T) {
 	}
 }
 
+func TestOnlyThisBlocksMissingViewRouteIsNotLoaded(t *testing.T) {
+	const mine = "013df52e-2065-49f4-b177-263030a0d5bf"
+	const other = "af1fa727-0000-4000-8000-000000000000"
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"my view route", errors.New(`could not read block: no route for "feblock:` + mine + `"`), true},
+		{"another block's view route", errors.New(`no route for "feblock:` + other + `"`), false},
+		{"another kind of route", errors.New(`no route for "tab:` + mine + `"`), false},
+		{"a timeout", errors.New("timeout waiting for response"), false},
+		{"the words without the route", errors.New("no route for"), false},
+	}
+	for _, c := range cases {
+		if got := isNoViewRoute(c.err, mine); got != c.want {
+			t.Fatalf("%s: got %v want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestABlockWithoutAControllerHasNoStatus(t *testing.T) {
 	if s, c := statusOf("00000000-0000-0000-0000-000000000000"); s != "" || c != nil {
 		t.Fatalf("no controller means no status: %q %v", s, c)

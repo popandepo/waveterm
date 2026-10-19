@@ -512,6 +512,8 @@ export class WaveBrowserWindow extends BaseWindow {
             return;
         }
         const oldActiveView = this.activeTabView;
+        // a tab that has been shown is pinned like a background-loaded one: unloading it later would take its blocks' screens away
+        tabView.keepLoaded = true;
         tabView.isActiveTab = true;
         if (oldActiveView != null) {
             oldActiveView.isActiveTab = false;

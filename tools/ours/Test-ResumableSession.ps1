@@ -929,7 +929,39 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     # the name carries the FULL 32-hex guid as its suffix
     $fullNames = @(Acct-Files | ForEach-Object { $_.Name })
     Check 'account record: the name ends with a full 32-hex guid (<session>-<at>-<account>-<32 hex>.json)' ($fullNames.Count -ge 1 -and @($fullNames | Where-Object { $_ -notmatch '-\d{17}-[12]-[0-9a-f]{32}\.json$' }).Count -eq 0) ($fullNames -join ', ')
-    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctDir} finally {
+    $env:RESUMABLE_TEST_ACCOUNTLOG = $acctDir
+
+    # ---- claude not found (20 Oct 2026 16:35: an npm update of claude-code rewrote its shims in the same seconds as a start; the block died with
+    # "The term 'claude' is not recognized" and starter.log said nothing) ----
+    Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
+    $env:RESUMABLE_TEST_RECORD = $rec
+    $missing = Join-Path $root 'late\claude-stub.ps1'
+    $missErr = Join-Path $root 'missing-error.txt'
+    Make-File $swapLog ''
+    Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
+    $t0 = Get-Date
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 2 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    $code = $LASTEXITCODE; $took = ((Get-Date) - $t0).TotalSeconds
+    $errText = if (Test-Path -LiteralPath $missErr) { Get-Content -LiteralPath $missErr -Raw } else { '' }
+    $logText = [string](Get-Content -LiteralPath $swapLog -Raw)
+    Check 'claude that never appears: waits the given seconds, exits 3, says so in the block, logs start=claude-missing' ($code -eq 3 -and $took -ge 2 -and $errText -match 'not found' -and $logText -match ' start=claude-missing' -and -not (Test-Path -LiteralPath $rec)) "exit=$code took=$took err=$errText log=$logText"
+    # the command appears while the starter waits: it starts, and the wait is logged
+    Make-File $swapLog ''
+    Make-Dir (Split-Path -Parent $missing)
+    $job = Start-ThreadJob -ArgumentList $stub, $missing -ScriptBlock { param($from, $to) Start-Sleep -Seconds 2; Copy-Item -LiteralPath $from -Destination $to }
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 20 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    $code = $LASTEXITCODE
+    $null = $job | Wait-Job | Remove-Job
+    $made.Add($missing)
+    $logText = [string](Get-Content -LiteralPath $swapLog -Raw)
+    $ran = (Test-Path -LiteralPath $rec) -and ((Get-Content -LiteralPath $rec -Raw) -match '--(resume|session-id)')
+    Check 'claude that appears during the wait: the session starts and starter.log says start=claude-found-after:<n>s' ($code -eq 0 -and $ran -and $logText -match ' start=claude-found-after:\d+s') "exit=$code ran=$ran log=$logText"
+    # found at once: no start line at all (the log stays quiet on the normal path)
+    Make-File $swapLog ''
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    Check 'claude found at once: no start= line in starter.log' ($LASTEXITCODE -eq 0 -and -not ([string](Get-Content -LiteralPath $swapLog -Raw) -match ' start=')) ([string](Get-Content -LiteralPath $swapLog -Raw))
+    Remove-Item -LiteralPath $missErr -ErrorAction SilentlyContinue
+} finally {
     $env:USERPROFILE = $realProfile
     $env:LOCALAPPDATA = $realLocal
     Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue

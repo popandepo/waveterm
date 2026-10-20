@@ -607,6 +607,8 @@ $claudeArgs = @(Get-ClaudeArgs)
 # plain message in the block, and exit code 3, so the block shows why it stopped.
 # Only a file counts (an application or a script): an alias or function of that name could point at something that is gone. The file found is the one run,
 # and it is checked to be there once more just before the start. Nothing is retried after claude has been started: its own errors are its own.
+# Left open on purpose: a file that vanishes in the instant between that check and the start still ends the block with PowerShell's own
+# "not recognized". Closing it needs a retry around the start, and a retry there cannot tell a missing file from a claude that already ran.
 $waitStart = Get-Date
 $found = $null
 while ($true) {

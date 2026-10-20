@@ -954,7 +954,8 @@ $env:RESUMABLE_TEST_LOGROOT = $root
         param($from, $to, $sig)
         $until = (Get-Date).AddSeconds(60)
         while (-not (Test-Path -LiteralPath $sig) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 100 }
-        Copy-Item -LiteralPath $from -Destination $to
+        # copied beside it under another name, then renamed into place: the starter never sees a half-written stub
+        $part = $to + '.part'; Copy-Item -LiteralPath $from -Destination $part; [IO.File]::Move($part, $to)
     }
     & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 20 -LookupSignal $signal -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
     $code = $LASTEXITCODE

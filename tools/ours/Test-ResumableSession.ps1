@@ -948,11 +948,18 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     # the command appears while the starter waits: it starts, and the wait is logged
     Make-File $swapLog ''
     Make-Dir (Split-Path -Parent $missing)
-    $job = Start-ThreadJob -ArgumentList $stub, $missing -ScriptBlock { param($from, $to) Start-Sleep -Seconds 2; Copy-Item -LiteralPath $from -Destination $to }
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 20 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    # the copy waits for the starter's signal that its lookup has begun, so a slow start of the child cannot let the stub appear before the first look
+    $signal = Join-Path $root 'lookup-signal.txt'
+    $job = Start-ThreadJob -ArgumentList $stub, $missing, $signal -ScriptBlock {
+        param($from, $to, $sig)
+        $until = (Get-Date).AddSeconds(60)
+        while (-not (Test-Path -LiteralPath $sig) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 100 }
+        Start-Sleep -Seconds 2; Copy-Item -LiteralPath $from -Destination $to
+    }
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 20 -LookupSignal $signal -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
     $code = $LASTEXITCODE
     $null = $job | Wait-Job | Remove-Job
-    $made.Add($missing)
+    $made.Add($missing); if (Test-Path -LiteralPath $signal) { $made.Add($signal) }
     $logText = [string](Get-Content -LiteralPath $swapLog -Raw)
     $ran = (Test-Path -LiteralPath $rec) -and ((Get-Content -LiteralPath $rec -Raw) -match '--(resume|session-id)')
     Check 'claude that appears during the wait: the session starts and starter.log says start=claude-found-after:<n>s' ($code -eq 0 -and $ran -and $logText -match ' start=claude-found-after:\d+s') "exit=$code ran=$ran log=$logText"
@@ -960,6 +967,10 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Make-File $swapLog ''
     & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
     Check 'claude found at once: no start= line in starter.log' ($LASTEXITCODE -eq 0 -and -not ([string](Get-Content -LiteralPath $swapLog -Raw) -match ' start=')) ([string](Get-Content -LiteralPath $swapLog -Raw))
+    # a function of that name is not a file: it is never taken for claude (Clear-Host is a function in every pwsh)
+    Make-File $swapLog ''
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command 'Clear-Host' -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    Check 'a function named as the command is not taken for claude: exit 3 and start=claude-missing' ($LASTEXITCODE -eq 3 -and ([string](Get-Content -LiteralPath $swapLog -Raw) -match ' start=claude-missing')) "exit=$LASTEXITCODE log=$([string](Get-Content -LiteralPath $swapLog -Raw))"
     Remove-Item -LiteralPath $missErr -ErrorAction SilentlyContinue
 } finally {
     $env:USERPROFILE = $realProfile

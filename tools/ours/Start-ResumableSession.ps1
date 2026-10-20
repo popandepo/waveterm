@@ -20,6 +20,7 @@ param(
     [string[]]$PluginDir = @(),
     [string]$Command = 'claude',
     [ValidateRange(0, 120)][int]$CommandWaitSeconds = 30,
+    [string]$LookupSignal = '',   # test seam: a file written when the lookup for the command begins
     [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 15,
     [string]$WshRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin' } else { '' }),
     [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
@@ -604,18 +605,34 @@ $claudeArgs = @(Get-ClaudeArgs)
 # landed in that gap: "The term 'claude' is not recognized", exit 1, a dead block and nothing in starter.log. So the command is looked for once a second for up
 # to -CommandWaitSeconds (default 30). Found at once: nothing is logged. Found later: start=claude-found-after:<n>s. Never found: start=claude-missing, a
 # plain message in the block, and exit code 3, so the block shows why it stopped.
+# Only a file counts (an application or a script): an alias or function of that name could point at something that is gone. The file found is the one run.
+# The file can still vanish between the lookup and the start; a "not recognized" in the first 5 seconds of a start is looked for again, inside the same deadline.
 $waitStart = Get-Date
-$found = $null
+if ($LookupSignal) { try { [IO.File]::WriteAllText($LookupSignal, 'looking') } catch { } }
+$foundLogged = $false
 while ($true) {
-    $found = Get-Command $Command -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($found -or ((Get-Date) - $waitStart).TotalSeconds -ge $CommandWaitSeconds) { break }
-    Start-Sleep -Seconds 1
+    $found = $null
+    while ($true) {
+        $found = Get-Command $Command -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found -or ((Get-Date) - $waitStart).TotalSeconds -ge $CommandWaitSeconds) { break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $found) {
+        Write-SwapLog 'claude-missing' @() 'start'
+        [Console]::Error.WriteLine("Claude was not started: the command '$Command' was not found for $CommandWaitSeconds seconds (an update of claude-code may have been running). Nothing else was changed; open the session again.")
+        exit 3
+    }
+    $waited = [int][Math]::Floor(((Get-Date) - $waitStart).TotalSeconds)
+    if ($waited -gt 0 -and -not $foundLogged) { Write-SwapLog "claude-found-after:${waited}s" @() 'start'; $foundLogged = $true }
+    $tried = Get-Date
+    try { & $found.Source @claudeArgs; break }
+    catch [System.Management.Automation.CommandNotFoundException] {
+        if (((Get-Date) - $tried).TotalSeconds -gt 5) { throw }
+        if (((Get-Date) - $waitStart).TotalSeconds -ge $CommandWaitSeconds) {
+            Write-SwapLog 'claude-missing' @() 'start'
+            [Console]::Error.WriteLine("Claude was not started: '$($found.Source)' kept failing with 'not recognized' for $CommandWaitSeconds seconds (an update of claude-code may have been running). Open the session again.")
+            exit 3
+        }
+        Start-Sleep -Seconds 1
+    }
 }
-$waited = [int][Math]::Floor(((Get-Date) - $waitStart).TotalSeconds)
-if (-not $found) {
-    Write-SwapLog 'claude-missing' @() 'start'
-    [Console]::Error.WriteLine("Claude was not started: the command '$Command' was not found for $CommandWaitSeconds seconds (an update of claude-code may have been running). Nothing else was changed; open the session again.")
-    exit 3
-}
-if ($waited -gt 0) { Write-SwapLog "claude-found-after:${waited}s" @() 'start' }
-& $Command @claudeArgs

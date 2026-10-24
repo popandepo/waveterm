@@ -8,6 +8,7 @@
 #               result is BLANK. Both blocks are required. Exit 0 green, 1 red.
 # Known limits: only the state before and after is compared, so a window that appears and goes away again inside the step, a
 # taskbar flash, or focus that moves and comes back are not seen; a window list entry changes when its title bar rect changes.
+# The window-list self-test cases use made-up lists, so the real listing of untitled windows is checked only by the live run.
 param(
     [switch]$SelfTest,
     [switch]$Live,
@@ -30,7 +31,6 @@ public static class FgProbe {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
   // "ERR:..." when a probe failed (no foreground window, or its thread info cannot be read): a failed probe is never a value.
   public static string Read() {
     IntPtr fg = GetForegroundWindow();
@@ -42,7 +42,7 @@ public static class FgProbe {
     return fg.ToInt64() + "|" + i.hwndActive.ToInt64() + "|" + i.hwndFocus.ToInt64() + "|" + i.hwndCaret.ToInt64() + "|" + i.rcCaret.L + "," + i.rcCaret.T + "," + i.rcCaret.R + "," + i.rcCaret.B;
   }
   // Every visible top-level window, titled or not, front to back: handle, rectangle, minimised. "ERR:..." when the listing or a rectangle
-  // cannot be read (a window that is gone by the time it is measured is skipped, any other failure is an error).
+  // cannot be read; a window that closes between the listing and its measuring is an error too (fail closed: a rerun, never a false green).
   public static string Windows() {
     List<string> list = new List<string>();
     string err = null;
@@ -50,8 +50,7 @@ public static class FgProbe {
       if (!IsWindowVisible(h)) return true;
       RECT r;
       if (!GetWindowRect(h, out r)) {
-        if (!IsWindow(h)) return true;
-        err = "ERR:GetWindowRect failed for a window that still exists";
+        err = "ERR:GetWindowRect failed (a window may have closed during the listing; run again)";
         return false;
       }
       list.Add(h.ToInt64() + ":" + r.L + "," + r.T + "," + r.R + "," + r.B + ":" + (IsIconic(h) ? "min" : "norm"));

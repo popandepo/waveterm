@@ -26,6 +26,10 @@ const ParkedAttempts = 4;
 const MinLaidOutSide = 100;
 const LayoutPolls = 20;
 const LayoutPollMs = 250;
+// A page that Chromium counts as hidden gets no rendering opportunities, so its ResizeObserver (the layout) never runs. Background
+// throttling is switched off for the capture, and a throwaway capture (which makes the page visible for a moment) wakes a page that
+// is still at the layout minimum after this many looks.
+const WakePolls = [3, 8];
 
 // One capture at a time per tab: two overlapping captures must not park the view under the other.
 const TabLocks = new Map<string, Promise<unknown>>();
@@ -77,6 +81,13 @@ function checkedRect(raw: any): { x: number; y: number; width: number; height: n
 }
 
 async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: number) => Promise<void>) {
+    const wake = async () => {
+        try {
+            await wc.capturePage(undefined, { stayAwake: true });
+        } catch {
+            // only a nudge: the real capture is made, and judged, later
+        }
+    };
     let last: unknown = null;
     for (let poll = 1; poll <= polls; poll++) {
         try {
@@ -87,6 +98,9 @@ async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: num
             last = new Error(`the block has not been laid out in its tab yet (${rect.width}x${rect.height}); its page is asleep, ask again in a moment`);
         } catch (err) {
             last = err;
+        }
+        if (WakePolls.includes(poll) && polls > 1) {
+            await wake();
         }
         if (poll < polls) {
             await sleep(LayoutPollMs);
@@ -131,6 +145,7 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
         if (parked) {
             ww.contentView.addChildView(view, 0);
             view.positionTabOnScreen(ww.getContentBounds());
+            wc.setBackgroundThrottling(false);
             await sleep(PaintWaitMs);
         }
         try {
@@ -152,6 +167,9 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
             // a tab that became the active one meanwhile is where the window put it: parking it would blank the screen
             if (parked && !view.isActiveTab) {
                 view.positionTabOffScreen(ww.getContentBounds());
+            }
+            if (parked) {
+                wc.setBackgroundThrottling(true);
             }
         }
     });

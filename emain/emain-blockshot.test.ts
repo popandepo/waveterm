@@ -45,7 +45,17 @@ function setup(
             }
             return over.rect === undefined ? { x: 10.4, y: 20.6, width: 300.2, height: 120.7 } : over.rect;
         },
+        setBackgroundThrottling: (on: boolean) => {
+            if (!over.parked) {
+                throw new Error("a shown tab's throttling must not be touched");
+            }
+            calls.push("throttle:" + on);
+        },
         capturePage: async (rect: any, opts: any) => {
+            if (rect === undefined) {
+                calls.push("kick");
+                return fakeImage();
+            }
             calls.push("capture");
             captured.push({ rect, opts });
             if (over.becomesActive) {
@@ -195,13 +205,13 @@ describe("blockShot", () => {
         const s = setup({ parked: true });
         const res = await blockShot(Data, s.deps);
         expect(res.width).toBe(100);
-        expect(s.calls).toEqual(["authorize", "info", "below:0", "on-screen", "sleep", "rect", "authorize", "capture", "off-screen"]);
+        expect(s.calls).toEqual(["authorize", "info", "below:0", "on-screen", "throttle:false", "sleep", "rect", "authorize", "capture", "off-screen", "throttle:true"]);
     });
 
     test("a parked tab is parked again also when the capture fails", async () => {
         const s = setup({ parked: true, image: fakeImage({ empty: true }) });
         await expect(blockShot(Data, s.deps)).rejects.toThrow("empty");
-        expect(s.calls[s.calls.length - 1]).toBe("off-screen");
+        expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
     });
 
     test("an empty first picture of a parked tab is asked for again, a few times, then it is an error", async () => {
@@ -233,14 +243,28 @@ describe("blockShot", () => {
         await blockShot(Data, s.deps);
         expect(s.calls.filter((c) => c === "rect").length).toBe(4);
         expect(s.captured[0].rect).toEqual(big);
-        expect(s.calls[s.calls.length - 1]).toBe("off-screen");
+        expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
+    });
+
+    test("a page that stays at the layout minimum gets a throwaway capture to wake it, once at the third look and again at the eighth", async () => {
+        const tiny = { x: 0, y: 0, width: 29, height: 61 };
+        const big = { x: 5, y: 6, width: 974, height: 1161 };
+        const woken = setup({ parked: true, rects: [tiny, tiny, tiny, big] });
+        await blockShot(Data, woken.deps);
+        expect(woken.calls.filter((c) => c === "kick").length).toBe(1);
+        const later = setup({ parked: true, rects: [...Array.from({ length: 9 }, () => tiny), big] });
+        await blockShot(Data, later.deps);
+        expect(later.calls.filter((c) => c === "kick").length).toBe(2);
+        const quick = setup({ parked: true });
+        await blockShot(Data, quick.deps);
+        expect(quick.calls).not.toContain("kick");
     });
 
     test("a parked tab that never gets laid out is an error that says so, nothing is captured, and the tab is parked again", async () => {
         const s = setup({ parked: true, rects: [{ x: 0, y: 0, width: 29, height: 61 }] });
         await expect(blockShot(Data, s.deps)).rejects.toThrow("laid out");
         expect(s.calls).not.toContain("capture");
-        expect(s.calls[s.calls.length - 1]).toBe("off-screen");
+        expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
     });
 
     test("a shown tab is not polled: its rectangle is taken as it is, small or not", async () => {
@@ -255,6 +279,7 @@ describe("blockShot", () => {
         const s = setup({ parked: true, becomesActive: true });
         await blockShot(Data, s.deps);
         expect(s.calls).not.toContain("off-screen");
+        expect(s.calls[s.calls.length - 1]).toBe("throttle:true");
     });
 
     test("two captures of the same tab at once do not move it at the same time", async () => {

@@ -140,6 +140,7 @@ type WshRpcInterface interface {
 	WebNavCommand(ctx context.Context, data CommandWebNavData) (*CommandWebNavRtnData, error)
 	WebTextCommand(ctx context.Context, data CommandWebTextData) (*CommandWebTextRtnData, error)
 	WebShotCommand(ctx context.Context, data CommandWebShotData) (*CommandWebShotRtnData, error)
+	BlockShotCommand(ctx context.Context, data CommandBlockShotData) (*CommandBlockShotRtnData, error)
 	WebNavAuthorizeCommand(ctx context.Context, data CommandWebNavAuthorizeData) error // asked by emain: may the caller of a web command act on this block?
 	NotifyCommand(ctx context.Context, notificationOptions WaveNotificationOptions) error
 	FocusWindowCommand(ctx context.Context, windowId string) error
@@ -530,6 +531,19 @@ type CommandWebShotData struct {
 }
 
 type CommandWebShotRtnData struct {
+	Png    string `json:"png"` // base64
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+// A picture of one block of any view (wsh blockshot): the PNG of the block's rectangle in the loaded page of its tab, shown or not.
+type CommandBlockShotData struct {
+	WorkspaceId string `json:"workspaceid"`
+	BlockId     string `json:"blockid"`
+	TabId       string `json:"tabid"`
+}
+
+type CommandBlockShotRtnData struct {
 	Png    string `json:"png"` // base64
 	Width  int    `json:"width"`
 	Height int    `json:"height"`

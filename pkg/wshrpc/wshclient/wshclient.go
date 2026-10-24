@@ -83,6 +83,12 @@ func BlockJobStatusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts)
 	return resp, err
 }
 
+// command "blockshot", wshserver.BlockShotCommand
+func BlockShotCommand(w *wshutil.WshRpc, data wshrpc.CommandBlockShotData, opts *wshrpc.RpcOpts) (*wshrpc.CommandBlockShotRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandBlockShotRtnData](w, "blockshot", data, opts)
+	return resp, err
+}
+
 // command "blockslist", wshserver.BlocksListCommand
 func BlocksListCommand(w *wshutil.WshRpc, data wshrpc.BlocksListRequest, opts *wshrpc.RpcOpts) ([]wshrpc.BlocksListEntry, error) {
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.BlocksListEntry](w, "blockslist", data, opts)

@@ -21,6 +21,12 @@ export interface BlockShotDeps {
 const PaintWaitMs = 300;
 const ParkedAttempts = 4;
 
+// A tab that was never shown has its blocks at the layout minimum (29x61, 64x64 seen live) until its page has laid out inside the window
+// at the right size, which takes a moment and was slow on some pages. A rectangle narrower or lower than this is "not laid out yet".
+const MinLaidOutSide = 100;
+const LayoutPolls = 20;
+const LayoutPollMs = 250;
+
 // One capture at a time per tab: two overlapping captures must not park the view under the other.
 const TabLocks = new Map<string, Promise<unknown>>();
 
@@ -70,6 +76,25 @@ function checkedRect(raw: any): { x: number; y: number; width: number; height: n
     return rect;
 }
 
+async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: number) => Promise<void>) {
+    let last: unknown = null;
+    for (let poll = 1; poll <= polls; poll++) {
+        try {
+            const rect = checkedRect(await wc.executeJavaScript(buildRectScript(blockId)));
+            if (polls === 1 || (rect.width >= MinLaidOutSide && rect.height >= MinLaidOutSide)) {
+                return rect;
+            }
+            last = new Error(`the block has not been laid out in its tab yet (${rect.width}x${rect.height}); its page is asleep, ask again in a moment`);
+        } catch (err) {
+            last = err;
+        }
+        if (poll < polls) {
+            await sleep(LayoutPollMs);
+        }
+    }
+    throw last;
+}
+
 export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promise<WebShotResult> {
     if (!data.tabid || !data.blockid || !data.workspaceid) {
         throw new Error("tabid, blockid and workspaceid are required");
@@ -109,7 +134,7 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
             await sleep(PaintWaitMs);
         }
         try {
-            const rect = checkedRect(await wc.executeJavaScript(buildRectScript(data.blockid)));
+            const rect = await readRect(wc, data.blockid, parked ? LayoutPolls : 1, sleep);
             await deps.authorize();
             const attempts = parked ? ParkedAttempts : 1;
             for (let attempt = 1; ; attempt++) {

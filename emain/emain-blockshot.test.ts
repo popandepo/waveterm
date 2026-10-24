@@ -24,6 +24,7 @@ function setup(
         rect?: any;
         image?: any;
         images?: any[];
+        rects?: any[];
         info?: any;
         calls?: string[];
         windowGone?: boolean;
@@ -39,6 +40,9 @@ function setup(
         executeJavaScript: async (script: string) => {
             calls.push("rect");
             scripts.push(script);
+            if (over.rects) {
+                return over.rects.length > 1 ? over.rects.shift() : over.rects[0];
+            }
             return over.rect === undefined ? { x: 10.4, y: 20.6, width: 300.2, height: 120.7 } : over.rect;
         },
         capturePage: async (rect: any, opts: any) => {
@@ -220,6 +224,31 @@ describe("blockShot", () => {
         const always = setup({ parked: true, images: Array.from({ length: 10 }, viz) });
         await expect(blockShot(Data, always.deps)).rejects.toThrow("UnknownVizError");
         expect(always.calls.filter((c) => c === "capture").length).toBe(4);
+    });
+
+    test("a parked tab whose page has not laid the block out yet (the layout minimum) is polled until it has, and the captured rectangle is the laid-out one", async () => {
+        const tiny = { x: 0, y: 0, width: 29, height: 61 };
+        const big = { x: 5, y: 6, width: 974, height: 1161 };
+        const s = setup({ parked: true, rects: [tiny, tiny, null, big] });
+        await blockShot(Data, s.deps);
+        expect(s.calls.filter((c) => c === "rect").length).toBe(4);
+        expect(s.captured[0].rect).toEqual(big);
+        expect(s.calls[s.calls.length - 1]).toBe("off-screen");
+    });
+
+    test("a parked tab that never gets laid out is an error that says so, nothing is captured, and the tab is parked again", async () => {
+        const s = setup({ parked: true, rects: [{ x: 0, y: 0, width: 29, height: 61 }] });
+        await expect(blockShot(Data, s.deps)).rejects.toThrow("laid out");
+        expect(s.calls).not.toContain("capture");
+        expect(s.calls[s.calls.length - 1]).toBe("off-screen");
+    });
+
+    test("a shown tab is not polled: its rectangle is taken as it is, small or not", async () => {
+        const s = setup({ rects: [{ x: 0, y: 0, width: 29, height: 61 }] });
+        const res = await blockShot(Data, s.deps);
+        expect(s.calls.filter((c) => c === "rect").length).toBe(1);
+        expect(s.captured[0].rect).toEqual({ x: 0, y: 0, width: 29, height: 61 });
+        expect(res.width).toBe(100);
     });
 
     test("a tab that became the active tab during the capture is left where the window put it", async () => {

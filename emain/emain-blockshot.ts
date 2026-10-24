@@ -12,6 +12,8 @@ export interface BlockShotDeps {
     // asks the server whether the caller may act on this block (same workspace as the caller)
     authorize: () => Promise<void>;
     blockInfo: () => Promise<any>;
+    // every block of the target's tab: a block of another view in the same tab can be drawn over the target
+    tabBlocks: () => Promise<any[]>;
     getWindow: () => any;
     sleep?: (ms: number) => Promise<void>;
     deadlineMs?: number;
@@ -73,14 +75,17 @@ export function buildRectScript(blockId: string): string {
         const el = document.querySelector('.block[data-blockid=' + JSON.stringify(${JSON.stringify(blockId)}) + ']');
         if (!el) { return null; }
         const r = el.getBoundingClientRect();
-        return { x: r.x, y: r.y, width: r.width, height: r.height };
+        const overlay = [...document.querySelectorAll('.block.magnified, .block.ephemeral')].some((e) => e.getAttribute('data-blockid') !== ${JSON.stringify(blockId)});
+        return { x: r.x, y: r.y, width: r.width, height: r.height, overlay: overlay };
     } catch (error) {
         return null;
     }
 })()`;
 }
 
-function checkedRect(raw: any): { x: number; y: number; width: number; height: number } {
+class OverlayError extends Error {}
+
+function checkedRect(raw: any): { x: number; y: number; width: number; height: number; overlay: boolean } {
     const ok = raw != null && typeof raw === "object" && ["x", "y", "width", "height"].every((k) => Number.isFinite(raw[k]));
     if (!ok) {
         throw new Error("the block is not drawn in its tab (is it behind another member of a stack, or is its page not ready?)");
@@ -89,7 +94,7 @@ function checkedRect(raw: any): { x: number; y: number; width: number; height: n
     if (rect.width < 1 || rect.height < 1) {
         throw new Error("the block has no size in its tab");
     }
-    return rect;
+    return { ...rect, overlay: raw.overlay === true };
 }
 
 async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: number) => Promise<void>, state: CaptureState) {
@@ -106,12 +111,18 @@ async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: num
             throw new Error("the capture was given up");
         }
         try {
-            const rect = checkedRect(await wc.executeJavaScript(buildRectScript(blockId)));
+            const { overlay, ...rect } = checkedRect(await wc.executeJavaScript(buildRectScript(blockId)));
+            if (overlay) {
+                throw new OverlayError("another block of this tab is magnified or floating over it, so a capture would show what is on top: refused");
+            }
             if (polls === 1 || (rect.width >= MinLaidOutSide && rect.height >= MinLaidOutSide)) {
                 return rect;
             }
             last = new Error(`the block has not been laid out in its tab yet (${rect.width}x${rect.height}); its page is asleep, ask again in a moment`);
         } catch (err) {
+            if (err instanceof OverlayError) {
+                throw err;
+            }
             last = err;
         }
         if (WakePolls.includes(poll) && polls > 1) {
@@ -150,6 +161,10 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
     const viewType = info.block.meta?.view;
     if (!AllowedViews.includes(viewType)) {
         throw new Error(`wsh blockshot takes terminal blocks only (view "term"); this block is "${viewType ?? ""}" (for a web tile use wsh web shot, which has the sign-in rule)`);
+    }
+    const others = (await deps.tabBlocks()).filter((b: any) => b?.meta?.view !== "term");
+    if (others.length > 0) {
+        throw new Error(`the tab also holds a "${others[0]?.meta?.view ?? ""}" block (not a terminal): it could be drawn over the target, so no picture is taken`);
     }
     const ww = deps.getWindow();
     if (ww == null) {

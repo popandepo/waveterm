@@ -41,6 +41,8 @@ function setup(
         offThrows?: boolean;
         hangCapture?: boolean;
         hangRect?: boolean;
+        blocks?: any[];
+        overlay?: boolean;
     } = {}
 ) {
     const calls = over.calls ?? [];
@@ -55,9 +57,11 @@ function setup(
             }
             scripts.push(script);
             if (over.rects) {
-                return over.rects.length > 1 ? over.rects.shift() : over.rects[0];
+                const r = over.rects.length > 1 ? over.rects.shift() : over.rects[0];
+            return over.overlay && r ? { ...r, overlay: true } : r;
             }
-            return over.rect === undefined ? { x: 10.4, y: 20.6, width: 300.2, height: 120.7 } : over.rect;
+            const r = over.rect === undefined ? { x: 10.4, y: 20.6, width: 300.2, height: 120.7 } : over.rect;
+            return over.overlay && r ? { ...r, overlay: true } : r;
         },
         setBackgroundThrottling: (on: boolean) => {
             if (!over.parked) {
@@ -149,6 +153,7 @@ function setup(
             calls.push("info");
             return over.info === undefined ? { blockid: BlockId, tabid: TabId, workspaceid: WorkspaceId, block: { meta: { view: "term" } } } : over.info;
         },
+        tabBlocks: async () => over.blocks ?? [{ blockid: BlockId, meta: { view: "term" } }],
         getWindow: () => (over.windowGone ? null : (ww as any)),
         sleep: async () => {
             calls.push("sleep");
@@ -321,9 +326,22 @@ describe("blockShot", () => {
 
     test("a hung capture ends at the deadline, goes through the cleanup, a late answer is dropped unencoded, and the same tab then works for the next caller", async () => {
         const s = setup({ parked: true, hangCapture: true });
-        s.deps.deadlineMs = 30;
+        s.deps.deadlineMs = 400;
         Encoded.n = 0;
-        await expect(blockShot(Data, s.deps)).rejects.toThrow("took longer");
+        let settled = false;
+        const first = blockShot(Data, s.deps).then(
+            () => (settled = true),
+            () => (settled = true)
+        );
+        // the capture is really pending (reached, not answered) before the deadline can fire
+        for (let i = 0; i < 100 && s.releases.length === 0; i++) {
+            await new Promise((r) => setTimeout(r, 2));
+        }
+        expect(s.releases.length).toBe(1);
+        expect(s.calls).toContain("capture");
+        expect(settled).toBe(false);
+        await first;
+        expect(settled).toBe(true);
         expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
         const before = s.calls.length;
         s.releases.forEach((r) => r());
@@ -352,6 +370,34 @@ describe("blockShot", () => {
             await expect(blockShot(Data, s.deps)).rejects.toThrow("terminal blocks only");
             expect(s.calls).toEqual(["authorize", "info"]);
         }
+    });
+
+    test("a tab that also holds a block that is not a terminal is refused, with the reason, before anything is moved", async () => {
+        const web = { blockid: "web-1", meta: { view: "web" } };
+        const term = { blockid: BlockId, meta: { view: "term" } };
+        for (const blocks of [[term, web], [term, { blockid: "x", meta: {} }], [term, { blockid: "y", meta: { view: "sysinfo" } }]]) {
+            const s = setup({ parked: true, blocks });
+            await expect(blockShot(Data, s.deps)).rejects.toThrow("also holds");
+            expect(s.calls).toEqual(["authorize", "info"]);
+        }
+        const only = setup({ parked: true, blocks: [term, { blockid: "t2", meta: { view: "term" } }] });
+        await expect(blockShot(Data, only.deps)).resolves.toBeTruthy();
+    });
+
+    test("a magnified or floating block over the tab is refused with the reason and the view is parked again", async () => {
+        const s = setup({ parked: true, overlay: true });
+        await expect(blockShot(Data, s.deps)).rejects.toThrow("magnified or floating");
+        expect(s.calls).not.toContain("capture");
+        expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
+        const shown = setup({ overlay: true });
+        await expect(blockShot(Data, shown.deps)).rejects.toThrow("magnified or floating");
+    });
+
+    test("the rectangle script reports another block that is magnified or ephemeral", () => {
+        const script = buildRectScript(BlockId);
+        expect(script).toContain("magnified");
+        expect(script).toContain("ephemeral");
+        expect(script).toContain("overlay");
     });
 
     test("a tab that became the active tab during the capture is left where the window put it", async () => {

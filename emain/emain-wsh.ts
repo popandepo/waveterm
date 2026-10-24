@@ -81,6 +81,7 @@ export class ElectronWshClientType extends WshClient {
                 await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
             },
             blockInfo: () => RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid),
+            tabBlocks: async () => (await RpcApi.BlocksListCommand(ElectronWshClient, { workspaceid: data.workspaceid })).filter((b) => b.tabid === data.tabid),
             getWindow: () => getWaveWindowByWorkspaceId(data.workspaceid),
         });
     }

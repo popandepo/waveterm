@@ -3,15 +3,38 @@
 
 import { FullBlockIdRe, webShot, WebShotResult } from "./emain-webnav";
 
-// A picture of ONE block (any view) taken from the loaded page of its tab, whether or not the tab is shown. Tabs that are not
-// shown are parked off screen but their views are loaded, so the page can paint and be captured without showing, moving,
-// focusing or raising anything. Nothing here calls show, focus or setBounds.
+// A picture of ONE block (any view) taken from the loaded page of its tab, whether or not the tab is shown. A tab that is not
+// shown is parked at (-15000, -15000) and Chromium does not composite it there: capturePage gives an empty picture (seen on a
+// real Wave, 25 Oct 2026). So for the capture only, its view is put inside the window at the BOTTOM of the child order, where
+// the active tab's opaque view covers it completely, and parked again at once. Nothing here calls show, focus or raises a window.
 
 export interface BlockShotDeps {
     // asks the server whether the caller may act on this block (same workspace as the caller)
     authorize: () => Promise<void>;
     blockInfo: () => Promise<any>;
     getWindow: () => any;
+    sleep?: (ms: number) => Promise<void>;
+}
+
+// How long a view that was just moved inside the window gets to paint, and how often an empty picture is asked for again.
+const PaintWaitMs = 150;
+const ParkedAttempts = 4;
+
+// One capture at a time per tab: two overlapping captures must not park the view under the other.
+const TabLocks = new Map<string, Promise<unknown>>();
+
+async function withTabLock<T>(tabId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = TabLocks.get(tabId) ?? Promise.resolve();
+    const run = prev.catch(() => {}).then(fn);
+    const tail = run.catch(() => {});
+    TabLocks.set(tabId, tail);
+    try {
+        return await run;
+    } finally {
+        if (TabLocks.get(tabId) === tail) {
+            TabLocks.delete(tabId);
+        }
+    }
 }
 
 export interface BlockShotData {
@@ -76,8 +99,34 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
         throw new Error(`the tab ${data.tabid} is not loaded in its window (it loads in the background after a start or when a block is made in it; ask again in a moment)`);
     }
     const wc = view.webContents;
-    const rect = checkedRect(await wc.executeJavaScript(buildRectScript(data.blockid)));
-    await deps.authorize();
-    // stayAwake: a page that Chromium considers hidden or covered still paints for this one capture
-    return await webShot({ capturePage: () => wc.capturePage(rect, { stayAwake: true }) });
+    const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    return await withTabLock(data.tabid, async () => {
+        const parked = typeof view.isOnScreen === "function" && !view.isOnScreen();
+        if (parked) {
+            ww.contentView.addChildView(view, 0);
+            view.positionTabOnScreen(ww.getContentBounds());
+            await sleep(PaintWaitMs);
+        }
+        try {
+            const rect = checkedRect(await wc.executeJavaScript(buildRectScript(data.blockid)));
+            await deps.authorize();
+            const attempts = parked ? ParkedAttempts : 1;
+            for (let attempt = 1; ; attempt++) {
+                try {
+                    // stayAwake: a page that Chromium considers hidden or covered still paints for this one capture
+                    return await webShot({ capturePage: () => wc.capturePage(rect, { stayAwake: true }) });
+                } catch (err) {
+                    if (attempt >= attempts || !String(err?.message ?? err).includes("empty")) {
+                        throw err;
+                    }
+                    await sleep(PaintWaitMs);
+                }
+            }
+        } finally {
+            // a tab that became the active one meanwhile is where the window put it: parking it would blank the screen
+            if (parked && !view.isActiveTab) {
+                view.positionTabOffScreen(ww.getContentBounds());
+            }
+        }
+    });
 }

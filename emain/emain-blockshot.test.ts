@@ -19,7 +19,19 @@ function fakeImage(opts: { empty?: boolean; bytes?: number } = {}) {
 }
 
 // A window whose every way of showing, focusing or raising a view throws: the capture must never reach for them.
-function setup(over: { rect?: any; image?: any; info?: any; calls?: string[]; windowGone?: boolean; tabLoaded?: boolean } = {}) {
+function setup(
+    over: {
+        rect?: any;
+        image?: any;
+        images?: any[];
+        info?: any;
+        calls?: string[];
+        windowGone?: boolean;
+        tabLoaded?: boolean;
+        parked?: boolean;
+        becomesActive?: boolean;
+    } = {}
+) {
     const calls = over.calls ?? [];
     const captured: any[] = [];
     const scripts: string[] = [];
@@ -32,20 +44,50 @@ function setup(over: { rect?: any; image?: any; info?: any; calls?: string[]; wi
         capturePage: async (rect: any, opts: any) => {
             calls.push("capture");
             captured.push({ rect, opts });
+            if (over.becomesActive) {
+                view.isActiveTab = true;
+            }
+            if (over.images) {
+                return over.images.shift();
+            }
             return over.image === undefined ? fakeImage() : over.image;
         },
         focus: () => {
             throw new Error("focus must not be called");
         },
     };
-    const view = {
+    const moved = () => {
+        throw new Error("an on-screen view must not be moved");
+    };
+    const view: any = {
         webContents: wc,
+        isActiveTab: !over.parked,
+        isOnScreen: () => !over.parked,
+        positionTabOnScreen: over.parked
+            ? () => {
+                  calls.push("on-screen");
+              }
+            : moved,
+        positionTabOffScreen: over.parked
+            ? () => {
+                  calls.push("off-screen");
+              }
+            : moved,
         setBounds: () => {
-            throw new Error("a view must not be moved");
+            throw new Error("setBounds is only reached through positionTabOnScreen/OffScreen");
         },
     };
     const ww = {
         allLoadedTabViews: new Map<string, any>(over.tabLoaded === false ? [] : [[TabId, view]]),
+        getContentBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+        contentView: {
+            addChildView: (v: any, index: number) => {
+                calls.push("below:" + index);
+                if (v !== view) {
+                    throw new Error("only the target view is reordered");
+                }
+            },
+        },
         show: () => {
             throw new Error("show must not be called");
         },
@@ -62,6 +104,9 @@ function setup(over: { rect?: any; image?: any; info?: any; calls?: string[]; wi
             return over.info === undefined ? { blockid: BlockId, tabid: TabId, workspaceid: WorkspaceId, block: { meta: { view: "term" } } } : over.info;
         },
         getWindow: () => (over.windowGone ? null : (ww as any)),
+        sleep: async () => {
+            calls.push("sleep");
+        },
     };
     return { deps, calls, captured, scripts };
 }
@@ -136,6 +181,41 @@ describe("blockShot", () => {
         await expect(blockShot(Data, s.deps)).rejects.toThrow("empty");
         const none = setup({ image: null });
         await expect(blockShot(Data, none.deps)).rejects.toThrow("empty");
+    });
+
+    test("a parked tab is put inside the window BEHIND the others for the capture, then parked again, and nothing is shown or focused", async () => {
+        const s = setup({ parked: true });
+        const res = await blockShot(Data, s.deps);
+        expect(res.width).toBe(100);
+        expect(s.calls).toEqual(["authorize", "info", "below:0", "on-screen", "sleep", "rect", "authorize", "capture", "off-screen"]);
+    });
+
+    test("a parked tab is parked again also when the capture fails", async () => {
+        const s = setup({ parked: true, image: fakeImage({ empty: true }) });
+        await expect(blockShot(Data, s.deps)).rejects.toThrow("empty");
+        expect(s.calls[s.calls.length - 1]).toBe("off-screen");
+    });
+
+    test("an empty first picture of a parked tab is asked for again, a few times, then it is an error", async () => {
+        const later = setup({ parked: true, images: [fakeImage({ empty: true }), fakeImage({ empty: true }), fakeImage()] });
+        await expect(blockShot(Data, later.deps)).resolves.toBeTruthy();
+        expect(later.calls.filter((c) => c === "capture").length).toBe(3);
+        const never = setup({ parked: true, images: Array.from({ length: 10 }, () => fakeImage({ empty: true })) });
+        await expect(blockShot(Data, never.deps)).rejects.toThrow("empty");
+        expect(never.calls.filter((c) => c === "capture").length).toBe(4);
+    });
+
+    test("a tab that became the active tab during the capture is left where the window put it", async () => {
+        const s = setup({ parked: true, becomesActive: true });
+        await blockShot(Data, s.deps);
+        expect(s.calls).not.toContain("off-screen");
+    });
+
+    test("two captures of the same tab at once do not move it at the same time", async () => {
+        const s = setup({ parked: true });
+        await Promise.all([blockShot(Data, s.deps), blockShot(Data, s.deps)]);
+        const seq = s.calls.filter((c) => c === "on-screen" || c === "off-screen");
+        expect(seq).toEqual(["on-screen", "off-screen", "on-screen", "off-screen"]);
     });
 
     test("the script gets the block id as a JSON string and looks the block up by data-blockid", () => {

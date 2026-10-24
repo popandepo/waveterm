@@ -26,8 +26,9 @@ shown are loaded and parked off screen, and this takes the picture from there wi
 caller's own workspace. The file goes into the same folder as 'wsh web shot' (AppData\Local\Wave\web-shots of your profile; the 50 newest are kept)
 with a generated name; the caller does not choose a folder or a name, and no file is ever written over.
 A block behind another member of a stack, or in a tab whose page is not loaded yet, gives an error, not a blank file.`,
-	Args: cobra.NoArgs,
-	RunE: blockShotRun,
+	Args:    cobra.NoArgs,
+	RunE:    blockShotRun,
+	PreRunE: preRunSetupRpcClient,
 }
 
 func init() {

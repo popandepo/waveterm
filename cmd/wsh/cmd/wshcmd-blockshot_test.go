@@ -31,7 +31,10 @@ func stubBlockShot(t *testing.T) (dir string, sent *[]wshrpc.CommandBlockShotDat
 	dir = filepath.Join(t.TempDir(), "web-shots")
 	webShotDir = func() (string, error) { return dir, nil }
 	webNavAuthorize = func(blockId string) error { o = append(o, "authorize"); return nil }
-	webNavBlockInfo = func(blockId string) (*wshrpc.BlockInfoData, error) { o = append(o, "info"); return webInfo("term"), nil }
+	webNavBlockInfo = func(blockId string) (*wshrpc.BlockInfoData, error) {
+		o = append(o, "info")
+		return webInfo("term"), nil
+	}
 	resolveBlockRef = func(ref string) (string, error) { return webBlockId, nil }
 	pic := base64.StdEncoding.EncodeToString(realPNG(t, 4, 3))
 	blockShotRPC = func(d wshrpc.CommandBlockShotData) (*wshrpc.CommandBlockShotRtnData, error) {
@@ -84,7 +87,10 @@ func TestBlockShotAsksTheServerFirstThenTakesTheIdsFromTheBlockRecordForAnyView(
 
 func TestBlockShotRefusedCallerSeesTheSameWordsAsAnUnknownBlockAndNothingIsAskedOrWritten(t *testing.T) {
 	dir, sent, order := stubBlockShot(t)
-	webNavAuthorize = func(blockId string) error { *order = append(*order, "authorize"); return errors.New("secret detail about another workspace") }
+	webNavAuthorize = func(blockId string) error {
+		*order = append(*order, "authorize")
+		return errors.New("secret detail about another workspace")
+	}
 	err := blockShotCmd.RunE(blockShotCmd, nil)
 	if err == nil || err.Error() != blockShotDenied {
 		t.Fatalf("want the one denial text, got %v", err)
@@ -121,5 +127,12 @@ func TestBlockShotPassesTheWindowsErrorOn(t *testing.T) {
 	err := blockShotCmd.RunE(blockShotCmd, nil)
 	if err == nil || !strings.Contains(err.Error(), "not drawn") {
 		t.Fatalf("the reason must reach the caller: %v", err)
+	}
+}
+
+// The unit tests above call RunE directly, so they cannot see a command that never sets up the RPC client (found live: "nil wshrpc passed to wshclient").
+func TestBlockShotSetsUpTheRpcClientBeforeItRuns(t *testing.T) {
+	if blockShotCmd.PreRunE == nil && blockShotCmd.PersistentPreRunE == nil {
+		t.Fatal("the command needs PreRunE: preRunSetupRpcClient, or it runs with no RPC client")
 	}
 }

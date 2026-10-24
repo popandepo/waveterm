@@ -48,7 +48,11 @@ function setup(
                 view.isActiveTab = true;
             }
             if (over.images) {
-                return over.images.shift();
+                const next = over.images.shift();
+                if (next instanceof Error) {
+                    throw next;
+                }
+                return next;
             }
             return over.image === undefined ? fakeImage() : over.image;
         },
@@ -203,6 +207,19 @@ describe("blockShot", () => {
         const never = setup({ parked: true, images: Array.from({ length: 10 }, () => fakeImage({ empty: true })) });
         await expect(blockShot(Data, never.deps)).rejects.toThrow("empty");
         expect(never.calls.filter((c) => c === "capture").length).toBe(4);
+    });
+
+    test("a transient compositor error (UnknownVizError, seen right after the move) is retried for a parked tab, not for a shown one", async () => {
+        const viz = () => new Error("UnknownVizError");
+        const parked = setup({ parked: true, images: [viz(), viz(), fakeImage()] });
+        await expect(blockShot(Data, parked.deps)).resolves.toBeTruthy();
+        expect(parked.calls.filter((c) => c === "capture").length).toBe(3);
+        const shown = setup({ images: [viz(), fakeImage()] });
+        await expect(blockShot(Data, shown.deps)).rejects.toThrow("UnknownVizError");
+        expect(shown.calls.filter((c) => c === "capture").length).toBe(1);
+        const always = setup({ parked: true, images: Array.from({ length: 10 }, viz) });
+        await expect(blockShot(Data, always.deps)).rejects.toThrow("UnknownVizError");
+        expect(always.calls.filter((c) => c === "capture").length).toBe(4);
     });
 
     test("a tab that became the active tab during the capture is left where the window put it", async () => {

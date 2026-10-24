@@ -17,7 +17,8 @@ export interface BlockShotDeps {
 }
 
 // How long a view that was just moved inside the window gets to paint, and how often an empty picture is asked for again.
-const PaintWaitMs = 150;
+// 150 ms was enough in a real Wave only some of the time (a capture at once fails with UnknownVizError); 300 ms and retries.
+const PaintWaitMs = 300;
 const ParkedAttempts = 4;
 
 // One capture at a time per tab: two overlapping captures must not park the view under the other.
@@ -116,7 +117,7 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
                     // stayAwake: a page that Chromium considers hidden or covered still paints for this one capture
                     return await webShot({ capturePage: () => wc.capturePage(rect, { stayAwake: true }) });
                 } catch (err) {
-                    if (attempt >= attempts || !String(err?.message ?? err).includes("empty")) {
+                    if (attempt >= attempts) {
                         throw err;
                     }
                     await sleep(PaintWaitMs);

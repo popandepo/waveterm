@@ -9,10 +9,15 @@ const TabId = "66666666-7777-8888-9999-000000000000";
 const WorkspaceId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const Data = { workspaceid: WorkspaceId, tabid: TabId, blockid: BlockId };
 
+const Encoded = { n: 0 };
+
 function fakeImage(opts: { empty?: boolean; bytes?: number } = {}) {
     return {
         isEmpty: () => !!opts.empty,
-        toPNG: () => Buffer.alloc(opts.bytes ?? 3, 1),
+        toPNG: () => {
+            Encoded.n++;
+            return Buffer.alloc(opts.bytes ?? 3, 1);
+        },
         getSize: () => ({ width: 100, height: 50 }),
         resize: () => fakeImage(opts),
     };
@@ -39,6 +44,7 @@ function setup(
     } = {}
 ) {
     const calls = over.calls ?? [];
+    const releases: (() => void)[] = [];
     const captured: any[] = [];
     const scripts: string[] = [];
     const wc = {
@@ -70,7 +76,9 @@ function setup(
             calls.push("capture");
             captured.push({ rect, opts });
             if (over.hangCapture) {
-                return new Promise(() => {});
+                return new Promise((resolve) => {
+                    releases.push(() => resolve(fakeImage()));
+                });
             }
             if (over.becomesActive) {
                 view.isActiveTab = true;
@@ -146,7 +154,7 @@ function setup(
             calls.push("sleep");
         },
     };
-    return { deps, calls, captured, scripts };
+    return { deps, calls, captured, scripts, releases, over };
 }
 
 describe("blockShot", () => {
@@ -311,13 +319,22 @@ describe("blockShot", () => {
         expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
     });
 
-    test("a hung capture ends at the deadline, goes through the cleanup, and frees the tab for the next caller", async () => {
+    test("a hung capture ends at the deadline, goes through the cleanup, a late answer is dropped unencoded, and the same tab then works for the next caller", async () => {
         const s = setup({ parked: true, hangCapture: true });
         s.deps.deadlineMs = 30;
+        Encoded.n = 0;
         await expect(blockShot(Data, s.deps)).rejects.toThrow("took longer");
         expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
-        const next = setup({ parked: true });
-        await expect(blockShot(Data, next.deps)).resolves.toBeTruthy();
+        const before = s.calls.length;
+        s.releases.forEach((r) => r());
+        await new Promise((r) => setTimeout(r, 20));
+        expect(Encoded.n).toBe(0);
+        expect(s.calls.length).toBe(before);
+        // the same view, tab and lock: the next caller gets its picture
+        s.over.hangCapture = false;
+        s.deps.deadlineMs = 5000;
+        await expect(blockShot(Data, s.deps)).resolves.toBeTruthy();
+        expect(Encoded.n).toBe(1);
     });
 
     test("a hung page script (the rectangle) ends at the deadline too, and nothing is captured late", async () => {
@@ -328,10 +345,11 @@ describe("blockShot", () => {
         expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
     });
 
-    test("a web tile is refused (use wsh web shot, which has the sign-in rule) before anything is moved or captured", async () => {
-        for (const meta of [{ view: "web" }, { view: "web", "web:partition": "persist:own" }]) {
+    test("only a terminal block is photographed: every other view is refused by name before anything is moved or captured", async () => {
+        for (const view of ["web", "preview", "waveai", "sysinfo", "tsunami", "launcher", "", undefined]) {
+            const meta: any = view === undefined ? {} : { view };
             const s = setup({ parked: true, info: { blockid: BlockId, tabid: TabId, workspaceid: WorkspaceId, block: { meta } } });
-            await expect(blockShot(Data, s.deps)).rejects.toThrow("web shot");
+            await expect(blockShot(Data, s.deps)).rejects.toThrow("terminal blocks only");
             expect(s.calls).toEqual(["authorize", "info"]);
         }
     });

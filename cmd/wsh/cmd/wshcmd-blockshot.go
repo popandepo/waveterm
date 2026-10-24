@@ -20,8 +20,8 @@ const blockShotDenied = "that block is not available to this caller"
 
 var blockShotCmd = &cobra.Command{
 	Use:   "blockshot [-b block]",
-	Short: "save a picture of one block (any view, own workspace), shown or not, to a new PNG file",
-	Long: `Saves a PNG of ONE block, cut out of the loaded page of its tab, and prints its path. The tab does not have to be shown: tabs that are not
+	Short: "save a picture of one terminal block (own workspace), shown or not, to a new PNG file",
+	Long: `Saves a PNG of ONE terminal block (other views are refused: a view can embed a page with your sign-ins; use wsh web shot for a web tile), cut out of the loaded page of its tab, and prints its path. The tab does not have to be shown: tabs that are not
 shown are loaded and parked off screen, and this takes the picture from there without showing, moving or focusing anything. Only blocks in the
 caller's own workspace. The file goes into the same folder as 'wsh web shot' (AppData\Local\Wave\web-shots of your profile; the 50 newest are kept)
 with a generated name; the caller does not choose a folder or a name, and no file is ever written over.

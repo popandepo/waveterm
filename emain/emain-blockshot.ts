@@ -17,6 +17,8 @@ export interface BlockShotDeps {
     deadlineMs?: number;
 }
 
+export const AllowedViews = ["term"];
+
 // The whole capture, move and cleanup included, ends by then: the caller's own timeout (15 s) does not release the tab lock or park the view.
 const DefaultDeadlineMs = 12000;
 
@@ -143,8 +145,11 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
     if (info.workspaceid !== data.workspaceid) {
         throw new Error("the tab is not in the workspace named");
     }
-    if (info.block.meta?.view === "web") {
-        throw new Error("a web tile is not photographed here (its page can show a signed-in account): use wsh web shot, which has the sign-in rule");
+    // An allow-list: a view can embed a page with the owner's sign-ins (web, and others that host one), and the crop would include it.
+    // More views are added one at a time, each with its reason.
+    const viewType = info.block.meta?.view;
+    if (!AllowedViews.includes(viewType)) {
+        throw new Error(`wsh blockshot takes terminal blocks only (view "term"); this block is "${viewType ?? ""}" (for a web tile use wsh web shot, which has the sign-in rule)`);
     }
     const ww = deps.getWindow();
     if (ww == null) {
@@ -185,9 +190,18 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
                 }
                 try {
                     // stayAwake: a page that Chromium considers hidden or covered still paints for this one capture
-                    return await webShot({ capturePage: () => wc.capturePage(rect, { stayAwake: true }) });
+                    return await webShot({
+                        capturePage: async () => {
+                            const image = await wc.capturePage(rect, { stayAwake: true });
+                            // a picture that arrives after the deadline is dropped before it is encoded
+                            if (state.aborted) {
+                                throw new Error("the capture was given up");
+                            }
+                            return image;
+                        },
+                    });
                 } catch (err) {
-                    if (attempt >= attempts) {
+                    if (state.aborted || attempt >= attempts) {
                         throw err;
                     }
                     await sleep(PaintWaitMs);

@@ -30,7 +30,7 @@ public static class FgProbe {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
   // "ERR:..." when a probe failed (no foreground window, or its thread info cannot be read): a failed probe is never a value.
   public static string Read() {
     IntPtr fg = GetForegroundWindow();
@@ -41,15 +41,24 @@ public static class FgProbe {
     if (!GetGUIThreadInfo(tid, ref i)) return "ERR:GetGUIThreadInfo failed";
     return fg.ToInt64() + "|" + i.hwndActive.ToInt64() + "|" + i.hwndFocus.ToInt64() + "|" + i.hwndCaret.ToInt64() + "|" + i.rcCaret.L + "," + i.rcCaret.T + "," + i.rcCaret.R + "," + i.rcCaret.B;
   }
-  // Visible top-level windows with a title, front to back: handle, rectangle, minimised.
+  // Every visible top-level window, titled or not, front to back: handle, rectangle, minimised. "ERR:..." when the listing or a rectangle
+  // cannot be read (a window that is gone by the time it is measured is skipped, any other failure is an error).
   public static string Windows() {
     List<string> list = new List<string>();
-    EnumWindows((h, l) => {
-      if (!IsWindowVisible(h) || GetWindowTextLength(h) == 0) return true;
-      RECT r; GetWindowRect(h, out r);
+    string err = null;
+    bool ok = EnumWindows((h, l) => {
+      if (!IsWindowVisible(h)) return true;
+      RECT r;
+      if (!GetWindowRect(h, out r)) {
+        if (!IsWindow(h)) return true;
+        err = "ERR:GetWindowRect failed for a window that still exists";
+        return false;
+      }
       list.Add(h.ToInt64() + ":" + r.L + "," + r.T + "," + r.R + "," + r.B + ":" + (IsIconic(h) ? "min" : "norm"));
       return true;
     }, IntPtr.Zero);
+    if (err != null) return err;
+    if (!ok) return "ERR:EnumWindows failed";
     return string.Join(";", list);
   }
 }
@@ -60,8 +69,14 @@ function Compare-Snapshots($before, $after) {
     $why = @()
     foreach ($s in @(@('before', $before), @('after', $after))) {
         if ("$($s[1].Foreground)" -like 'ERR:*' -or [string]::IsNullOrEmpty("$($s[1].Foreground)")) { $why += "probe failed ($($s[0])): $($s[1].Foreground)" }
-        if ([string]::IsNullOrEmpty("$($s[1].Windows)")) { $why += "probe failed ($($s[0])): no window list" }
+        if ("$($s[1].Windows)" -like 'ERR:*' -or [string]::IsNullOrEmpty("$($s[1].Windows)")) { $why += "probe failed ($($s[0])): window list: $($s[1].Windows)" }
         if (-not $s[1].ActiveTabs -or $s[1].ActiveTabs.Count -eq 0) { $why += "probe failed ($($s[0])): no workspace listed" }
+        else {
+            foreach ($k in $s[1].ActiveTabs.Keys) {
+                $v = "$($s[1].ActiveTabs[$k])"
+                if ([string]::IsNullOrWhiteSpace($v) -or $v -like 'ERR:*') { $why += "probe failed ($($s[0])): workspace $k has no usable active tab id" }
+            }
+        }
     }
     if ($why) { return $why }
     if ($before.Foreground -ne $after.Foreground) { $why += "foreground window / focus / caret changed: [$($before.Foreground)] -> [$($after.Foreground)]" }
@@ -104,6 +119,10 @@ if ($SelfTest) {
         @('empty foreground', (Snap '' $win $same), (Snap '' $win $same), 2),
         @('no workspaces listed (an error body) in both', (Snap $fg $win @{}), (Snap $fg $win @{}), 2),
         @('no window list in both', (Snap $fg '' $same), (Snap $fg '' $same), 2),
+        @('an untitled window opened is seen (the list holds every visible window)', $base, (Snap $fg ($win + ';400:0,0,50,50:norm') $same), 1),
+        @('window list could not be read', (Snap $fg 'ERR:EnumWindows failed' $same), (Snap $fg 'ERR:EnumWindows failed' $same), 2),
+        @('a workspace without an active tab id', (Snap $fg $win @{ w1 = '' }), (Snap $fg $win @{ w1 = '' }), 2),
+        @('an active tab id marked ERR', (Snap $fg $win @{ w1 = 'ERR:no active tab id' }), (Snap $fg $win @{ w1 = 'ERR:no active tab id' }), 2),
         @('everything changed', $base, (Snap '1|1|1|1|1,1,1,1' '9:0,0,1,1:norm' @{ w1 = 'x'; w2 = 'y' }), 4))
     $failed = 0
     foreach ($c in $cases) {
@@ -147,7 +166,7 @@ function Get-Snapshot {
     $r = Call '/v1/list' @{}
     if ($r.Status -eq 200) {
         $tree = $r.Text | ConvertFrom-Json
-        foreach ($ws in @($tree.workspaces)) { if ($ws.workspaceid) { $tabs[$ws.workspaceid] = $ws.activetabid } }
+        foreach ($ws in @($tree.workspaces)) { if ($ws.workspaceid) { $tabs[$ws.workspaceid] = $(if ($ws.activetabid) { $ws.activetabid } else { 'ERR:no active tab id' }) } }
     }
     @{ Foreground = [FgProbe]::Read(); Windows = [FgProbe]::Windows(); ActiveTabs = $tabs }
 }

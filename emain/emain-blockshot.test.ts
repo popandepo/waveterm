@@ -31,6 +31,11 @@ function setup(
         tabLoaded?: boolean;
         parked?: boolean;
         becomesActive?: boolean;
+        positionThrows?: boolean;
+        throttleThrows?: boolean;
+        offThrows?: boolean;
+        hangCapture?: boolean;
+        hangRect?: boolean;
     } = {}
 ) {
     const calls = over.calls ?? [];
@@ -39,6 +44,9 @@ function setup(
     const wc = {
         executeJavaScript: async (script: string) => {
             calls.push("rect");
+            if (over.hangRect) {
+                return new Promise(() => {});
+            }
             scripts.push(script);
             if (over.rects) {
                 return over.rects.length > 1 ? over.rects.shift() : over.rects[0];
@@ -50,6 +58,9 @@ function setup(
                 throw new Error("a shown tab's throttling must not be touched");
             }
             calls.push("throttle:" + on);
+            if (over.throttleThrows && on === false) {
+                throw new Error("throttle failed");
+            }
         },
         capturePage: async (rect: any, opts: any) => {
             if (rect === undefined) {
@@ -58,6 +69,9 @@ function setup(
             }
             calls.push("capture");
             captured.push({ rect, opts });
+            if (over.hangCapture) {
+                return new Promise(() => {});
+            }
             if (over.becomesActive) {
                 view.isActiveTab = true;
             }
@@ -84,11 +98,17 @@ function setup(
         positionTabOnScreen: over.parked
             ? () => {
                   calls.push("on-screen");
+                  if (over.positionThrows) {
+                      throw new Error("position failed");
+                  }
               }
             : moved,
         positionTabOffScreen: over.parked
             ? () => {
                   calls.push("off-screen");
+                  if (over.offThrows) {
+                      throw new Error("park failed");
+                  }
               }
             : moved,
         setBounds: () => {
@@ -273,6 +293,47 @@ describe("blockShot", () => {
         expect(s.calls.filter((c) => c === "rect").length).toBe(1);
         expect(s.captured[0].rect).toEqual({ x: 0, y: 0, width: 29, height: 61 });
         expect(res.width).toBe(100);
+    });
+
+    test("a failure while moving the view in is cleaned up: the view is parked again", async () => {
+        const pos = setup({ parked: true, positionThrows: true });
+        await expect(blockShot(Data, pos.deps)).rejects.toThrow("position failed");
+        expect(pos.calls).toContain("off-screen");
+        expect(pos.calls).not.toContain("throttle:true");
+        const thr = setup({ parked: true, throttleThrows: true });
+        await expect(blockShot(Data, thr.deps)).rejects.toThrow("throttle failed");
+        expect(thr.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
+    });
+
+    test("every cleanup step runs even when another one throws", async () => {
+        const s = setup({ parked: true, offThrows: true });
+        await expect(blockShot(Data, s.deps)).resolves.toBeTruthy();
+        expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
+    });
+
+    test("a hung capture ends at the deadline, goes through the cleanup, and frees the tab for the next caller", async () => {
+        const s = setup({ parked: true, hangCapture: true });
+        s.deps.deadlineMs = 30;
+        await expect(blockShot(Data, s.deps)).rejects.toThrow("took longer");
+        expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
+        const next = setup({ parked: true });
+        await expect(blockShot(Data, next.deps)).resolves.toBeTruthy();
+    });
+
+    test("a hung page script (the rectangle) ends at the deadline too, and nothing is captured late", async () => {
+        const s = setup({ parked: true, hangRect: true });
+        s.deps.deadlineMs = 30;
+        await expect(blockShot(Data, s.deps)).rejects.toThrow("took longer");
+        expect(s.calls).not.toContain("capture");
+        expect(s.calls.slice(-2)).toEqual(["off-screen", "throttle:true"]);
+    });
+
+    test("a web tile is refused (use wsh web shot, which has the sign-in rule) before anything is moved or captured", async () => {
+        for (const meta of [{ view: "web" }, { view: "web", "web:partition": "persist:own" }]) {
+            const s = setup({ parked: true, info: { blockid: BlockId, tabid: TabId, workspaceid: WorkspaceId, block: { meta } } });
+            await expect(blockShot(Data, s.deps)).rejects.toThrow("web shot");
+            expect(s.calls).toEqual(["authorize", "info"]);
+        }
     });
 
     test("a tab that became the active tab during the capture is left where the window put it", async () => {

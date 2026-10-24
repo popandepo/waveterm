@@ -14,6 +14,16 @@ export interface BlockShotDeps {
     blockInfo: () => Promise<any>;
     getWindow: () => any;
     sleep?: (ms: number) => Promise<void>;
+    deadlineMs?: number;
+}
+
+// The whole capture, move and cleanup included, ends by then: the caller's own timeout (15 s) does not release the tab lock or park the view.
+const DefaultDeadlineMs = 12000;
+
+interface CaptureState {
+    aborted: boolean;
+    moved: boolean;
+    throttled: boolean;
 }
 
 // How long a view that was just moved inside the window gets to paint, and how often an empty picture is asked for again.
@@ -80,7 +90,7 @@ function checkedRect(raw: any): { x: number; y: number; width: number; height: n
     return rect;
 }
 
-async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: number) => Promise<void>) {
+async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: number) => Promise<void>, state: CaptureState) {
     const wake = async () => {
         try {
             await wc.capturePage(undefined, { stayAwake: true });
@@ -90,6 +100,9 @@ async function readRect(wc: any, blockId: string, polls: number, sleep: (ms: num
     };
     let last: unknown = null;
     for (let poll = 1; poll <= polls; poll++) {
+        if (state.aborted) {
+            throw new Error("the capture was given up");
+        }
         try {
             const rect = checkedRect(await wc.executeJavaScript(buildRectScript(blockId)));
             if (polls === 1 || (rect.width >= MinLaidOutSide && rect.height >= MinLaidOutSide)) {
@@ -130,6 +143,9 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
     if (info.workspaceid !== data.workspaceid) {
         throw new Error("the tab is not in the workspace named");
     }
+    if (info.block.meta?.view === "web") {
+        throw new Error("a web tile is not photographed here (its page can show a signed-in account): use wsh web shot, which has the sign-in rule");
+    }
     const ww = deps.getWindow();
     if (ww == null) {
         throw new Error(`no window found with workspace ${data.workspaceid}`);
@@ -142,17 +158,31 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
     const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     return await withTabLock(data.tabid, async () => {
         const parked = typeof view.isOnScreen === "function" && !view.isOnScreen();
-        if (parked) {
-            ww.contentView.addChildView(view, 0);
-            view.positionTabOnScreen(ww.getContentBounds());
-            wc.setBackgroundThrottling(false);
-            await sleep(PaintWaitMs);
-        }
-        try {
-            const rect = await readRect(wc, data.blockid, parked ? LayoutPolls : 1, sleep);
+        const state: CaptureState = { aborted: false, moved: false, throttled: false };
+        const deadlineMs = deps.deadlineMs ?? DefaultDeadlineMs;
+        let timer: any;
+        const deadline = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+                state.aborted = true;
+                reject(new Error(`capturing the block took longer than ${deadlineMs} ms and was given up (its page may be hung)`));
+            }, deadlineMs);
+        });
+        const work = (async () => {
+            if (parked) {
+                state.moved = true;
+                ww.contentView.addChildView(view, 0);
+                view.positionTabOnScreen(ww.getContentBounds());
+                state.throttled = true;
+                wc.setBackgroundThrottling(false);
+                await sleep(PaintWaitMs);
+            }
+            const rect = await readRect(wc, data.blockid, parked ? LayoutPolls : 1, sleep, state);
             await deps.authorize();
             const attempts = parked ? ParkedAttempts : 1;
             for (let attempt = 1; ; attempt++) {
+                if (state.aborted) {
+                    throw new Error("the capture was given up");
+                }
                 try {
                     // stayAwake: a page that Chromium considers hidden or covered still paints for this one capture
                     return await webShot({ capturePage: () => wc.capturePage(rect, { stayAwake: true }) });
@@ -163,13 +193,27 @@ export async function blockShot(data: BlockShotData, deps: BlockShotDeps): Promi
                     await sleep(PaintWaitMs);
                 }
             }
+        })();
+        work.catch(() => {});
+        try {
+            return await Promise.race([work, deadline]);
         } finally {
-            // a tab that became the active one meanwhile is where the window put it: parking it would blank the screen
-            if (parked && !view.isActiveTab) {
-                view.positionTabOffScreen(ww.getContentBounds());
+            clearTimeout(timer);
+            state.aborted = true;
+            // each step on its own: one that throws must not keep the others from running
+            if (state.moved && !view.isActiveTab) {
+                try {
+                    view.positionTabOffScreen(ww.getContentBounds());
+                } catch (err) {
+                    console.log("blockshot: parking the tab view again failed:", err);
+                }
             }
-            if (parked) {
-                wc.setBackgroundThrottling(true);
+            if (state.throttled) {
+                try {
+                    wc.setBackgroundThrottling(true);
+                } catch (err) {
+                    console.log("blockshot: restoring background throttling failed:", err);
+                }
             }
         }
     });

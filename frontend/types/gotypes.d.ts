@@ -265,6 +265,20 @@ declare global {
         termsize?: TermSize;
     };
 
+    // wshrpc.CommandBlockShotData
+    type CommandBlockShotData = {
+        workspaceid: string;
+        blockid: string;
+        tabid: string;
+    };
+
+    // wshrpc.CommandBlockShotRtnData
+    type CommandBlockShotRtnData = {
+        png: string;
+        width: number;
+        height: number;
+    };
+
     // wshrpc.CommandCaptureBlockScreenshotData
     type CommandCaptureBlockScreenshotData = {
         blockid: string;

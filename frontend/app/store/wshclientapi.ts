@@ -84,6 +84,12 @@ export class RpcApiType {
         return client.wshRpcCall("blockjobstatus", data, opts);
     }
 
+    // command "blockshot" [call]
+    BlockShotCommand(client: WshClient, data: CommandBlockShotData, opts?: RpcOpts): Promise<CommandBlockShotRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "blockshot", data, opts);
+        return client.wshRpcCall("blockshot", data, opts);
+    }
+
     // command "blockslist" [call]
     BlocksListCommand(client: WshClient, data: BlocksListRequest, opts?: RpcOpts): Promise<BlocksListEntry[]> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "blockslist", data, opts);

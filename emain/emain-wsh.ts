@@ -9,6 +9,7 @@ import { getResolvedUpdateChannel } from "emain/updater";
 import { wshCloseRefusal } from "./closetabprompt";
 import { unamePlatform } from "./emain-platform";
 import { getWebContentsByBlockId, webGetSelector } from "./emain-web";
+import { blockShot } from "./emain-blockshot";
 import { authorizeWebNav, AuthorizeTimeoutMs, FullBlockIdRe, readWebTile, WebReadDeps, webNavigate, webShot, webText } from "./emain-webnav";
 import { createBrowserWindow, getWaveWindowById, getWaveWindowByWorkspaceId } from "./emain-window";
 
@@ -71,6 +72,17 @@ export class ElectronWshClientType extends WshClient {
     async handle_webshot(rh: RpcResponseHelper, data: CommandWebShotData): Promise<CommandWebShotRtnData> {
         // the same order and checks as handle_webtext (readWebTile): the live session is checked right before capturePage
         return await readWebTile(data, webReadDeps(rh, data), (wc) => webShot(wc));
+    }
+
+    async handle_blockshot(rh: RpcResponseHelper, data: CommandBlockShotData): Promise<CommandBlockShotRtnData> {
+        // the caller is asked before any window or page is looked at; nothing here shows, moves or focuses a view
+        return await blockShot(data, {
+            authorize: async () => {
+                await RpcApi.WebNavAuthorizeCommand(ElectronWshClient, { callerroute: rh.getSource(), blockid: data.blockid }, { timeout: AuthorizeTimeoutMs });
+            },
+            blockInfo: () => RpcApi.BlockInfoCommand(ElectronWshClient, data.blockid),
+            getWindow: () => getWaveWindowByWorkspaceId(data.workspaceid),
+        });
     }
 
     async handle_notify(rh: RpcResponseHelper, notificationOptions: WaveNotificationOptions) {

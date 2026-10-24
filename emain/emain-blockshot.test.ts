@@ -238,7 +238,7 @@ describe("blockShot", () => {
     test("the script gets the block id as a JSON string and looks the block up by data-blockid", () => {
         const script = buildRectScript(BlockId);
         expect(script).toContain(JSON.stringify(BlockId));
-        expect(script).toContain("data-blockid");
+        expect(script).toContain(".block[data-blockid=");
         expect(script).toContain("getBoundingClientRect");
         // an id with a quote cannot break out of the string
         expect(buildRectScript('x"); alert(1); ("')).toContain(JSON.stringify('x"); alert(1); ("'));

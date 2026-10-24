@@ -48,7 +48,7 @@ export interface BlockShotData {
 export function buildRectScript(blockId: string): string {
     return `(() => {
     try {
-        const el = document.querySelector('[data-blockid=' + JSON.stringify(${JSON.stringify(blockId)}) + ']');
+        const el = document.querySelector('.block[data-blockid=' + JSON.stringify(${JSON.stringify(blockId)}) + ']');
         if (!el) { return null; }
         const r = el.getBoundingClientRect();
         return { x: r.x, y: r.y, width: r.width, height: r.height };

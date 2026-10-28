@@ -24,6 +24,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { redrawAfterSettle } from "./termredraw";
 import * as TermTypes from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
 import debug from "debug";
@@ -362,6 +363,7 @@ export class TermWrap {
             const addon = new WebglAddon();
             this.webglContextLossDisposable = addon.onContextLoss(() => {
                 this.setTermRenderer("dom");
+                this.redrawSettled();
             });
             this.terminal.loadAddon(addon);
             this.webglAddon = addon;
@@ -371,6 +373,10 @@ export class TermWrap {
                 loggedWebGL = true;
             }
         }
+    }
+
+    redrawSettled() {
+        fireAndForget(() => redrawAfterSettle(this.terminal, document.fonts.ready, requestAnimationFrame));
     }
 
     getTermRenderer(): "webgl" | "dom" {
@@ -440,6 +446,7 @@ export class TermWrap {
         } finally {
             this.loaded = true;
         }
+        this.redrawSettled();
         this.runProcessIdleTimeout();
     }
 

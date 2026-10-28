@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { atom, createStore } from "jotai";
-import { assert, describe, test, vi } from "vitest";
+import { afterEach, assert, describe, test, vi } from "vitest";
 
 vi.mock("@/app/store/global", () => {
     const { atom } = require("jotai");
@@ -79,7 +79,7 @@ function modelWith(root: any, blockids: string[] | undefined, existing: string[]
     // the real persistToBackend runs; what it hands to the store is what is recorded
     setObjectValue.mockReset();
     setObjectValue.mockImplementation((obj: any) => {
-        const copy = structuredClone(obj.rootnode);
+        const copy = structuredClone(obj.rootnode) ?? {};
         copy.savedLeafOrder = structuredClone(obj.leaforder);
         saved.push(copy);
     });
@@ -95,6 +95,9 @@ function modelWith(root: any, blockids: string[] | undefined, existing: string[]
     model.blockExists = async (id: string) => existing.includes(id);
     return { model, saved };
 }
+
+// a test's debounced save must land in its own recorder, not in the next test's
+afterEach(() => new Promise((resolve) => setTimeout(resolve, 150)));
 
 describe("the cleanuporphaned action", () => {
     test("removes the leaf whose block is gone, and the stack it leaves empty, and saves the result", async () => {
@@ -174,7 +177,49 @@ describe("the cleanuporphaned action", () => {
     });
 });
 
+describe("the only leaf of the tree is the orphan", () => {
+    test("a root stack whose only leaf has no block leaves an empty tab, not an invalid tree", async () => {
+        const orphan = leaf("7193ba65");
+        const { model, saved } = modelWith(newStackNode([orphan]), []);
+        await model.processPendingBackendActions();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        assert.equal(model.treeState.rootNode, undefined);
+        assert.equal(saved.length, 1);
+    });
+
+    test("a root that is itself the orphan leaf leaves an empty tab", async () => {
+        const { model } = modelWith(leaf("7193ba65"), []);
+        await model.processPendingBackendActions();
+        assert.equal(model.treeState.rootNode, undefined);
+    });
+});
+
 describe("balanceNode and holes", () => {
+    test("a saved null inside a stack is dropped and the stack keeps its members", () => {
+        const a = leaf("a");
+        const b = leaf("b");
+        const holey = newStackNode([a, b]);
+        holey.children.push(null);
+        const root = newLayoutNode(undefined, undefined, [holey, leaf("c")]);
+        const balanced = balanceNode(root, (n) => n.children?.forEach((c) => c.id));
+        const stack = balanced.children[0];
+        assert.deepEqual(stack.children.map((c: any) => c.id), [a.id, b.id]);
+    });
+
+    test("a stack that held only a null is dropped", () => {
+        const stack = newStackNode([leaf("a")]);
+        stack.children = [null];
+        const root = newLayoutNode(undefined, undefined, [stack, leaf("c"), leaf("d")]);
+        const balanced = balanceNode(root, (n) => n.children?.forEach((c) => c.id));
+        assert.equal(balanced.children.length, 2);
+    });
+
+    test("a tree that is nothing but holes balances to nothing", () => {
+        const stack = newStackNode([leaf("a")]);
+        stack.children = [];
+        assert.equal(balanceNode(stack), undefined);
+    });
+
     test("an empty stack is dropped before the callback sees the node's children", () => {
         const { root } = homeTree();
         root.children[0].children = [];

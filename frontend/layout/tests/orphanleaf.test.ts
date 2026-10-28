@@ -65,40 +65,69 @@ describe("orphanLeafIds", () => {
     });
 });
 
-function modelWith(root: any, blockids: string[] | undefined) {
+// The saved layout is what survives a restart, so the tests drive the real path (processPendingBackendActions) and watch the save.
+function modelWith(root: any, blockids: string[] | undefined, existing: string[] = []) {
     const store = createStore();
     const tabAtom = atom({ oid: "tab-1", layoutstate: "layout-1", blockids } as any);
     const model: any = new LayoutModel(tabAtom, store.get, store.set);
     model.treeState = { rootNode: root, pendingBackendActions: [] };
-    model.persistToBackend = () => {};
-    model.updateTree = () => {};
-    return model;
+    model.waveObjectAtom = atom({ pendingbackendactions: [{ actiontype: "cleanuporphaned", actionid: "c1" }] } as any);
+    const saved: any[] = [];
+    model.persistToBackend = () => saved.push(structuredClone(model.treeState.rootNode));
+    model.updateTree = () => balanceNode(model.treeState.rootNode);
+    model.blockExists = async (id: string) => existing.includes(id);
+    return { model, saved };
 }
 
 describe("the cleanuporphaned action", () => {
-    test("removes the leaf whose block is gone, and the stack it leaves empty", async () => {
+    test("removes the leaf whose block is gone, and the stack it leaves empty, and saves the result", async () => {
         const { root, orphan, status, manager } = homeTree();
-        const model = modelWith(root, ["c5b03b0c", "a008b469"]);
-        await model.handleBackendAction({ actiontype: "cleanuporphaned", actionid: "c1" });
+        const { model, saved } = modelWith(root, ["c5b03b0c", "a008b469"]);
+        await model.processPendingBackendActions();
         assert.equal(findNode(model.treeState.rootNode, orphan.id), undefined);
         assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), [status.data.blockId, manager.data.blockId].sort());
-        // updateTree balances the tree after the action; it is stubbed here, so the step is run by hand
-        balanceNode(model.treeState.rootNode);
         assert.equal(model.treeState.rootNode.children.length, 2);
-        assert.ok(model.treeState.rootNode.children.every((c: any) => c.children?.length !== 0));
+        assert.equal(saved.length, 1);
+        assert.deepEqual(blockIdsOf(saved[0]).sort(), [status.data.blockId, manager.data.blockId].sort());
+    });
+
+    test("keeps a leaf the tab list does not name yet when its block exists (a block just created)", async () => {
+        const { root } = homeTree();
+        const { model } = modelWith(root, ["c5b03b0c", "a008b469"], ["7193ba65"]);
+        await model.processPendingBackendActions();
+        assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["7193ba65", "a008b469", "c5b03b0c"]);
+    });
+
+    test("keeps the leaf when the backend cannot be asked", async () => {
+        const { root } = homeTree();
+        const { model } = modelWith(root, ["c5b03b0c", "a008b469"]);
+        model.blockExists = async () => undefined;
+        await model.processPendingBackendActions();
+        assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["7193ba65", "a008b469", "c5b03b0c"]);
+    });
+
+    test("a leaf that was replaced while the backend was asked is not removed", async () => {
+        const { root, orphan } = homeTree();
+        const { model } = modelWith(root, ["c5b03b0c", "a008b469"]);
+        model.blockExists = async () => {
+            orphan.data = { blockId: "other" };
+            return false;
+        };
+        await model.processPendingBackendActions();
+        assert.ok(findNode(model.treeState.rootNode, orphan.id));
     });
 
     test("leaves a tree alone when every leaf has its block", async () => {
         const { root } = homeTree();
-        const model = modelWith(root, ["7193ba65", "c5b03b0c", "a008b469"]);
-        await model.handleBackendAction({ actiontype: "cleanuporphaned", actionid: "c2" });
+        const { model } = modelWith(root, ["7193ba65", "c5b03b0c", "a008b469"]);
+        await model.processPendingBackendActions();
         assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["7193ba65", "a008b469", "c5b03b0c"]);
     });
 
     test("does not touch the tree while the tab's block list is not loaded", async () => {
         const { root } = homeTree();
-        const model = modelWith(root, undefined);
-        await model.handleBackendAction({ actiontype: "cleanuporphaned", actionid: "c3" });
+        const { model } = modelWith(root, undefined);
+        await model.processPendingBackendActions();
         assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["7193ba65", "a008b469", "c5b03b0c"]);
     });
 });

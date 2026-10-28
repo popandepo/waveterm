@@ -11,9 +11,11 @@ vi.mock("@/app/store/global", () => {
         WOS: { makeORef: (t: string, id: string) => `${t}:${id}`, getWaveObjectAtom: () => atom(undefined) },
     };
 });
+const { setObjectValue } = vi.hoisted(() => ({ setObjectValue: vi.fn() }));
 vi.mock("@/app/store/wos", () => ({
     makeORef: (t: string, id: string) => `${t}:${id}`,
     getWaveObjectAtom: () => undefined,
+    setObjectValue,
 }));
 vi.mock("@/app/store/services", () => ({ BlockService: {}, ObjectService: {} }));
 vi.mock("@/app/store/focusManager", () => ({
@@ -70,10 +72,13 @@ function modelWith(root: any, blockids: string[] | undefined, existing: string[]
     const store = createStore();
     const tabAtom = atom({ oid: "tab-1", layoutstate: "layout-1", blockids } as any);
     const model: any = new LayoutModel(tabAtom, store.get, store.set);
+    model.setTabBlockIds = (ids: string[]) => store.set(tabAtom, { oid: "tab-1", layoutstate: "layout-1", blockids: ids } as any);
     model.treeState = { rootNode: root, pendingBackendActions: [] };
     model.waveObjectAtom = atom({ pendingbackendactions: [{ actiontype: "cleanuporphaned", actionid: "c1" }] } as any);
     const saved: any[] = [];
-    model.persistToBackend = () => saved.push(structuredClone(model.treeState.rootNode));
+    // the real persistToBackend runs; what it hands to the store is what is recorded
+    setObjectValue.mockReset();
+    setObjectValue.mockImplementation((obj: any) => saved.push(structuredClone(obj.rootnode)));
     model.updateTree = () => balanceNode(model.treeState.rootNode);
     model.blockExists = async (id: string) => existing.includes(id);
     return { model, saved };
@@ -84,6 +89,7 @@ describe("the cleanuporphaned action", () => {
         const { root, orphan, status, manager } = homeTree();
         const { model, saved } = modelWith(root, ["c5b03b0c", "a008b469"]);
         await model.processPendingBackendActions();
+        await new Promise((resolve) => setTimeout(resolve, 150));
         assert.equal(findNode(model.treeState.rootNode, orphan.id), undefined);
         assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), [status.data.blockId, manager.data.blockId].sort());
         assert.equal(model.treeState.rootNode.children.length, 2);
@@ -104,6 +110,17 @@ describe("the cleanuporphaned action", () => {
         model.blockExists = async () => undefined;
         await model.processPendingBackendActions();
         assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["7193ba65", "a008b469", "c5b03b0c"]);
+    });
+
+    test("a block created and listed while the backend is asked keeps its leaf, though the answer says it was missing", async () => {
+        const { root, orphan } = homeTree();
+        const { model } = modelWith(root, ["c5b03b0c", "a008b469"]);
+        model.blockExists = async () => {
+            model.setTabBlockIds(["c5b03b0c", "a008b469", "7193ba65"]);
+            return false;
+        };
+        await model.processPendingBackendActions();
+        assert.ok(findNode(model.treeState.rootNode, orphan.id));
     });
 
     test("a leaf that was replaced while the backend was asked is not removed", async () => {

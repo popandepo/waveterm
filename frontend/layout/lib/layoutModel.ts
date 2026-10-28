@@ -494,8 +494,10 @@ export class LayoutModel {
             if (blockId == null || (await this.blockExists(blockId)) !== false) {
                 continue;
             }
+            // the answer can be older than the tab: the block may have been created, and listed, while the backend was asked
             const stillThere = findNode(this.treeState.rootNode, nodeId);
-            if (stillThere?.data?.blockId !== blockId) {
+            const listedNow = (this.getter(this.tabAtom)?.blockids ?? []).includes(blockId);
+            if (stillThere?.data?.blockId !== blockId || listedNow) {
                 continue;
             }
             console.log("Removing layout leaf without a block:", nodeId);

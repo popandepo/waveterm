@@ -208,6 +208,25 @@ export function validateNode(node: LayoutNode): boolean {
 }
 
 /**
+ * Ids of the leaves whose block is not among the tab's blocks. A block deleted without its leaf following (a queued
+ * layout action that was overwritten by a save of the whole layout) leaves a tile nobody can close or move.
+ * An unknown block list names nothing: it is not the same as an empty one.
+ */
+export function orphanLeafIds(root: LayoutNode, tabBlockIds: string[] | undefined): string[] {
+    if (!root || tabBlockIds == null) {
+        return [];
+    }
+    const live = new Set(tabBlockIds);
+    const orphans: string[] = [];
+    walkNodes(root, (node) => {
+        if (node.data?.blockId && !live.has(node.data.blockId)) {
+            orphans.push(node.id);
+        }
+    });
+    return orphans;
+}
+
+/**
  * Recursively walk the layout tree starting at the specified node. Run the specified callbacks, if any.
  * @param node The node from which to start the walk.
  * @param beforeWalkCallback An optional callback to run before walking a node's children.

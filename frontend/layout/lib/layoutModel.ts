@@ -13,7 +13,7 @@ import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
 import { treeActionForBackendAction } from "./backendaction";
-import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
+import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
     adjacentStackMember,
@@ -474,6 +474,11 @@ export class LayoutModel {
                     await this.onNodeDelete({ blockId });
                 }
             }
+        }
+
+        for (const nodeId of orphanLeafIds(this.treeState.rootNode, tab.blockids)) {
+            console.log("Removing layout leaf without a block:", nodeId);
+            this.treeReducer({ type: LayoutTreeActionType.DeleteNode, nodeId } as LayoutTreeDeleteNodeAction, false);
         }
     }
 

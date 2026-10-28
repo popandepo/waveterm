@@ -89,16 +89,18 @@ describe("RedrawScheduler", () => {
         expect(calls).toEqual([]);
     });
 
-    test("disposed while a frame is pending: the frame is cancelled and nothing is painted", async () => {
+    test("disposed while a frame is pending: the frame is cancelled, schedule() settles and nothing is painted", async () => {
         const { scheduler, calls, frames, cancelled, releaseFonts } = rig();
-        const done = scheduler.schedule();
+        let settled = false;
+        const done = scheduler.schedule().then(() => (settled = true));
         releaseFonts();
         await tick();
-        const cb = frames.get(1);
+        expect(settled).toBe(false);
         scheduler.dispose();
         expect(cancelled).toEqual([1]);
-        cb();
         await done;
+        expect(settled).toBe(true);
+        expect(frames.size).toBe(0);
         expect(calls).toEqual([]);
     });
 

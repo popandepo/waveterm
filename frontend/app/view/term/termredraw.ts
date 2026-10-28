@@ -27,6 +27,7 @@ export class RedrawScheduler {
     private disposed = false;
     private pending = false;
     private frameHandle: number | null = null;
+    private frameResolve: (() => void) | null = null;
 
     constructor(
         term: RedrawableTerm,
@@ -55,8 +56,10 @@ export class RedrawScheduler {
                 return;
             }
             await new Promise<void>((resolve) => {
+                this.frameResolve = resolve;
                 this.frameHandle = this.requestFrame(() => {
                     this.frameHandle = null;
+                    this.frameResolve = null;
                     resolve();
                 });
             });
@@ -75,5 +78,8 @@ export class RedrawScheduler {
             this.cancelFrame(this.frameHandle);
             this.frameHandle = null;
         }
+        // The cancelled frame callback would have settled schedule(); settle it here so awaiting callers do not hang.
+        this.frameResolve?.();
+        this.frameResolve = null;
     }
 }

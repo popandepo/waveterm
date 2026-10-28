@@ -260,6 +260,7 @@ export function balanceNode(
         (node) => {
             if (!validateNode(node)) throw new Error("Invalid node");
             node.children = node.children?.flatMap((child) => {
+                if (!child) return;
                 if (child.flexDirection === node.flexDirection) {
                     child.flexDirection = reverseFlexDirection(node.flexDirection);
                 }
@@ -274,6 +275,8 @@ export function balanceNode(
                 if (child.children?.length === 0) return;
                 return child;
             });
+            // the callback reads every child, so the holes left by dropped nodes (or a saved null) must be gone before it runs
+            node.children = node.children?.filter((v) => v);
             beforeWalkCallback?.(node);
         },
         (node) => {

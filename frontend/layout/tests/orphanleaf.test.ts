@@ -78,8 +78,20 @@ function modelWith(root: any, blockids: string[] | undefined, existing: string[]
     const saved: any[] = [];
     // the real persistToBackend runs; what it hands to the store is what is recorded
     setObjectValue.mockReset();
-    setObjectValue.mockImplementation((obj: any) => saved.push(structuredClone(obj.rootnode)));
-    model.updateTree = () => balanceNode(model.treeState.rootNode);
+    setObjectValue.mockImplementation((obj: any) => {
+        const copy = structuredClone(obj.rootnode);
+        copy.savedLeafOrder = structuredClone(obj.leaforder);
+        saved.push(copy);
+    });
+    // like the real updateTreeHelper, the layout callback reads every child of the node it is given
+    model.updateTree = () => {
+        const leafs: any[] = [];
+        model.treeState.rootNode = balanceNode(model.treeState.rootNode, (n) => {
+            n.children?.forEach((c) => c.id);
+            if (!n.children?.length) leafs.push({ nodeid: n.id, blockid: n.data?.blockId });
+        });
+        model.treeState.leafOrder = leafs;
+    };
     model.blockExists = async (id: string) => existing.includes(id);
     return { model, saved };
 }
@@ -95,6 +107,19 @@ describe("the cleanuporphaned action", () => {
         assert.equal(model.treeState.rootNode.children.length, 2);
         assert.equal(saved.length, 1);
         assert.deepEqual(blockIdsOf(saved[0]).sort(), [status.data.blockId, manager.data.blockId].sort());
+    });
+
+    test("the saved tree has no hole where the empty stack was, and its leaf order no longer names the leaf", async () => {
+        const { root, status, manager } = homeTree();
+        const { model, saved } = modelWith(root, ["c5b03b0c", "a008b469"]);
+        await model.processPendingBackendActions();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        assert.equal(saved.length, 1);
+        assert.ok(saved[0].children.every((c: any) => c != null));
+        assert.deepEqual(
+            saved[0].savedLeafOrder.map((e: any) => e.blockid).sort(),
+            [status.data.blockId, manager.data.blockId].sort()
+        );
     });
 
     test("keeps a leaf the tab list does not name yet when its block exists (a block just created)", async () => {
@@ -146,5 +171,24 @@ describe("the cleanuporphaned action", () => {
         const { model } = modelWith(root, undefined);
         await model.processPendingBackendActions();
         assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["7193ba65", "a008b469", "c5b03b0c"]);
+    });
+});
+
+describe("balanceNode and holes", () => {
+    test("an empty stack is dropped before the callback sees the node's children", () => {
+        const { root } = homeTree();
+        root.children[0].children = [];
+        const seen: boolean[] = [];
+        balanceNode(root, (n) => n.children?.forEach((c) => seen.push(c != null)));
+        assert.ok(seen.every((v) => v));
+        assert.equal(root.children.length, 2);
+    });
+
+    test("a saved tree with a null child is loaded without throwing, and the null is dropped", () => {
+        const { root } = homeTree();
+        root.children[0] = null;
+        const balanced = balanceNode(root, (n) => n.children?.forEach((c) => c.id));
+        assert.equal(balanced.children.length, 2);
+        assert.ok(balanced.children.every((c: any) => c != null));
     });
 });

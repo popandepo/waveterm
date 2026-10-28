@@ -17,20 +17,63 @@ export function redrawTerm(term: RedrawableTerm): void {
     term.refresh(0, term.rows - 1);
 }
 
-export async function redrawAfterSettle(
-    term: RedrawableTerm,
-    fontsReady: Promise<unknown>,
-    nextFrame: (cb: () => void) => void
-): Promise<void> {
-    try {
-        await fontsReady;
-    } catch (_) {
-        /* repaint anyway */
+// Tabs are torn down on every switch, so the wait for fonts and a frame can outlive the terminal: dispose() both stops the
+// continuation and cancels the frame.
+export class RedrawScheduler {
+    private term: RedrawableTerm;
+    private fontsReady: Promise<unknown>;
+    private requestFrame: (cb: () => void) => number;
+    private cancelFrame: (handle: number) => void;
+    private disposed = false;
+    private pending = false;
+    private frameHandle: number | null = null;
+
+    constructor(
+        term: RedrawableTerm,
+        fontsReady: Promise<unknown>,
+        requestFrame: (cb: () => void) => number,
+        cancelFrame: (handle: number) => void
+    ) {
+        this.term = term;
+        this.fontsReady = fontsReady;
+        this.requestFrame = requestFrame;
+        this.cancelFrame = cancelFrame;
     }
-    await new Promise<void>((resolve) => nextFrame(resolve));
-    try {
-        redrawTerm(term);
-    } catch (_) {
-        /* terminal was disposed while waiting */
+
+    async schedule(): Promise<void> {
+        if (this.disposed || this.pending) {
+            return;
+        }
+        this.pending = true;
+        try {
+            try {
+                await this.fontsReady;
+            } catch (_) {
+                /* repaint anyway */
+            }
+            if (this.disposed) {
+                return;
+            }
+            await new Promise<void>((resolve) => {
+                this.frameHandle = this.requestFrame(() => {
+                    this.frameHandle = null;
+                    resolve();
+                });
+            });
+            if (this.disposed) {
+                return;
+            }
+            redrawTerm(this.term);
+        } finally {
+            this.pending = false;
+        }
+    }
+
+    dispose(): void {
+        this.disposed = true;
+        if (this.frameHandle != null) {
+            this.cancelFrame(this.frameHandle);
+            this.frameHandle = null;
+        }
     }
 }

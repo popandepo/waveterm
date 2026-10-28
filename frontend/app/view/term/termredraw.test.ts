@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "vitest";
-import { redrawAfterSettle, redrawTerm, RedrawableTerm } from "./termredraw";
+import { RedrawableTerm, RedrawScheduler, redrawTerm } from "./termredraw";
 
 function fakeTerm(rows = 24) {
     const calls: string[] = [];
@@ -28,38 +28,104 @@ describe("redrawTerm", () => {
     });
 });
 
-describe("redrawAfterSettle", () => {
+function rig(rows = 24) {
+    const { term, calls } = fakeTerm(rows);
+    const frames = new Map<number, () => void>();
+    const cancelled: number[] = [];
+    let nextHandle = 1;
+    let releaseFonts!: () => void;
+    const fontsReady = new Promise<void>((resolve) => (releaseFonts = resolve));
+    const scheduler = new RedrawScheduler(
+        term,
+        fontsReady,
+        (cb) => {
+            frames.set(nextHandle, cb);
+            return nextHandle++;
+        },
+        (h) => {
+            cancelled.push(h);
+            frames.delete(h);
+        }
+    );
+    return { scheduler, calls, frames, cancelled, releaseFonts };
+}
+
+const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe("RedrawScheduler", () => {
     test("waits for fonts and the next frame before repainting", async () => {
-        const { term, calls } = fakeTerm();
-        let releaseFonts: () => void;
-        const fontsReady = new Promise<void>((resolve) => (releaseFonts = resolve));
-        const frames: (() => void)[] = [];
-        const done = redrawAfterSettle(term, fontsReady, (cb) => frames.push(cb));
+        const { scheduler, calls, frames, releaseFonts } = rig();
+        const done = scheduler.schedule();
+        await tick();
         expect(calls).toEqual([]);
+        expect(frames.size).toBe(0);
         releaseFonts();
-        await Promise.resolve();
-        await Promise.resolve();
+        await tick();
         expect(calls).toEqual([]);
-        expect(frames.length).toBe(1);
-        frames[0]();
+        expect(frames.size).toBe(1);
+        frames.get(1)();
         await done;
         expect(calls).toEqual(["clearatlas", "refresh 0-23"]);
     });
 
-    test("a fonts promise that rejects still repaints", async () => {
-        const { term, calls } = fakeTerm();
-        await redrawAfterSettle(term, Promise.reject(new Error("no fonts")), (cb) => cb());
-        expect(calls).toEqual(["clearatlas", "refresh 0-23"]);
+    test("a second schedule while one is pending does not queue another frame", async () => {
+        const { scheduler, frames, releaseFonts } = rig();
+        const first = scheduler.schedule();
+        void scheduler.schedule();
+        releaseFonts();
+        await tick();
+        expect(frames.size).toBe(1);
+        frames.get(1)();
+        await first;
     });
 
-    test("a disposed terminal that throws is swallowed", async () => {
-        const term: RedrawableTerm = {
-            rows: 5,
-            clearTextureAtlas: () => {
-                throw new Error("disposed");
+    test("disposed while waiting for fonts: no frame, no repaint", async () => {
+        const { scheduler, calls, frames, releaseFonts } = rig();
+        const done = scheduler.schedule();
+        scheduler.dispose();
+        releaseFonts();
+        await done;
+        expect(frames.size).toBe(0);
+        expect(calls).toEqual([]);
+    });
+
+    test("disposed while a frame is pending: the frame is cancelled and nothing is painted", async () => {
+        const { scheduler, calls, frames, cancelled, releaseFonts } = rig();
+        const done = scheduler.schedule();
+        releaseFonts();
+        await tick();
+        const cb = frames.get(1);
+        scheduler.dispose();
+        expect(cancelled).toEqual([1]);
+        cb();
+        await done;
+        expect(calls).toEqual([]);
+    });
+
+    test("schedule after dispose does nothing", async () => {
+        const { scheduler, calls, frames } = rig();
+        scheduler.dispose();
+        await scheduler.schedule();
+        expect(frames.size).toBe(0);
+        expect(calls).toEqual([]);
+    });
+
+    test("a fonts promise that rejects still repaints", async () => {
+        const { term, calls } = fakeTerm();
+        const frames: (() => void)[] = [];
+        const scheduler = new RedrawScheduler(
+            term,
+            Promise.reject(new Error("no fonts")),
+            (cb) => {
+                frames.push(cb);
+                return frames.length;
             },
-            refresh: () => {},
-        };
-        await expect(redrawAfterSettle(term, Promise.resolve(), (cb) => cb())).resolves.toBeUndefined();
+            () => {}
+        );
+        const done = scheduler.schedule();
+        await tick();
+        frames[0]();
+        await done;
+        expect(calls).toEqual(["clearatlas", "refresh 0-23"]);
     });
 });

@@ -24,7 +24,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { redrawAfterSettle } from "./termredraw";
+import { RedrawScheduler } from "./termredraw";
 import * as TermTypes from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
 import debug from "debug";
@@ -99,6 +99,7 @@ export class TermWrap {
     webglAddon: WebglAddon | null = null;
     webglContextLossDisposable: TermTypes.IDisposable | null = null;
     webglEnabledAtom: jotai.PrimitiveAtom<boolean>;
+    redrawScheduler: RedrawScheduler;
     pasteActive: boolean = false;
     lastUpdated: number;
     promptMarkers: TermTypes.IMarker[] = [];
@@ -173,6 +174,12 @@ export class TermWrap {
                 leave: linkHandlers.leave,
             },
         });
+        this.redrawScheduler = new RedrawScheduler(
+            this.terminal,
+            document.fonts.ready,
+            (cb) => requestAnimationFrame(cb),
+            (h) => cancelAnimationFrame(h)
+        );
         this.fitAddon = new FitAddon();
         this.serializeAddon = new SerializeAddon();
         this.searchAddon = new SearchAddon();
@@ -376,7 +383,7 @@ export class TermWrap {
     }
 
     redrawSettled() {
-        fireAndForget(() => redrawAfterSettle(this.terminal, document.fonts.ready, requestAnimationFrame));
+        fireAndForget(() => this.redrawScheduler.schedule());
     }
 
     getTermRenderer(): "webgl" | "dom" {
@@ -459,6 +466,7 @@ export class TermWrap {
             }
         });
         this.promptMarkers = [];
+        this.redrawScheduler.dispose();
         this.webglContextLossDisposable?.dispose();
         this.webglContextLossDisposable = null;
         this.terminal.dispose();

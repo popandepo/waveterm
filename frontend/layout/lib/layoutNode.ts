@@ -208,6 +208,25 @@ export function validateNode(node: LayoutNode): boolean {
 }
 
 /**
+ * Ids of the leaves whose block is not among the tab's blocks. A block deleted without its leaf following (a queued
+ * layout action that was overwritten by a save of the whole layout) leaves a tile nobody can close or move.
+ * An unknown block list names nothing: it is not the same as an empty one.
+ */
+export function orphanLeafIds(root: LayoutNode, tabBlockIds: string[] | undefined): string[] {
+    if (!root || tabBlockIds == null) {
+        return [];
+    }
+    const live = new Set(tabBlockIds);
+    const orphans: string[] = [];
+    walkNodes(root, (node) => {
+        if (node.data?.blockId && !live.has(node.data.blockId)) {
+            orphans.push(node.id);
+        }
+    });
+    return orphans;
+}
+
+/**
  * Recursively walk the layout tree starting at the specified node. Run the specified callbacks, if any.
  * @param node The node from which to start the walk.
  * @param beforeWalkCallback An optional callback to run before walking a node's children.
@@ -225,6 +244,19 @@ export function walkNodes(
 }
 
 /**
+ * Drops null children (a saved layout can carry them) and the nodes left without any child, so validation never sees them.
+ * @param node The node to clean.
+ * @returns The node, or undefined when nothing is left of it.
+ */
+function pruneHoles(node: LayoutNode): LayoutNode | undefined {
+    if (!node) return;
+    if (!node.children) return node;
+    node.children = node.children.map((child) => pruneHoles(child)).filter((child) => child);
+    if (node.children.length === 0) return;
+    return node;
+}
+
+/**
  * Recursively corrects the tree to minimize nested single-child nodes, remove invalid nodes, and correct invalid flex direction order.
  * @param node The node to start the balancing from.
  * @param beforeWalkCallback Any optional callback to run before walking a node's children.
@@ -236,11 +268,13 @@ export function balanceNode(
     beforeWalkCallback?: (node: LayoutNode) => void,
     afterWalkCallback?: (node: LayoutNode) => void
 ): LayoutNode {
+    node = pruneHoles(node);
     walkNodes(
         node,
         (node) => {
             if (!validateNode(node)) throw new Error("Invalid node");
             node.children = node.children?.flatMap((child) => {
+                if (!child) return;
                 if (child.flexDirection === node.flexDirection) {
                     child.flexDirection = reverseFlexDirection(node.flexDirection);
                 }
@@ -255,6 +289,8 @@ export function balanceNode(
                 if (child.children?.length === 0) return;
                 return child;
             });
+            // the callback reads every child, so the holes left by dropped nodes (or a saved null) must be gone before it runs
+            node.children = node.children?.filter((v) => v);
             beforeWalkCallback?.(node);
         },
         (node) => {

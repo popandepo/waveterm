@@ -3,7 +3,7 @@
 
 import { FocusManager } from "@/app/store/focusManager";
 import { getSettingsKeyAtom } from "@/app/store/global";
-import { BlockService } from "@/app/store/services";
+import { BlockService, ObjectService } from "@/app/store/services";
 import * as WOS from "@/app/store/wos";
 import { atomWithThrottle, boundNumber, fireAndForget } from "@/util/util";
 import { Atom, atom, Getter, PrimitiveAtom, Setter } from "jotai";
@@ -13,7 +13,7 @@ import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
 import { treeActionForBackendAction } from "./backendaction";
-import { balanceNode, findNode, newLayoutNode, walkNodes } from "./layoutNode";
+import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
     adjacentStackMember,
@@ -120,6 +120,18 @@ export class LayoutModel {
      * Set of action IDs that have been processed (prevents duplicate processing)
      */
     private processedActionIds: Set<string>;
+
+    /**
+     * True or false when the backend answers, undefined when it cannot be asked (a leaf is then kept).
+     */
+    blockExists: (blockId: string) => Promise<boolean | undefined> = async (blockId) => {
+        try {
+            return (await ObjectService.GetObject(WOS.makeORef("block", blockId))) != null;
+        } catch (e) {
+            console.log("could not check whether block exists:", blockId, e);
+            return undefined;
+        }
+    };
     /**
      * The jotai getter that is used to read atom values.
      */
@@ -474,6 +486,22 @@ export class LayoutModel {
                     await this.onNodeDelete({ blockId });
                 }
             }
+        }
+
+        // tab.blockids can trail a block that was just created and already has its leaf, so the block row decides, not the list
+        for (const nodeId of orphanLeafIds(this.treeState.rootNode, tab.blockids)) {
+            const blockId = findNode(this.treeState.rootNode, nodeId)?.data?.blockId;
+            if (blockId == null || (await this.blockExists(blockId)) !== false) {
+                continue;
+            }
+            // the answer can be older than the tab: the block may have been created, and listed, while the backend was asked
+            const stillThere = findNode(this.treeState.rootNode, nodeId);
+            const listedNow = (this.getter(this.tabAtom)?.blockids ?? []).includes(blockId);
+            if (stillThere?.data?.blockId !== blockId || listedNow) {
+                continue;
+            }
+            console.log("Removing layout leaf without a block:", nodeId);
+            this.treeReducer({ type: LayoutTreeActionType.DeleteNode, nodeId } as LayoutTreeDeleteNodeAction, false);
         }
     }
 

@@ -10,41 +10,40 @@ import (
 )
 
 // DBUpdateLayoutStateFromView stores a layout state the view saved. The view saves the whole object, and it clears
-// the actions it has processed by leaving them out. When the stored object is newer than the copy the view saved
-// from, the backend may have queued something the view has not seen, so the actions queued after the view's
-// version are kept instead of overwritten. An action queued at or before that version was in the view's copy:
-// if the save leaves it out, the view processed it and it stays gone.
+// the actions it has processed by leaving them out. Only the backend queues actions, so a save can keep or drop
+// stored actions but never add one: a stored action stays if the save lists it, or if it was queued after the
+// version the view saved from (the view has not seen it). Anything else was in the view's copy and left out, so
+// the view processed it. Saves from one view can arrive out of order; an action a later save already cleared is
+// not stored any more and an earlier save that still lists it cannot bring it back.
 func DBUpdateLayoutStateFromView(ctx context.Context, ls *waveobj.LayoutState) error {
 	return WithTx(ctx, func(tx *TxWrap) error {
 		current, err := DBMustGet[*waveobj.LayoutState](tx.Context(), ls.OID)
 		if err != nil {
 			return err
 		}
-		if current.Version != ls.Version {
-			ls.PendingBackendActions = mergeQueuedActions(ls.PendingBackendActions, current.PendingBackendActions, ls.Version)
-		}
+		ls.PendingBackendActions = keepStoredActions(ls.PendingBackendActions, current.PendingBackendActions, ls.Version)
 		return DBUpdate(tx.Context(), ls)
 	})
 }
 
-func mergeQueuedActions(saved *[]waveobj.LayoutActionData, stored *[]waveobj.LayoutActionData, savedVersion int) *[]waveobj.LayoutActionData {
-	merged := []waveobj.LayoutActionData{}
-	known := make(map[string]bool)
-	if saved != nil {
-		for _, action := range *saved {
-			known[action.ActionId] = true
-			merged = append(merged, action)
-		}
-	}
-	if stored != nil {
-		for _, action := range *stored {
-			if !known[action.ActionId] && action.QueuedAtVersion > savedVersion {
-				merged = append(merged, action)
-			}
-		}
-	}
-	if len(merged) == 0 {
+func keepStoredActions(saved *[]waveobj.LayoutActionData, stored *[]waveobj.LayoutActionData, savedVersion int) *[]waveobj.LayoutActionData {
+	if stored == nil {
 		return nil
 	}
-	return &merged
+	listed := make(map[string]bool)
+	if saved != nil {
+		for _, action := range *saved {
+			listed[action.ActionId] = true
+		}
+	}
+	kept := []waveobj.LayoutActionData{}
+	for _, action := range *stored {
+		if listed[action.ActionId] || action.QueuedAtVersion > savedVersion {
+			kept = append(kept, action)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return &kept
 }

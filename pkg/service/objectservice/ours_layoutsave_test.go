@@ -154,3 +154,21 @@ func TestViewSaveOfAnOlderCopyDoesNotBringBackAnActionItProcessed(t *testing.T) 
 		t.Fatalf("pending actions = %v, want [b]", got)
 	}
 }
+
+// two saves from one copy reach the server in the wrong order: the later one (A processed) first, the earlier one
+// (A still listed) second. A was cleared already, so the earlier save must not queue it again.
+func TestAnEarlierSaveArrivingLateDoesNotQueueAnActionAlreadyCleared(t *testing.T) {
+	ctx := initLayoutTestStore(t)
+	ls := newLayoutState(t, ctx)
+	queue(t, ctx, ls.OID, "a")
+	copyWithA := viewCopy(t, ctx, ls.OID)
+	copyProcessed := viewCopy(t, ctx, ls.OID)
+	copyProcessed.PendingBackendActions = nil
+
+	save(t, ctx, copyProcessed)
+	save(t, ctx, copyWithA)
+
+	if got := pendingIds(t, ctx, ls.OID); len(got) != 0 {
+		t.Fatalf("pending actions = %v, want none", got)
+	}
+}

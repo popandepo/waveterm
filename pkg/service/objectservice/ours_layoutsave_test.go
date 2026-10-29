@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -50,15 +51,8 @@ func viewCopy(t *testing.T, ctx context.Context, id string) *waveobj.LayoutState
 
 func queue(t *testing.T, ctx context.Context, id string, actionId string) {
 	t.Helper()
-	err := wstore.DBUpdateFn(ctx, id, func(ls *waveobj.LayoutState) {
-		action := waveobj.LayoutActionData{ActionType: "delete", ActionId: actionId, BlockId: "b-" + actionId}
-		if ls.PendingBackendActions == nil {
-			ls.PendingBackendActions = &[]waveobj.LayoutActionData{action}
-			return
-		}
-		*ls.PendingBackendActions = append(*ls.PendingBackendActions, action)
-	})
-	if err != nil {
+	action := waveobj.LayoutActionData{ActionType: "delete", ActionId: actionId, BlockId: "b-" + actionId}
+	if err := wcore.QueueLayoutAction(ctx, id, action); err != nil {
 		t.Fatalf("queue: %v", err)
 	}
 }
@@ -142,5 +136,21 @@ func TestViewSaveOfAnOlderCopyDoesNotDuplicateActionsItStillCarries(t *testing.T
 
 	if got := pendingIds(t, ctx, ls.OID); !equalIds(got, []string{"a1", "a2"}) {
 		t.Fatalf("pending actions = %v, want [a1 a2]", got)
+	}
+}
+
+// the view read Remove A, processed it and left it out of its save; B was queued before that save arrived
+func TestViewSaveOfAnOlderCopyDoesNotBringBackAnActionItProcessed(t *testing.T) {
+	ctx := initLayoutTestStore(t)
+	ls := newLayoutState(t, ctx)
+	queue(t, ctx, ls.OID, "a")
+	seenByView := viewCopy(t, ctx, ls.OID)
+	queue(t, ctx, ls.OID, "b")
+
+	seenByView.PendingBackendActions = nil
+	save(t, ctx, seenByView)
+
+	if got := pendingIds(t, ctx, ls.OID); !equalIds(got, []string{"b"}) {
+		t.Fatalf("pending actions = %v, want [b]", got)
 	}
 }

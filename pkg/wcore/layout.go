@@ -96,6 +96,9 @@ func QueueLayoutAction(ctx context.Context, layoutStateId string, actions ...wav
 
 	// one transaction: two block deletes at the same moment must not each start from the list the other is about to replace
 	err := wstore.DBUpdateFn(ctx, layoutStateId, func(layoutStateObj *waveobj.LayoutState) {
+		for i := range actions {
+			actions[i].QueuedAtVersion = layoutStateObj.Version + 1
+		}
 		if layoutStateObj.PendingBackendActions == nil {
 			layoutStateObj.PendingBackendActions = &actions
 		} else {

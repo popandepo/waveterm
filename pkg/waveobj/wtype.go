@@ -218,6 +218,8 @@ type LayoutActionData struct {
 	Ephemeral     bool   `json:"ephemeral"`
 	TargetBlockId string `json:"targetblockid,omitempty"`
 	Position      string `json:"position,omitempty"`
+	// layout state version the action was queued at; a view save from an older version has not seen it
+	QueuedAtVersion int `json:"queuedatversion,omitempty"`
 }
 
 type LeafOrderEntry struct {

@@ -18,6 +18,17 @@ foreach ($f in 'conpty.dll', 'OpenConsole.exe') {
     if ($actual -ne $pinned) { "FAIL $f is not the pinned file (sha256 $actual, pinned $pinned)"; $bad++; continue }
     "OK   $f next to wavesrv, sha256 matches the pin"
 }
+# a stale wavesrv (built before the pinned hashes were in the Go code) must not pass: it has to hold both pinned hashes and no environment override
+$srv = Join-Path $bin 'wavesrv.x64.exe'
+if (Test-Path -LiteralPath $srv -PathType Leaf) {
+    $text = [Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes($srv))
+    foreach ($f in 'conpty.dll', 'OpenConsole.exe') {
+        $pinned = [regex]::Match($readme, '`x64/' + [regex]::Escape($f) + '`[^\r\n]*?`([0-9a-f]{64})`').Groups[1].Value
+        if ($pinned -and -not $text.Contains($pinned)) { "FAIL the packaged wavesrv does not hold the pinned sha256 of $f (a stale build?)"; $bad++ }
+    }
+    if ($text.Contains('WAVETERM_CONPTY_DIR')) { 'FAIL the packaged wavesrv still knows WAVETERM_CONPTY_DIR (a stale build?)'; $bad++ }
+    if ($bad -eq 0) { 'OK   the packaged wavesrv holds both pinned hashes and no environment override' }
+}
 if ($bad) { "failures: $bad"; exit 1 }
 'packaged app holds both files'
 exit 0

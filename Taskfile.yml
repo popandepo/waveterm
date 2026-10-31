@@ -164,6 +164,7 @@ tasks:
             - go.mod
             - go.sum
             - pkg/**/*.go
+            - third_party/**/*.go
             - pkg/**/*.sh
             - cmd/**/*.go
             - tsunami/go.mod
@@ -196,6 +197,7 @@ tasks:
         sources:
             - "cmd/server/*.go"
             - "pkg/**/*.go"
+            - "third_party/**/*.go"
             - "pkg/**/*.json"
             - "pkg/**/*.sh"
             - tsunami/**/*.go
@@ -225,6 +227,7 @@ tasks:
         sources:
             - "cmd/server/*.go"
             - "pkg/**/*.go"
+            - "third_party/**/*.go"
             - "pkg/**/*.json"
             - "pkg/**/*.sh"
             - "tsunami/**/*.go"
@@ -245,6 +248,7 @@ tasks:
         sources:
             - "cmd/server/*.go"
             - "pkg/**/*.go"
+            - "third_party/**/*.go"
             - "pkg/**/*.json"
             - "pkg/**/*.sh"
             - "tsunami/**/*.go"
@@ -274,6 +278,7 @@ tasks:
         sources:
             - "cmd/server/*.go"
             - "pkg/**/*.go"
+            - "third_party/**/*.go"
             - "pkg/**/*.json"
             - "pkg/**/*.sh"
             - "tsunami/**/*.go"
@@ -335,6 +340,7 @@ tasks:
         sources:
             - "cmd/wsh/**/*.go"
             - "pkg/**/*.go"
+            - "third_party/**/*.go"
             - package.json
         generates:
             - "dist/bin/wsh*"
@@ -415,6 +421,7 @@ tasks:
             - "cmd/generatego/*.go"
             - "cmd/generatets/*.go"
             - "pkg/**/*.go"
+            - "third_party/**/*.go"
         # don't add generates key (otherwise will always execute)
 
     outdated:

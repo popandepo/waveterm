@@ -23,6 +23,7 @@ require (
 	github.com/launchdarkly/eventsource v1.11.0
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/mitchellh/mapstructure v1.5.0
+	github.com/rivo/uniseg v0.4.7
 	github.com/sawka/txwrap v0.2.0
 	github.com/shirou/gopsutil/v4 v4.26.4
 	github.com/skeema/knownhosts v1.3.1
@@ -61,7 +62,6 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect

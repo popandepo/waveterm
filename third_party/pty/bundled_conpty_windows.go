@@ -3,6 +3,8 @@
 package pty
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,18 +14,20 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// ConptyDirEnv names a folder that holds conpty.dll and OpenConsole.exe, used instead of the folder of the running executable (tests).
-const ConptyDirEnv = "WAVETERM_CONPTY_DIR"
+// The pinned files (microsoft/terminal v1.24.12741.0, Microsoft.Windows.Console.ConPTY 1.24.261001001, x64). The same values are in
+// third_party/conpty/README.md; tools/ours/Test-BundledConpty.ps1 fails when the two differ or a file in the repo is another one.
+const (
+	pinnedConptyDLL   = "5afea6c9480e2c7dfd195376dd10996b0ae25cdc6f014e6247fd8aedc8c34852"
+	pinnedOpenConsole = "6f8e68dec4e8e5e15a54ecc8afa127b0e62139edc004ffbb4892125ff01d5737"
+)
 
 var bundled struct {
 	mu     sync.Mutex
 	handle windows.Handle
 }
 
-func conptyDir() (string, error) {
-	if d := os.Getenv(ConptyDirEnv); d != "" {
-		return d, nil
-	}
+// bundledDir is the folder of the running executable. There is no override: nothing in the environment can point this at another folder.
+func bundledDir() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("bundled ConPTY: the folder of the running program cannot be found: %w", err)
@@ -31,23 +35,39 @@ func conptyDir() (string, error) {
 	return filepath.Dir(exe), nil
 }
 
-// loadBundledConpty loads conpty.dll from the folder of the executable (or ConptyDirEnv). conpty.dll starts OpenConsole.exe from its own
-// folder, so both must be there. There is NO fallback to the inbox ConPTY: a missing or unloadable file is an error that says so.
+// verifyBundled checks that conpty.dll and OpenConsole.exe are in dir and are exactly the pinned files. A missing or different file is an
+// error that names it; there is NO fallback to the Windows inbox ConPTY. The check reads the file and the load or start follows it, so a
+// program that can write into the folder in between can still swap it: the folder is the application's own install folder, where such a
+// program could just as well replace wavesrv itself.
+func verifyBundled(dir string) error {
+	for _, f := range []struct{ name, pin string }{{"conpty.dll", pinnedConptyDLL}, {"OpenConsole.exe", pinnedOpenConsole}} {
+		p := filepath.Join(dir, f.name)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("bundled ConPTY not found: %s cannot be read (%v); conpty.dll and OpenConsole.exe must sit next to wavesrv; there is no fallback to the Windows inbox ConPTY", p, err)
+		}
+		sum := sha256.Sum256(data)
+		if got := hex.EncodeToString(sum[:]); got != f.pin {
+			return fmt.Errorf("bundled ConPTY refused: %s has sha256 %s, not the pinned %s; there is no fallback to the Windows inbox ConPTY", p, got, f.pin)
+		}
+	}
+	return nil
+}
+
+// loadBundledConpty loads conpty.dll from the folder of the executable once both files are verified. conpty.dll starts OpenConsole.exe from
+// its own folder.
 func loadBundledConpty() (windows.Handle, error) {
 	bundled.mu.Lock()
 	defer bundled.mu.Unlock()
 	if bundled.handle != 0 {
 		return bundled.handle, nil
 	}
-	dir, err := conptyDir()
+	dir, err := bundledDir()
 	if err != nil {
 		return 0, err
 	}
-	for _, name := range []string{"conpty.dll", "OpenConsole.exe"} {
-		p := filepath.Join(dir, name)
-		if st, err := os.Stat(p); err != nil || st.IsDir() {
-			return 0, fmt.Errorf("bundled ConPTY not found: %s is missing (conpty.dll and OpenConsole.exe must sit next to wavesrv; there is no fallback to the Windows inbox ConPTY)", p)
-		}
+	if err := verifyBundled(dir); err != nil {
+		return 0, err
 	}
 	abs, err := filepath.Abs(filepath.Join(dir, "conpty.dll"))
 	if err != nil {
@@ -85,6 +105,16 @@ func (p bundledProc) Call(args ...uintptr) (uintptr, uintptr, error) {
 	a, err := p.addr()
 	if err != nil {
 		return 0, 0, err
+	}
+	if p.name == "CreatePseudoConsole" {
+		// conpty.dll starts OpenConsole.exe now: check both files again right before every new console, not only when the dll was loaded
+		dir, err := bundledDir()
+		if err == nil {
+			err = verifyBundled(dir)
+		}
+		if err != nil {
+			return 0, 0, err
+		}
 	}
 	r1, r2, e := syscall.SyscallN(a, args...)
 	return r1, r2, e

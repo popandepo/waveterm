@@ -122,6 +122,8 @@ if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
 if ($ExtraPromptFile) { $extra.PromptFile = $ExtraPromptFile }
 if ($env:RESUMABLE_TEST_PROMPTROOT) { $extra.PromptRoot = $env:RESUMABLE_TEST_PROMPTROOT }
 if ($ExtraName) { $extra.Name = $ExtraName }
+if ($env:RESUMABLE_TEST_CLICKROWS) { $extra.ClickRows = $true }
+if ($env:RESUMABLE_TEST_TOOLROWS) { $extra.ToolRowsDir = $env:RESUMABLE_TEST_TOOLROWS }
 if ($env:RESUMABLE_TEST_SWAPTIMEOUT) { $extra.SwapTimeoutSeconds = [int]$env:RESUMABLE_TEST_SWAPTIMEOUT }
 & $Script -SessionId $Id -ConfigDir $Cfg -Command $Stub -Model m1 @extra
 exit $LASTEXITCODE
@@ -157,6 +159,15 @@ exit $LASTEXITCODE
     Check 'an inherited compact window is gone for any other session' (-not ($r.Text -match 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=')) $r.Text
     $rm = Run-Child 'set' -runId '3c641601-9a7a-44be-a93c-e5a89419429b'
     Check 'the manager session is started with the 300k compact window (R-20261016-007)' ($rm.Lines -contains 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000') $rm.Text
+    # -ClickRows (31 Oct 2026): fullscreen only when asked for; the tool-rows folder is judged like any plugin folder
+    Check 'without -ClickRows the launched program gets no CLAUDE_CODE_NO_FLICKER' (-not ($r.Text -match 'ENV: CLAUDE_CODE_NO_FLICKER=')) $r.Text
+    $env:RESUMABLE_TEST_CLICKROWS = '1'; $rc = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_CLICKROWS
+    Check 'with -ClickRows the launched program gets CLAUDE_CODE_NO_FLICKER=1 and the full-repaint fix' ($rc.Lines -contains 'ENV: CLAUDE_CODE_NO_FLICKER=1' -and $rc.Lines -contains 'ENV: CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=1') $rc.Text
+    $trDir = Join-Path $root 'tool-rows-folder'; Make-Dir $trDir
+    $env:RESUMABLE_TEST_TOOLROWS = $trDir; $rt = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
+    Check 'a -ToolRowsDir is started as a --plugin-dir' ($rt.Code -eq 0 -and $rt.Text -match '--plugin-dir [^|]*tool-rows-folder') $rt.Text
+    $env:RESUMABLE_TEST_TOOLROWS = 'relative-tool-rows'; $rb = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
+    Check 'a -ToolRowsDir that is not a fully qualified existing folder refuses the start (exit 2)' ($rb.Code -eq 2) $rb.Text
     Check 'the launched program gets the resume arguments' ($r.Text -match "ARGS: --resume $id") $r.Text
     Check 'the folder of wsh is put AFTER the existing PATH entries' ($r.Lines -contains "PATHLAST: $wshDir") $r.Text
     Check 'wsh can be run from there and the stub prints what wsh printed' ($r.Lines -contains 'WSHOUT: wsh-from-wave') $r.Text

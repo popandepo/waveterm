@@ -70,6 +70,15 @@ Check 'account 2 gets the usage-file-2 mod' ((PluginOf $u2) -like '*\mods\usage-
 Check 'a throwaway folder gets no usage mod' (-not (PluginOf $thr)) (PluginOf $thr)
 $ux = & $script -Cwd $cwd -Name ux -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal2') -PluginDir $env:TEMP -DryRun | ConvertFrom-Json
 Check 'a plugin folder given by the caller is kept' ((PluginOf $ux) -eq $env:TEMP) (PluginOf $ux)
+# tool-rows and -ClickRows (31 Oct 2026): the mod folder is passed on when it exists; the fullscreen switch only when asked for
+function ArgOf($r, [string]$flag) { $a = @($r.argv); $i = [array]::IndexOf($a, $flag); if ($i -ge 0) { if ($i + 1 -lt $a.Count) { $a[$i + 1] } else { '' } } else { $null } }
+$tr = & $script -Cwd $cwd -Name tr -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ToolRowsDir $env:TEMP -DryRun | ConvertFrom-Json
+Check 'an existing -ToolRowsDir is passed on to the starter' ((ArgOf $tr '-ToolRowsDir') -eq $env:TEMP) ($tr | ConvertTo-Json -Compress)
+Check 'without -ClickRows the starter is not told to go fullscreen' (@($tr.argv) -notcontains '-ClickRows') ($tr | ConvertTo-Json -Compress)
+$tn = & $script -Cwd $cwd -Name tn -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ToolRowsDir (Join-Path $env:TEMP 'no-such-tool-rows-folder') -DryRun | ConvertFrom-Json
+Check 'a -ToolRowsDir that does not exist is left out' ($null -eq (ArgOf $tn '-ToolRowsDir')) ($tn | ConvertTo-Json -Compress)
+$tc = & $script -Cwd $cwd -Name tc -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ClickRows -DryRun | ConvertFrom-Json
+Check '-ClickRows is passed on to the starter' (@($tc.argv) -contains '-ClickRows') ($tc | ConvertTo-Json -Compress)
 Remove-Item $st -ErrorAction SilentlyContinue
 $env:USERPROFILE = $realProfile
 Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue

@@ -18,6 +18,10 @@ param(
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
     [string[]]$PluginDir = @(),
+    # The tool-rows mod (MalfestioMaster tools\mods\tool-rows): added to the plugin folders below and judged by the same rules.
+    [string]$ToolRowsDir = '',
+    # Start in the fullscreen renderer so mouse clicks reach mods (off by default: it changes mouse capture and text selection in Wave).
+    [switch]$ClickRows,
     [string]$Command = 'claude',
     [ValidateRange(0, 120)][int]$CommandWaitSeconds = 30,
     [string]$LookupSignal = '',   # test seam: a file written when the first lookup for the command has failed
@@ -134,6 +138,7 @@ $ConfigDir = $resolvedConfig
 # Plugin folders (--plugin-dir): each must be fully qualified, an existing folder, and (after links are resolved) never at or below .claude or .claude-work.
 # What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
 $pluginPaths = @()
+if ($ToolRowsDir) { $PluginDir = @($PluginDir) + $ToolRowsDir }
 foreach ($pd in @($PluginDir | Where-Object { $_ })) {
     $okPlugin = $null
     if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-PlainlyForbidden $pd)) {
@@ -286,6 +291,8 @@ Get-ChildItem env: |
     ForEach-Object { Remove-Item "env:$($_.Name)" -ErrorAction SilentlyContinue }
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
+# -ClickRows: the fullscreen renderer, with the full-repaint fix that goes with it (12 Oct 2026: it left old text on screen without it).
+if ($ClickRows) { $env:CLAUDE_CODE_NO_FLICKER = '1'; $env:CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT = '1' }
 if ($compactWindow) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = $compactWindow }
 # The status page's hook writes nothing unless STATUS_SESSION is set; a key inherited from the session that opened this block would be the wrong one.
 if ($Name) { $env:STATUS_SESSION = $statusSession; $env:STATUS_TAB = $Name }

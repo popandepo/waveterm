@@ -102,7 +102,8 @@ The generated clients (`pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/
 
 | Seam | File | Symbol or text | We use it for |
 |---|---|---|---|
-| focus window | `pkg/wshrpc/wshrpctypes.go` | `FocusWindowCommand` | local API goto with `window=true` |
+| create block | `pkg/wshrpc/wshrpctypes.go` | `CreateBlockCommand` | local API open makes a web block, unfocused |
+| focus window | same | `FocusWindowCommand` | local API goto with `window=true` |
 | set active tab | same | `ElectronSetActiveTabCommand` | local API focus tab and goto |
 | set block focus | same | `SetBlockFocusCommand` | local API focus block and goto |
 | path | same | `PathCommand` | `wsh api` finds the data directory of the running Wave |

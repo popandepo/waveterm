@@ -74,6 +74,8 @@ type Backend interface {
 	Screen(ctx context.Context, blockId string) ([]string, error)
 	// Input writes raw bytes to the program of one terminal block.
 	Input(ctx context.Context, blockId string, data []byte) error
+	// CreateWebBlock makes a web block in a tab without taking focus and returns its id.
+	CreateWebBlock(ctx context.Context, tabId string, url string, title string) (string, error)
 }
 
 type Service struct {

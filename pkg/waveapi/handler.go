@@ -76,7 +76,7 @@ func statusForError(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrRefusedText):
+	case errors.Is(err, ErrRefusedText), errors.Is(err, ErrBadUrl), errors.Is(err, ErrBadTitle):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrMismatch), errors.Is(err, ErrNotActive), errors.Is(err, ErrWrongSession), errors.Is(err, ErrNotRunning),
 		errors.Is(err, ErrBusy), errors.Is(err, ErrOnPrompt), errors.Is(err, ErrNoInputBox), errors.Is(err, ErrNotSent), errors.Is(err, ErrNotLoaded):
@@ -230,6 +230,18 @@ func MakeHandler(token string, svc *Service) http.Handler {
 			return
 		}
 		writeJson(w, http.StatusOK, okResponse{Ok: true})
+	})
+	mux.HandleFunc("/v1/open", func(w http.ResponseWriter, r *http.Request) {
+		var req OpenRequest
+		if !readBody(w, r, &req, openKeys) {
+			return
+		}
+		blockId, err := svc.Open(r.Context(), req)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJson(w, http.StatusOK, openResponse{BlockId: blockId})
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")

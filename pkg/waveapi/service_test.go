@@ -49,6 +49,11 @@ type fakeBackend struct {
 	screenErr error
 	inputErr  error
 	looks     int
+
+	// created holds one "tab url title" line per web block made; the new block gets newBlockId.
+	created    []string
+	newBlockId string
+	createErr  error
 }
 
 func (f *fakeBackend) Screen(ctx context.Context, blockId string) ([]string, error) {

@@ -87,7 +87,10 @@ $argv = if ($NoRestart) {
     @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($PluginDir) { @('-PluginDir', $PluginDir) } else { @() }) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
 }
 if ($NoRestart -and $SessionId) { $argv += '-SessionId', $SessionId }
-if (-not $NoRestart -and $ToolRowsDir -and (Test-Path -LiteralPath $ToolRowsDir -PathType Container)) { $argv += '-ToolRowsDir', $ToolRowsDir }
+if (-not $NoRestart -and $ToolRowsDir) {
+    if (Test-Path -LiteralPath $ToolRowsDir -PathType Container) { $argv += '-ToolRowsDir', $ToolRowsDir }
+    else { [Console]::Error.WriteLine("Note: the tool-rows folder '$ToolRowsDir' does not exist, so tool-rows is not loaded in this session (it still opens).") }
+}
 if (-not $NoRestart -and $ClickRows) { $argv += '-ClickRows' }
 if ($Model) { $argv += '-Model', $Model }
 if ($Effort) { $argv += '-Effort', $Effort }

@@ -75,8 +75,14 @@ function ArgOf($r, [string]$flag) { $a = @($r.argv); $i = [array]::IndexOf($a, $
 $tr = & $script -Cwd $cwd -Name tr -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ToolRowsDir $env:TEMP -DryRun | ConvertFrom-Json
 Check 'an existing -ToolRowsDir is passed on to the starter' ((ArgOf $tr '-ToolRowsDir') -eq $env:TEMP) ($tr | ConvertTo-Json -Compress)
 Check 'without -ClickRows the starter is not told to go fullscreen' (@($tr.argv) -notcontains '-ClickRows') ($tr | ConvertTo-Json -Compress)
-$tn = & $script -Cwd $cwd -Name tn -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ToolRowsDir (Join-Path $env:TEMP 'no-such-tool-rows-folder') -DryRun | ConvertFrom-Json
+$missing = Join-Path $env:TEMP 'no-such-tool-rows-folder'
+$errFile = Join-Path $env:TEMP ('tool-rows-stderr-' + [guid]::NewGuid().ToString('N') + '.txt')
+# a child process, so that what the script writes to the process's stderr ([Console]::Error) is caught
+$tn = & pwsh -NoProfile -File $script -Cwd $cwd -Name tn -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ToolRowsDir $missing -DryRun 2>$errFile | ConvertFrom-Json
 Check 'a -ToolRowsDir that does not exist is left out' ($null -eq (ArgOf $tn '-ToolRowsDir')) ($tn | ConvertTo-Json -Compress)
+$errText = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw } else { '' }
+Remove-Item -LiteralPath $errFile -ErrorAction SilentlyContinue
+Check 'and it says so: one line naming the folder and that tool-rows is not loaded' (($errText -split "`n" | Where-Object { $_ -match [regex]::Escape($missing) -and $_ -match 'tool-rows is not loaded' }).Count -eq 1) $errText
 $tc = & $script -Cwd $cwd -Name tc -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ClickRows -DryRun | ConvertFrom-Json
 Check '-ClickRows is passed on to the starter' (@($tc.argv) -contains '-ClickRows') ($tc | ConvertTo-Json -Compress)
 Remove-Item $st -ErrorAction SilentlyContinue

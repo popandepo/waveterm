@@ -124,6 +124,7 @@ if ($env:RESUMABLE_TEST_PROMPTROOT) { $extra.PromptRoot = $env:RESUMABLE_TEST_PR
 if ($ExtraName) { $extra.Name = $ExtraName }
 if ($env:RESUMABLE_TEST_CLICKROWS) { $extra.ClickRows = $true }
 if ($env:RESUMABLE_TEST_TOOLROWS) { $extra.ToolRowsDir = $env:RESUMABLE_TEST_TOOLROWS }
+if ($env:RESUMABLE_TEST_TOOLROWS_ALLOWED) { $extra.ToolRowsAllowed = $env:RESUMABLE_TEST_TOOLROWS_ALLOWED }
 if ($env:RESUMABLE_TEST_SWAPTIMEOUT) { $extra.SwapTimeoutSeconds = [int]$env:RESUMABLE_TEST_SWAPTIMEOUT }
 & $Script -SessionId $Id -ConfigDir $Cfg -Command $Stub -Model m1 @extra
 exit $LASTEXITCODE
@@ -160,14 +161,30 @@ exit $LASTEXITCODE
     $rm = Run-Child 'set' -runId '3c641601-9a7a-44be-a93c-e5a89419429b'
     Check 'the manager session is started with the 300k compact window (R-20261016-007)' ($rm.Lines -contains 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000') $rm.Text
     # -ClickRows (31 Oct 2026): fullscreen only when asked for; the tool-rows folder is judged like any plugin folder
-    Check 'without -ClickRows the launched program gets no CLAUDE_CODE_NO_FLICKER' (-not ($r.Text -match 'ENV: CLAUDE_CODE_NO_FLICKER=')) $r.Text
+    Check 'without -ClickRows the launched program gets neither CLAUDE_CODE_NO_FLICKER nor the full-repaint variable' (-not ($r.Text -match 'ENV: CLAUDE_CODE_NO_FLICKER=') -and -not ($r.Text -match 'ENV: CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=')) $r.Text
     $env:RESUMABLE_TEST_CLICKROWS = '1'; $rc = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_CLICKROWS
     Check 'with -ClickRows the launched program gets CLAUDE_CODE_NO_FLICKER=1 and the full-repaint fix' ($rc.Lines -contains 'ENV: CLAUDE_CODE_NO_FLICKER=1' -and $rc.Lines -contains 'ENV: CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=1') $rc.Text
     $trDir = Join-Path $root 'tool-rows-folder'; Make-Dir $trDir
+    # only the one trusted folder is accepted, compared after links are resolved (the seam -ToolRowsAllowed stands for the real MalfestioMaster folder)
+    $env:RESUMABLE_TEST_TOOLROWS_ALLOWED = $trDir
     $env:RESUMABLE_TEST_TOOLROWS = $trDir; $rt = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a -ToolRowsDir is started as a --plugin-dir' ($rt.Code -eq 0 -and $rt.Text -match '--plugin-dir [^|]*tool-rows-folder') $rt.Text
+    Check 'the trusted -ToolRowsDir is started as a --plugin-dir' ($rt.Code -eq 0 -and $rt.Text -match '--plugin-dir [^|]*tool-rows-folder') $rt.Text
+    $sibling = Join-Path $root 'tool-rows-sibling'; Make-Dir $sibling
+    $env:RESUMABLE_TEST_TOOLROWS = $sibling; $rs = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
+    Check 'a sibling folder is refused as -ToolRowsDir (exit 2, nothing started)' ($rs.Code -eq 2 -and -not ($rs.Text -match 'ARGS:')) $rs.Text
+    $junction = Join-Path $root 'tool-rows-junction'
+    New-Item -ItemType Junction -Path $junction -Target $sibling | Out-Null
+    $env:RESUMABLE_TEST_TOOLROWS = $junction; $rj = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
+    Check 'a junction to another folder is refused as -ToolRowsDir (exit 2, nothing started)' ($rj.Code -eq 2 -and -not ($rj.Text -match 'ARGS:')) $rj.Text
+    [IO.Directory]::Delete($junction)
+    $junction2 = Join-Path $root 'tool-rows-junction-to-trusted'
+    New-Item -ItemType Junction -Path $junction2 -Target $trDir | Out-Null
+    $env:RESUMABLE_TEST_TOOLROWS = $junction2; $rj2 = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
+    Check 'a junction to the trusted folder resolves to it and is accepted' ($rj2.Code -eq 0 -and $rj2.Text -match '--plugin-dir') $rj2.Text
+    [IO.Directory]::Delete($junction2)
     $env:RESUMABLE_TEST_TOOLROWS = 'relative-tool-rows'; $rb = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
     Check 'a -ToolRowsDir that is not a fully qualified existing folder refuses the start (exit 2)' ($rb.Code -eq 2) $rb.Text
+    Remove-Item Env:RESUMABLE_TEST_TOOLROWS_ALLOWED -ErrorAction SilentlyContinue
     Check 'the launched program gets the resume arguments' ($r.Text -match "ARGS: --resume $id") $r.Text
     Check 'the folder of wsh is put AFTER the existing PATH entries' ($r.Lines -contains "PATHLAST: $wshDir") $r.Text
     Check 'wsh can be run from there and the stub prints what wsh printed' ($r.Lines -contains 'WSHOUT: wsh-from-wave') $r.Text

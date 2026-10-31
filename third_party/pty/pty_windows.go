@@ -169,13 +169,17 @@ func procCreatePseudoConsole(hInput windows.Handle, hOutput windows.Handle, dwFl
 		return err
 	}
 
-	r0, _, err = createPseudoConsole.Call(
+	// CHANGED (31 Oct 2026, waveterm fork): CallChecked, whose error means the bundled files were not verified or found (nothing was called)
+	r0, err = createPseudoConsole.CallChecked(
 		(windowsCoord{X: 80, Y: 30}).Pack(),    // size: default 80x30 window
 		uintptr(hInput),                        // console input
 		uintptr(hOutput),                       // console output
 		uintptr(dwFlags),                       // console flags, currently only PSEUDOCONSOLE_INHERIT_CURSOR supported
 		uintptr(unsafe.Pointer(consoleHandle)), // console handler value return
 	)
+	if err != nil {
+		return err
+	}
 
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {

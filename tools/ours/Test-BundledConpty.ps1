@@ -57,6 +57,15 @@ foreach ($f in $both) {
 $tracked = @(& git -C $repo ls-files -- 'third_party/conpty/x64') | ForEach-Object { Split-Path $_ -Leaf }
 Check 'git tracks both binaries (a *.exe ignore rule does not drop OpenConsole.exe)' (($both | Where-Object { $tracked -notcontains $_ }).Count -eq 0) ($tracked -join ',')
 
+# 0b. the Go test of the pty module: a bundled file that changes after the dll was loaded must make opening a console fail
+Push-Location $repo
+try {
+    $savedCgo = $env:CGO_ENABLED; $env:CGO_ENABLED = '0'
+    $goOut = (& go test github.com/creack/pty -count=1 2>&1 | Out-String).Trim()
+    $goCode = $LASTEXITCODE
+} finally { $env:CGO_ENABLED = $savedCgo; Pop-Location }
+Check 'go test of the pty module: opening a console fails when a bundled file changed after the dll was loaded' ($goCode -eq 0) $goOut
+
 # 1. the mouse-tracking and alternate-screen modes of the program reach the reader (the inbox ConPTY drops them: 31 Oct 2026)
 $mouse = Join-Path $work 'mouse.ps1'
 Set-Content -LiteralPath $mouse -Encoding utf8 -Value ('$e = [char]27' + "`n" + '[Console]::Out.Write("${e}[?1049h${e}[?1000h${e}[?1002h${e}[?1003h${e}[?1006hHELLO"); Start-Sleep 1')
@@ -86,6 +95,23 @@ foreach ($f in $both) {
 $env:WAVETERM_CONPTY_DIR = $good
 try { $r = Run @('-wait', '3000', '--', 'pwsh', '-NoProfile', '-File', $mouse) $empty } finally { Remove-Item Env:WAVETERM_CONPTY_DIR -ErrorAction SilentlyContinue }
 Check 'WAVETERM_CONPTY_DIR is ignored: the executable still needs its own files' ($r.Code -eq 1 -and $r.Json.error -match 'conpty\.dll' -and $r.Json.bytes -eq 0) $r.Raw
+
+# 5b. poisoned search paths: loadable pinned files sit in a PATH folder and in the current directory; the executable's own folder has conpty.dll
+#     missing or altered. The start must fail and nothing may run (if either poisoned copy were loaded, the program would run and HELLO would come back)
+$poisonPath = Join-Path $work 'poison-path'; $null = New-Item -ItemType Directory -Path $poisonPath
+$poisonCwd = Join-Path $work 'poison-cwd'; $null = New-Item -ItemType Directory -Path $poisonCwd
+foreach ($f in $both) { Copy-Item -LiteralPath (Join-Path $bundled $f) -Destination $poisonPath; Copy-Item -LiteralPath (Join-Path $bundled $f) -Destination $poisonCwd }
+$noDll = New-ProbeDir 'poisoned-missing' @('OpenConsole.exe')
+$badDll = New-ProbeDir 'poisoned-altered' $both @('conpty.dll')
+$oldPath = $env:PATH
+$env:PATH = "$poisonPath;$oldPath"
+Push-Location $poisonCwd
+try {
+    $rMissing = Run @('-wait', '3000', '--', 'pwsh', '-NoProfile', '-File', $mouse) $noDll
+    $rAltered = Run @('-wait', '3000', '--', 'pwsh', '-NoProfile', '-File', $mouse) $badDll
+} finally { Pop-Location; $env:PATH = $oldPath }
+Check 'conpty.dll missing next to the executable, copies in PATH and the current directory: fails, nothing runs, neither copy is loaded' ($rMissing.Code -eq 1 -and $rMissing.Json.error -match 'conpty\.dll' -and $rMissing.Json.bytes -eq 0 -and $rMissing.Raw -notmatch 'HELLO') $rMissing.Raw
+Check 'conpty.dll altered next to the executable, good copies in PATH and the current directory: fails on the hash, nothing runs, neither copy is loaded' ($rAltered.Code -eq 1 -and $rAltered.Json.error -match 'sha256' -and $rAltered.Json.bytes -eq 0 -and $rAltered.Raw -notmatch 'HELLO') $rAltered.Raw
 
 # 6. a resize reaches the program
 $size = Join-Path $work 'size.ps1'

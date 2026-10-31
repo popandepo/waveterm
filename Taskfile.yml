@@ -258,6 +258,9 @@ tasks:
     build:conpty:windows:
         desc: Copy the bundled ConPTY (conpty.dll and OpenConsole.exe from third_party/conpty, x64 only) next to wavesrv. wavesrv opens no terminal without them (no fallback to the Windows inbox ConPTY).
         platforms: [windows]
+        preconditions:
+            - sh: '{{if eq ARCH "amd64"}}true{{else}}false{{end}}'
+              msg: "build:conpty:windows: the bundled ConPTY in third_party/conpty is x64 only and this build is {{ARCH}}; an arm64 wavesrv needs the arm64 files (not pinned yet). Refusing to put x64 files next to it."
         cmds:
             - cmd: powershell -NoProfile -NonInteractive -Command "New-Item -ItemType Directory -Force -Path dist/bin | Out-Null; Copy-Item -Force third_party/conpty/x64/conpty.dll, third_party/conpty/x64/OpenConsole.exe dist/bin/"
         sources:

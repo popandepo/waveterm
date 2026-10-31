@@ -101,20 +101,34 @@ func (p bundledProc) Find() error {
 	return err
 }
 
-func (p bundledProc) Call(args ...uintptr) (uintptr, uintptr, error) {
+// CallChecked calls the function and returns its raw result. The error is ONLY for a failure to find, verify or load the bundled files: it
+// is never the Errno the call itself leaves behind, so a caller can tell "nothing was called" from "the call returned a value". For
+// CreatePseudoConsole, conpty.dll starts OpenConsole.exe now, so both files are checked again right before every new console, not only
+// when the dll was loaded.
+func (p bundledProc) CallChecked(args ...uintptr) (uintptr, error) {
 	a, err := p.addr()
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	if p.name == "CreatePseudoConsole" {
-		// conpty.dll starts OpenConsole.exe now: check both files again right before every new console, not only when the dll was loaded
 		dir, err := bundledDir()
 		if err == nil {
 			err = verifyBundled(dir)
 		}
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
+	}
+	r1, _, _ := syscall.SyscallN(a, args...)
+	return r1, nil
+}
+
+// Call keeps the shape of a lazy proc's Call for the call sites that only look at the result of the call itself (resize, close). A failure
+// to find or verify the files comes back as the error with a zero result; the console-creating call site uses CallChecked instead.
+func (p bundledProc) Call(args ...uintptr) (uintptr, uintptr, error) {
+	a, err := p.addr()
+	if err != nil {
+		return 0, 0, err
 	}
 	r1, r2, e := syscall.SyscallN(a, args...)
 	return r1, r2, e

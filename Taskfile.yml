@@ -239,6 +239,7 @@ tasks:
               vars:
                   ARCHS: amd64
                   GO_ENV_VARS: CC="zig cc -target x86_64-windows-gnu"
+            - task: build:conpty:windows
         deps:
             - go:mod:tidy
         sources:
@@ -249,6 +250,17 @@ tasks:
             - "tsunami/**/*.go"
         generates:
             - dist/bin/wavesrv.x64.exe
+
+    build:conpty:windows:
+        desc: Copy the bundled ConPTY (conpty.dll and OpenConsole.exe from third_party/conpty, x64 only) next to wavesrv. wavesrv opens no terminal without them (no fallback to the Windows inbox ConPTY).
+        platforms: [windows]
+        cmds:
+            - cmd: powershell -NoProfile -NonInteractive -Command "New-Item -ItemType Directory -Force -Path dist/bin | Out-Null; Copy-Item -Force third_party/conpty/x64/conpty.dll, third_party/conpty/x64/OpenConsole.exe dist/bin/"
+        sources:
+            - third_party/conpty/x64/*
+        generates:
+            - dist/bin/conpty.dll
+            - dist/bin/OpenConsole.exe
 
     build:backend:quickdev:linux:
         desc: Build only the wavesrv component for quickdev (Linux amd64 only, no generate, no wsh).
@@ -280,6 +292,7 @@ tasks:
                       sh: echo {{if eq "arm" ARCH}}arm64{{else}}{{ARCH}}{{end}}
                   GO_ENV_VARS:
                       sh: echo "{{if eq "amd64" ARCH}}CC=\"zig cc -target x86_64-windows-gnu\"{{else}}CC=\"zig cc -target aarch64-windows-gnu\"{{end}}"
+            - task: build:conpty:windows
 
     build:server:linux:
         desc: Build the wavesrv component for Linux platforms (only generates artifacts for the current architecture).

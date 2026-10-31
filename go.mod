@@ -88,6 +88,6 @@ require (
 
 replace github.com/kevinburke/ssh_config => github.com/wavetermdev/ssh_config v0.0.0-20241219203747-6409e4292f34
 
-replace github.com/creack/pty => github.com/photostorm/pty v1.1.19-0.20230903182454-31354506054b
+replace github.com/creack/pty => ./third_party/pty
 
 replace github.com/wavetermdev/waveterm/tsunami => ./tsunami

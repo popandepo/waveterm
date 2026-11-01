@@ -29,6 +29,12 @@ $logDir = Join-Path $root 'logs'
 Make-Dir $logDir
 $swapLog = Join-Path $logDir 'starter.log'
 $made.Add($swapLog)
+# the manager is whoever the manager file names; Wave counts as started long ago unless a gate check says otherwise
+$managerTestId = 'aaaaaaaa-2222-3333-4444-555555555555'
+$managerFile = Join-Path $root 'manager.json'
+Make-File $managerFile ('{"sessionId":"' + $managerTestId + '"}')
+$env:WAVEFORK_MANAGER_FILE = $managerFile
+$env:WAVEFORK_WAVE_STARTED_AT = '2020-01-01T00:00:00'
 $env:RESUMABLE_TEST_LOG = $swapLog
 $env:RESUMABLE_TEST_LOGROOT = $root
 # a token made the way Wave makes it (shellutil PackSwapToken): base64 of JSON {"token": uuid, "rpccontext": {...}}, here with bytes that give + / and =
@@ -64,9 +70,46 @@ try {
     $other = & $script -SessionId '99999999-2222-3333-4444-555555555555' -ConfigDir $cfg -DryRun
     Check 'another id is not mistaken for it' ($other[0] -match '--session-id 99999999') $other[0]
     # the manager session alone compacts at 300k (R-20261016-007)
-    $mgr = & $script -SessionId '3c641601-9a7a-44be-a93c-e5a89419429b' -ConfigDir $cfg -DryRun
+    $mgr = & $script -SessionId $managerTestId -ConfigDir $cfg -DryRun
     Check 'the manager session gets the 300k compact window' ($mgr[3] -eq 'compact=300000') ($mgr -join ' | ')
     Check 'any other session gets no compact window' ($other[3] -eq 'compact=' -and $later[3] -eq 'compact=') (($other -join ' | ') + ' // ' + ($later -join ' | '))
+
+    # ---- the start gate ----
+    $now = (Get-Date).ToString('s'); $env:WAVEFORK_WAVE_STARTED_AT = $now
+    $gateDir = Join-Path $root 'gate'; Make-Dir $gateDir
+    $g = { param($sid, $n) (& $script -SessionId $sid -ConfigDir $cfg -Name $n -GateDir $gateDir -DryRun)[-1] }
+    Check 'a restored session is held just after Wave started' ((& $g $id 'n1') -eq 'gate=hold') (& $g $id 'n1')
+    Check 'the manager is never held' ((& $g $managerTestId 'whatever') -eq 'gate=go') ''
+    Check 'manager-duty is never held' ((& $g $id 'manager-duty') -eq 'gate=go') ''
+    Check 'an unreadable manager file holds nobody' (((& $script -SessionId $id -ConfigDir $cfg -Name n1 -GateDir $gateDir -ManagerFile (Join-Path $root 'no-manager.json') -DryRun)[-1]) -eq 'gate=go') ''
+    foreach ($odd in '.', '..', '_all') { Check "a session named $odd is not held" ((& $g $id $odd) -eq 'gate=go') '' }
+    # a real held start, up to the point of starting claude: the command does not exist, so the starter ends with exit 3 right after the hold
+    $gateClaude = Join-Path $root 'no-such-claude.exe'
+    $t0 = Get-Date
+    $h = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Name n1 -GateDir $gateDir -GateGiveUpSeconds 2 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
+    $took = ((Get-Date) - $t0).TotalSeconds
+    Check 'a held start nobody releases waits, then goes on to start claude by itself' ($LASTEXITCODE -eq 3 -and $took -ge 2 -and ($h -join ' ') -match 'Held by the start gate' -and ([string](Get-Content -LiteralPath $swapLog -Raw)) -match ' start=gave-up') "$LASTEXITCODE $took $h"
+    $relFile = Join-Path $gateDir 'n4'
+    $job = Start-ThreadJob -ArgumentList $relFile -ScriptBlock { param($f) Start-Sleep -Seconds 3; Set-Content -LiteralPath $f -Value 'x' }
+    $t0 = Get-Date
+    $h = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Name n4 -GateDir $gateDir -GateGiveUpSeconds 60 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
+    $took = ((Get-Date) - $t0).TotalSeconds; $null = $job | Wait-Job | Remove-Job
+    Check 'a release during the hold starts claude at once' ($LASTEXITCODE -eq 3 -and $took -ge 3 -and $took -lt 40 -and ([string](Get-Content -LiteralPath $swapLog -Raw)) -match ' start=released') "$LASTEXITCODE $took"
+    Make-Dir (Join-Path $gateDir 'n5'); (Get-Item (Join-Path $gateDir 'n5')).LastWriteTime = (Get-Date).AddMinutes(1)
+    Check 'a folder with the name of the session is not a release' ((& $g $id 'n5') -eq 'gate=hold') ''
+    Make-File (Join-Path $gateDir 'other') 'x'; (Get-Item (Join-Path $gateDir 'other')).LastWriteTime = (Get-Date).AddMinutes(1)
+    Check 'a release of another session does not release this one' ((& $g $id 'n1') -eq 'gate=hold') ''
+    Make-File (Join-Path $gateDir 'n1') 'x'; (Get-Item (Join-Path $gateDir 'n1')).LastWriteTime = (Get-Date).AddDays(-1)
+    Check 'a release from before this Wave start does not count' ((& $g $id 'n1') -eq 'gate=hold') ''
+    (Get-Item (Join-Path $gateDir 'n1')).LastWriteTime = (Get-Date).AddMinutes(1)
+    Check 'a release after this Wave start lets it go' ((& $g $id 'n1') -eq 'gate=go') ''
+    Make-File (Join-Path $gateDir '_all') 'x'; (Get-Item (Join-Path $gateDir '_all')).LastWriteTime = (Get-Date).AddMinutes(1)
+    Check 'the release of all lets any session go' ((& $g $id 'n2') -eq 'gate=go') ''
+    $env:WAVEFORK_WAVE_STARTED_AT = (Get-Date).AddMinutes(-10).ToString('s')
+    Check 'a block opened later is not held' ((& $g $id 'n3') -eq 'gate=go') ''
+    $env:WAVEFORK_WAVE_STARTED_AT = 'not a date'
+    Check 'an unreadable start time lets it start' ((& $g $id 'n3') -eq 'gate=go') ''
+    $env:WAVEFORK_WAVE_STARTED_AT = '2020-01-01T00:00:00'
 
     # ---- how it is run: a child pwsh, so that this shell keeps its environment ----
     $stub = Join-Path $root 'stub.ps1'
@@ -155,7 +198,7 @@ exit $LASTEXITCODE
     Check 'the inherited child-session markers are gone' (-not ($r.Text -match 'ENV: (CLAUDE_CODE_CHILD_SESSION|CLAUDECODE)=')) $r.Text
     Check 'NO_COLOR is gone' (-not ($r.Text -match 'ENV: NO_COLOR=')) $r.Text
     Check 'an inherited compact window is gone for any other session' (-not ($r.Text -match 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=')) $r.Text
-    $rm = Run-Child 'set' -runId '3c641601-9a7a-44be-a93c-e5a89419429b'
+    $rm = Run-Child 'set' -runId $managerTestId
     Check 'the manager session is started with the 300k compact window (R-20261016-007)' ($rm.Lines -contains 'ENV: CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000') $rm.Text
     Check 'the launched program gets the resume arguments' ($r.Text -match "ARGS: --resume $id") $r.Text
     Check 'the folder of wsh is put AFTER the existing PATH entries' ($r.Lines -contains "PATHLAST: $wshDir") $r.Text

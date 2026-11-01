@@ -81,8 +81,22 @@ try {
     Check 'a restored session is held just after Wave started' ((& $g $id 'n1') -eq 'gate=hold') (& $g $id 'n1')
     Check 'the manager is never held' ((& $g $managerTestId 'whatever') -eq 'gate=go') ''
     Check 'manager-duty is never held' ((& $g $id 'manager-duty') -eq 'gate=go') ''
-    $h = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Name n1 -GateDir $gateDir -GateGiveUpSeconds 2
-    Check 'a held start waits and does not start claude' ($LASTEXITCODE -eq 4 -and ($h -join ' ') -match 'Held by the start gate') "$LASTEXITCODE $h"
+    Check 'an unreadable manager file holds nobody' (((& $script -SessionId $id -ConfigDir $cfg -Name n1 -GateDir $gateDir -ManagerFile (Join-Path $root 'no-manager.json') -DryRun)[-1]) -eq 'gate=go') ''
+    foreach ($odd in '.', '..', '_all') { Check "a session named $odd is not held" ((& $g $id $odd) -eq 'gate=go') '' }
+    # a real held start, up to the point of starting claude: the command does not exist, so the starter ends with exit 3 right after the hold
+    $gateClaude = Join-Path $root 'no-such-claude.exe'
+    $t0 = Get-Date
+    $h = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Name n1 -GateDir $gateDir -GateGiveUpSeconds 2 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
+    $took = ((Get-Date) - $t0).TotalSeconds
+    Check 'a held start nobody releases waits, then goes on to start claude by itself' ($LASTEXITCODE -eq 3 -and $took -ge 2 -and ($h -join ' ') -match 'Held by the start gate' -and ([string](Get-Content -LiteralPath $swapLog -Raw)) -match ' start=gave-up') "$LASTEXITCODE $took $h"
+    $relFile = Join-Path $gateDir 'n4'
+    $job = Start-ThreadJob -ArgumentList $relFile -ScriptBlock { param($f) Start-Sleep -Seconds 3; Set-Content -LiteralPath $f -Value 'x' }
+    $t0 = Get-Date
+    $h = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Name n4 -GateDir $gateDir -GateGiveUpSeconds 60 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
+    $took = ((Get-Date) - $t0).TotalSeconds; $null = $job | Wait-Job | Remove-Job
+    Check 'a release during the hold starts claude at once' ($LASTEXITCODE -eq 3 -and $took -ge 3 -and $took -lt 40 -and ([string](Get-Content -LiteralPath $swapLog -Raw)) -match ' start=released') "$LASTEXITCODE $took"
+    Make-Dir (Join-Path $gateDir 'n5'); (Get-Item (Join-Path $gateDir 'n5')).LastWriteTime = (Get-Date).AddMinutes(1)
+    Check 'a folder with the name of the session is not a release' ((& $g $id 'n5') -eq 'gate=hold') ''
     Make-File (Join-Path $gateDir 'other') 'x'; (Get-Item (Join-Path $gateDir 'other')).LastWriteTime = (Get-Date).AddMinutes(1)
     Check 'a release of another session does not release this one' ((& $g $id 'n1') -eq 'gate=hold') ''
     Make-File (Join-Path $gateDir 'n1') 'x'; (Get-Item (Join-Path $gateDir 'n1')).LastWriteTime = (Get-Date).AddDays(-1)

@@ -35,7 +35,7 @@ param(
     [string[]]$GateAlways = @('manager-duty'),
     [string]$GateDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\start-gate' } else { '' }),
     [ValidateRange(0, 3600)][int]$GateWindowSeconds = 180,
-    [ValidateRange(0, 86400)][int]$GateGiveUpSeconds = 0,   # test seam: 0 waits for the release for ever
+    [ValidateRange(1, 86400)][int]$GateGiveUpSeconds = 900,
     [string]$WaveStartedAt = $env:WAVEFORK_WAVE_STARTED_AT,   # test seam: otherwise the start time of the running wavesrv
     [switch]$DryRun
 )
@@ -258,7 +258,11 @@ $compactWindow = if ($managerId -and $SessionId -eq $managerId) { '300000' } els
 # Wave restores every block at once when it starts, and each starter would resume its session: 32 sessions in the same three seconds after the reboot of 1 Nov 2026.
 # So a start in the first -GateWindowSeconds after wavesrv started is held, except the manager and -GateAlways, until the manager releases it by writing the file
 # <GateDir>\<name> (or <GateDir>\_all) after that start. The block and its layout stay as they are, it only waits before claude starts; a block opened later is
-# opened on purpose and is not held. Anything the gate cannot read lets the session start: a session that starts is better than one that waits for ever.
+# opened on purpose and is not held. Anything the gate cannot read lets the session start (an unreadable manager file included, the manager must never wait), and a hold
+# ends by itself after -GateGiveUpSeconds: a session that starts is better than one that waits for ever. A name of only dots or _all cannot have a release file of its own, so it is not held.
+# Inside the window a block opened by hand looks like a restored one and is held too.
+$gateName = $Name -replace '[^A-Za-z0-9_.-]', '_'
+$gateSince = $null
 function Get-WaveStart {
     if ($WaveStartedAt) { try { return [datetime]::Parse($WaveStartedAt, [Globalization.CultureInfo]::InvariantCulture) } catch { return $null } }
     $w = Get-Process -Name 'wavesrv*' -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1
@@ -266,18 +270,21 @@ function Get-WaveStart {
 }
 function Test-GateReleased([datetime]$since) {
     if (-not $GateDir) { return $true }
-    foreach ($n in '_all', ($Name -replace '[^A-Za-z0-9_.-]', '_')) {
+    foreach ($n in '_all', $gateName) {
         $f = Get-Item -LiteralPath (Join-Path $GateDir $n) -ErrorAction SilentlyContinue
-        if ($f -and $f.LastWriteTime -ge $since) { return $true }
+        if ($f -and -not $f.PSIsContainer -and $f.LastWriteTime -ge $since) { return $true }
     }
     return $false
 }
 function Get-StartGate {
-    if (-not $Name -or ($managerId -and $SessionId -eq $managerId) -or ($GateAlways -contains $Name)) { return 'go' }
-    $since = Get-WaveStart
-    if (-not $since -or ((Get-Date) - $since).TotalSeconds -gt $GateWindowSeconds) { return 'go' }
-    if (Test-GateReleased $since) { return 'go' }
-    return 'hold'
+    try {
+        if (-not $Name -or -not $managerId -or $SessionId -eq $managerId -or ($GateAlways -contains $Name)) { return 'go' }
+        if ($gateName -eq '_all' -or $gateName -match '^\.+$') { return 'go' }
+        $script:gateSince = Get-WaveStart
+        if (-not $gateSince -or ((Get-Date) - $gateSince).TotalSeconds -gt $GateWindowSeconds) { return 'go' }
+        if (Test-GateReleased $gateSince) { return 'go' }
+        return 'hold'
+    } catch { return 'go' }
 }
 # Account 2 has its own login and nothing else of its own: CLAUDE.md and settings.json are copies of account 1's, refreshed at every start the way the
 # claude-personal2 command does it (a file link needs admin here). A session started without the refresh ran on an old copy and missed a hook.
@@ -535,6 +542,18 @@ if ($account2Copy.Count -gt 0) {
     $copyCode = if ($copiedCount -eq $account2Copy.Count) { 'ok' } elseif ($copiedCount -eq 0) { 'failed' } else { 'partial' }
     Write-SwapLog $copyCode $copyResults 'account2copy'
 }
+# The hold comes after the token exchange, the token is only valid for 5 minutes and a release can come much later. It comes before the trust watcher, whose clock must
+# start when claude is about to start, and before the account record, which says a start happened.
+if ((Get-StartGate) -eq 'hold') {
+    Write-SwapLog 'held' @() 'start'
+    [Console]::Out.WriteLine("Held by the start gate: this session starts when the manager releases it, or by itself after $GateGiveUpSeconds seconds. Nothing has been lost.")
+    $heldAt = Get-Date; $released = $false
+    while (-not $released -and ((Get-Date) - $heldAt).TotalSeconds -lt $GateGiveUpSeconds) {
+        try { $released = Test-GateReleased $gateSince } catch { break }
+        if (-not $released) { Start-Sleep -Seconds 1 }
+    }
+    Write-SwapLog $(if ($released) { 'released' } else { 'gave-up' }) @() 'start'
+}
 # ---- the "trust this folder" question ---------------------------------------------------------------------------------------------------------------------
 # Claude asks once per folder whether to trust it, and the default answer is "No, exit". A session opened in a background tile then sits on that question
 # (or ends) and nobody sees it (17 Oct 2026, the Ashfall session). The manager has his standing yes for his own project folders, so this block answers it
@@ -633,17 +652,6 @@ function Write-SessionAccount {
     } catch { }
 }
 Write-SessionAccount
-# The hold comes after the token exchange: the token is only valid for 5 minutes, a release can come much later.
-if ((Get-StartGate) -eq 'hold') {
-    Write-SwapLog 'held' @() 'start'
-    [Console]::Out.WriteLine("Held by the start gate: this session starts when the manager releases it. Nothing has been lost.")
-    $since = Get-WaveStart; $heldAt = Get-Date
-    while (-not (Test-GateReleased $since)) {
-        if ($GateGiveUpSeconds -gt 0 -and ((Get-Date) - $heldAt).TotalSeconds -ge $GateGiveUpSeconds) { exit 4 }
-        Start-Sleep -Seconds 1
-    }
-    Write-SwapLog 'released' @() 'start'
-}
 $claudeArgs = @(Get-ClaudeArgs)
 # ---- claude must be there ------------------------------------------------------------------------------------------------------------------------------------
 # An npm update of claude-code rewrites its shims (claude, claude.cmd, claude.ps1) and for a few seconds there is none. On 20 Oct 2026 at 16:35:25 a start

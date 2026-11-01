@@ -74,6 +74,10 @@ type Backend interface {
 	Screen(ctx context.Context, blockId string) ([]string, error)
 	// Input writes raw bytes to the program of one terminal block.
 	Input(ctx context.Context, blockId string, data []byte) error
+	// CreateWebBlock makes a web block in a tab without taking focus and returns its id.
+	CreateWebBlock(ctx context.Context, tabId string, url string, title string) (string, error)
+	// DeleteBlock removes one block; open uses it only to take back a block it made when going to it failed.
+	DeleteBlock(ctx context.Context, blockId string) error
 }
 
 type Service struct {
@@ -253,18 +257,26 @@ func (s *Service) Goto(ctx context.Context, a Address, window bool) error {
 			return fmt.Errorf("%w: block %s is not in tab %s", ErrMismatch, a.BlockId, a.TabId)
 		}
 	}
+	_, err = s.moveFocus(ctx, ws, a.TabId, a.BlockId, window)
+	return err
+}
+
+// moveFocus goes to a tab (and a block in it) of a workspace already looked up: the window if asked, then the tab, then the block.
+// switched says whether the active tab was changed, so a caller can switch it back.
+func (s *Service) moveFocus(ctx context.Context, ws Workspace, tabId string, blockId string, window bool) (switched bool, err error) {
 	if window {
 		if err := s.B.FocusWindow(ctx, ws.WindowId); err != nil {
-			return err
+			return false, err
 		}
 	}
-	if ws.ActiveTabId != a.TabId {
-		if err := s.B.SetActiveTab(ctx, ws.WorkspaceId, a.TabId); err != nil {
-			return err
+	if ws.ActiveTabId != tabId {
+		if err := s.B.SetActiveTab(ctx, ws.WorkspaceId, tabId); err != nil {
+			return false, err
 		}
+		switched = true
 	}
-	if a.BlockId == "" {
-		return nil
+	if blockId == "" {
+		return switched, nil
 	}
-	return s.B.SetBlockFocus(ctx, a.TabId, a.BlockId)
+	return switched, s.B.SetBlockFocus(ctx, tabId, blockId)
 }

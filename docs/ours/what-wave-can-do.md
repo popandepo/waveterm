@@ -215,7 +215,7 @@ replace), so no RPC, frontend or backend change.
   call removes its own block), but a rival that appears after that check is missed. `wsh slot repair` removes the
   duplicates (keeps the smallest id). The real fix is an atomic slot-owner key in the backend (not done).
 
-## 14. Local API: list, focus, goto (fork feature, slice 1)
+## 14. Local API: list, focus, goto, open (fork feature, slice 1)
 
 A small API inside wavesrv for callers that are not wsh inside a block (later: a broker bridge, a dashboard).
 Design and the later slices (send, read, move, events) are written up outside this repository; this section is
@@ -237,7 +237,9 @@ only what exists.
 - **Calls** (POST only; the body is one JSON object with known, exactly spelled, non-repeated keys inside 1 MiB, `list` takes none or `{}`; `/v1/...`): `list` (workspaces > tabs > blocks, ids, names, view, slot, controller,
   connection, title, url cut to scheme and host), `focus` (a block in the active tab, or make a tab active; never changes
   workspace or window), `goto` (workspace + tab [+ block]; the whole address is checked before the first change;
-  the OS window is raised only with `window=true`). Ids must be lowercase full uuids. Block meta is allow-listed:
+  the OS window is raised only with `window=true`), `open` (tab + http or https url [+ title, max 80 characters] makes a
+  web block and answers its id; with `focus=true` it then goes to it as `goto` with `window=true` does, without it no
+  window, tab or block focus changes; a refused url is never echoed, since it can hold an entry token). Ids must be lowercase full uuids. Block meta is allow-listed:
   no command lines, environments or working directories leave the process.
 - **wsh.** `wsh api list [--json]`, `wsh api focus --block|--tab`, `wsh api goto --tab [--workspace] [--block]
   [--window]`; the workspace defaults to `WAVETERM_WORKSPACEID`; the folder is found with the `path` RPC or `--dir`.

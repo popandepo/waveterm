@@ -44,6 +44,8 @@ type gotoRequest struct {
 
 type errorResponse struct {
 	Error string `json:"error"`
+	// BlockId names a block a failed call made and could not take back.
+	BlockId string `json:"blockid,omitempty"`
 }
 
 type listResponse struct {
@@ -76,7 +78,7 @@ func statusForError(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrRefusedText):
+	case errors.Is(err, ErrRefusedText), errors.Is(err, ErrBadUrl), errors.Is(err, ErrBadTitle):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrMismatch), errors.Is(err, ErrNotActive), errors.Is(err, ErrWrongSession), errors.Is(err, ErrNotRunning),
 		errors.Is(err, ErrBusy), errors.Is(err, ErrOnPrompt), errors.Is(err, ErrNoInputBox), errors.Is(err, ErrNotSent), errors.Is(err, ErrNotLoaded):
@@ -86,13 +88,17 @@ func statusForError(err error) int {
 }
 
 func writeError(w http.ResponseWriter, err error) {
+	writeErrorLeaving(w, err, "")
+}
+
+func writeErrorLeaving(w http.ResponseWriter, err error, blockId string) {
 	status := statusForError(err)
 	if status == http.StatusInternalServerError {
 		log.Printf("waveapi: internal error: %v\n", err)
-		writeJson(w, status, errorResponse{Error: "internal error"})
+		writeJson(w, status, errorResponse{Error: "internal error", BlockId: blockId})
 		return
 	}
-	writeJson(w, status, errorResponse{Error: err.Error()})
+	writeJson(w, status, errorResponse{Error: err.Error(), BlockId: blockId})
 }
 
 func readLimitedBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
@@ -230,6 +236,18 @@ func MakeHandler(token string, svc *Service) http.Handler {
 			return
 		}
 		writeJson(w, http.StatusOK, okResponse{Ok: true})
+	})
+	mux.HandleFunc("/v1/open", func(w http.ResponseWriter, r *http.Request) {
+		var req OpenRequest
+		if !readBody(w, r, &req, openKeys) {
+			return
+		}
+		blockId, err := svc.Open(r.Context(), req)
+		if err != nil {
+			writeErrorLeaving(w, err, blockId)
+			return
+		}
+		writeJson(w, http.StatusOK, openResponse{BlockId: blockId})
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")

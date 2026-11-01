@@ -132,6 +132,28 @@ func (b *Backend) Input(ctx context.Context, blockId string, data []byte) error 
 	return wshclient.ControllerInputCommand(wshserver.GetMainRpcClient(), input, &wshrpc.RpcOpts{Timeout: rpcTimeoutMs})
 }
 
+// CreateWebBlock goes through the same create call as wsh web open, with Focused false. A failure never carries the url, which can hold a token.
+func (b *Backend) CreateWebBlock(ctx context.Context, tabId string, url string, title string) (string, error) {
+	meta := waveobj.MetaMapType{waveobj.MetaKey_View: "web", waveobj.MetaKey_Url: url}
+	if title != "" {
+		meta[waveobj.MetaKey_FrameTitle] = title
+	}
+	data := wshrpc.CommandCreateBlockData{TabId: tabId, BlockDef: &waveobj.BlockDef{Meta: meta}}
+	oref, err := wshclient.CreateBlockCommand(wshserver.GetMainRpcClient(), data, &wshrpc.RpcOpts{Timeout: rpcTimeoutMs})
+	if err != nil {
+		return "", fmt.Errorf("could not make a web block in tab %s", tabId)
+	}
+	return oref.OID, nil
+}
+
+// DeleteBlock removes a block open made, through the same delete call as closing it.
+func (b *Backend) DeleteBlock(ctx context.Context, blockId string) error {
+	if err := wshclient.DeleteBlockCommand(wshserver.GetMainRpcClient(), wshrpc.CommandDeleteBlockData{BlockId: blockId}, &wshrpc.RpcOpts{Timeout: rpcTimeoutMs}); err != nil {
+		return fmt.Errorf("could not delete block %s", blockId)
+	}
+	return nil
+}
+
 // The local API is optional, so it must never hold wavesrv back: it starts in the background, and a start
 // that takes longer than StartWarnAfter is logged. A failed start is only logged too.
 func Start() {

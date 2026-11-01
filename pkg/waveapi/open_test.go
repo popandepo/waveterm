@@ -24,6 +24,11 @@ func (f *fakeBackend) CreateWebBlock(ctx context.Context, tabId string, url stri
 	return f.newBlockId, nil
 }
 
+func (f *fakeBackend) DeleteBlock(ctx context.Context, blockId string) error {
+	f.calls = append(f.calls, "DeleteBlock:"+blockId)
+	return nil
+}
+
 func newOpenSvc() (*Service, *fakeBackend) {
 	svc, fb := newSvc()
 	fb.newBlockId = blkNew
@@ -48,16 +53,40 @@ func TestOpenWithoutFocusMovesNothing(t *testing.T) {
 	}
 }
 
-// With focus the new block is gone to as goto does with window: the window, then its tab, then the block.
+// With focus the new block is gone to as goto does with window: the window, then its tab, then the block. The tree is not read
+// again, so a block the tree does not list yet (the fake never adds it) is still gone to.
 func TestOpenWithFocusGoesToTheBlock(t *testing.T) {
 	svc, fb := newOpenSvc()
-	fb.tree[0].Tabs[1].Blocks = append(fb.tree[0].Tabs[1].Blocks, Block{BlockId: blkNew, View: "web"})
 	if _, err := svc.Open(context.Background(), OpenRequest{TabId: tabB, Url: "https://example.org/", Focus: true}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"CreateWebBlock:" + tabB, "FocusWindow:" + win1, "SetActiveTab:" + tabB, "SetBlockFocus:" + blkNew}
 	if !reflect.DeepEqual(fb.calls, want) {
 		t.Fatalf("calls: %v", fb.calls)
+	}
+}
+
+// A focus step that fails takes back what open did: the tab it switched to goes back to the tab that was active, and the new
+// block is deleted. The error still comes back. A raised window cannot be lowered again; that is the one thing left as it is.
+func TestOpenFocusFailureTakesBack(t *testing.T) {
+	cases := []struct {
+		failOn string
+		want   []string
+	}{
+		{"FocusWindow", []string{"CreateWebBlock:" + tabB, "FocusWindow:" + win1, "DeleteBlock:" + blkNew}},
+		{"SetActiveTab", []string{"CreateWebBlock:" + tabB, "FocusWindow:" + win1, "SetActiveTab:" + tabB, "DeleteBlock:" + blkNew}},
+		{"SetBlockFocus", []string{"CreateWebBlock:" + tabB, "FocusWindow:" + win1, "SetActiveTab:" + tabB, "SetBlockFocus:" + blkNew, "SetActiveTab:" + tabA, "DeleteBlock:" + blkNew}},
+	}
+	for _, c := range cases {
+		svc, fb := newOpenSvc()
+		fb.failOn = c.failOn
+		id, err := svc.Open(context.Background(), OpenRequest{TabId: tabB, Url: "https://example.org/", Focus: true})
+		if !errors.Is(err, errFocusFailed) || id != "" {
+			t.Fatalf("%s: want the focus error and no block id, got %q, %v", c.failOn, id, err)
+		}
+		if !reflect.DeepEqual(fb.calls, c.want) {
+			t.Fatalf("%s: calls: %v", c.failOn, fb.calls)
+		}
 	}
 }
 
@@ -74,6 +103,10 @@ func TestOpenRefusesBeforeAnyCall(t *testing.T) {
 		{"file url", OpenRequest{TabId: tabA, Url: "file:///C:/Windows/win.ini"}, ErrBadUrl},
 		{"script url", OpenRequest{TabId: tabA, Url: "javascript:alert(1)"}, ErrBadUrl},
 		{"no host", OpenRequest{TabId: tabA, Url: "http:///home"}, ErrBadUrl},
+		{"port but no host", OpenRequest{TabId: tabA, Url: "http://:80/"}, ErrBadUrl},
+		{"line separator in url", OpenRequest{TabId: tabA, Url: "http://127.0.0.1/ "}, ErrBadUrl},
+		{"title line separator", OpenRequest{TabId: tabA, Url: "http://127.0.0.1/", Title: "a b"}, ErrBadTitle},
+		{"title paragraph separator", OpenRequest{TabId: tabA, Url: "http://127.0.0.1/", Title: "a b"}, ErrBadTitle},
 		{"user info", OpenRequest{TabId: tabA, Url: "http://user:pw@127.0.0.1/"}, ErrBadUrl},
 		{"control char", OpenRequest{TabId: tabA, Url: "http://127.0.0.1/\n"}, ErrBadUrl},
 		{"long title", OpenRequest{TabId: tabA, Url: "http://127.0.0.1/", Title: strings.Repeat("t", MaxTitleChars+1)}, ErrBadTitle},

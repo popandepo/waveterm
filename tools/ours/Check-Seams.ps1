@@ -104,6 +104,7 @@ $seams = @(
     @('stack-add-hook', 'frontend/app/tab/tabcontent.tsx', 'onStackAdd,', 'the + on a strip opens the widget-bar type menu'),
     @('stack-create-in-stack-helper', 'frontend/app/store/global.ts', 'async function createBlockInStack(', 'creates a new block straight into a stack'),
     @('api-create-block-rpc', 'pkg/wshrpc/wshrpctypes.go', 'CreateBlockCommand(ctx context.Context, data CommandCreateBlockData) (waveobj.ORef, error)', 'local API open makes a web block'),
+    @('api-delete-block-rpc', 'pkg/wshrpc/wshrpctypes.go', 'DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error', 'local API open takes back its block'),
     @('api-focus-window-rpc','pkg/wshrpc/wshrpctypes.go', 'FocusWindowCommand(ctx context.Context, windowId string) error', 'local API goto with window=true'),
     @('api-set-active-tab-rpc', 'pkg/wshrpc/wshrpctypes.go', 'ElectronSetActiveTabCommand(ctx context.Context, data CommandElectronTabData) error', 'local API focus tab and goto'),
     @('api-set-block-focus-rpc', 'pkg/wshrpc/wshrpctypes.go', 'SetBlockFocusCommand(ctx context.Context, blockId string) error', 'local API focus block and goto'),

@@ -54,6 +54,19 @@ type fakeBackend struct {
 	created    []string
 	newBlockId string
 	createErr  error
+
+	// failOn names one focus call ("FocusWindow", "SetActiveTab", "SetBlockFocus") that fails the first time, after it is recorded.
+	failOn string
+}
+
+var errFocusFailed = errors.New("focus call failed")
+
+func (f *fakeBackend) failed(name string) error {
+	if f.failOn != name {
+		return nil
+	}
+	f.failOn = ""
+	return errFocusFailed
 }
 
 func (f *fakeBackend) Screen(ctx context.Context, blockId string) ([]string, error) {
@@ -78,15 +91,15 @@ func (f *fakeBackend) Input(ctx context.Context, blockId string, data []byte) er
 func (f *fakeBackend) Tree(ctx context.Context) ([]Workspace, error) { return f.tree, f.treeErr }
 func (f *fakeBackend) FocusWindow(ctx context.Context, windowId string) error {
 	f.calls = append(f.calls, "FocusWindow:"+windowId)
-	return nil
+	return f.failed("FocusWindow")
 }
 func (f *fakeBackend) SetActiveTab(ctx context.Context, workspaceId string, tabId string) error {
 	f.calls = append(f.calls, "SetActiveTab:"+tabId)
-	return nil
+	return f.failed("SetActiveTab")
 }
 func (f *fakeBackend) SetBlockFocus(ctx context.Context, tabId string, blockId string) error {
 	f.calls = append(f.calls, "SetBlockFocus:"+blockId)
-	return nil
+	return f.failed("SetBlockFocus")
 }
 
 func newSvc() (*Service, *fakeBackend) {

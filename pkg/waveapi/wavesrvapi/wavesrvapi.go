@@ -146,6 +146,14 @@ func (b *Backend) CreateWebBlock(ctx context.Context, tabId string, url string, 
 	return oref.OID, nil
 }
 
+// DeleteBlock removes a block open made, through the same delete call as closing it.
+func (b *Backend) DeleteBlock(ctx context.Context, blockId string) error {
+	if err := wshclient.DeleteBlockCommand(wshserver.GetMainRpcClient(), wshrpc.CommandDeleteBlockData{BlockId: blockId}, &wshrpc.RpcOpts{Timeout: rpcTimeoutMs}); err != nil {
+		return fmt.Errorf("could not delete block %s", blockId)
+	}
+	return nil
+}
+
 // The local API is optional, so it must never hold wavesrv back: it starts in the background, and a start
 // that takes longer than StartWarnAfter is logged. A failed start is only logged too.
 func Start() {

@@ -34,19 +34,25 @@ type openResponse struct {
 	BlockId string `json:"blockid"`
 }
 
+// breaksLine is a control character or a Unicode line or paragraph separator (U+2028, U+2029), which a title bar or a log line
+// would show as a new line.
+func breaksLine(r rune) bool {
+	return unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp)
+}
+
 func checkOpenUrl(raw string) error {
-	if raw == "" || strings.IndexFunc(raw, unicode.IsControl) >= 0 {
+	if raw == "" || strings.IndexFunc(raw, breaksLine) >= 0 {
 		return ErrBadUrl
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil {
 		return ErrBadUrl
 	}
 	return nil
 }
 
 func checkTitle(title string) error {
-	if len([]rune(title)) > MaxTitleChars || strings.IndexFunc(title, unicode.IsControl) >= 0 {
+	if len([]rune(title)) > MaxTitleChars || strings.IndexFunc(title, breaksLine) >= 0 {
 		return ErrBadTitle
 	}
 	return nil
@@ -78,5 +84,15 @@ func (s *Service) Open(ctx context.Context, req OpenRequest) (string, error) {
 	if !req.Focus {
 		return blockId, nil
 	}
-	return blockId, s.Goto(ctx, Address{WorkspaceId: loc.ws.WorkspaceId, TabId: req.TabId, BlockId: blockId}, true)
+	// The tab was looked up before the block was made, so the tree is not read again: a new block may not be listed yet.
+	switched, err := s.moveFocus(ctx, loc.ws, req.TabId, blockId, true)
+	if err == nil {
+		return blockId, nil
+	}
+	// Take back what this call did, so a failed open leaves no block and the tab as it was. A raised window stays raised.
+	if switched {
+		_ = s.B.SetActiveTab(ctx, loc.ws.WorkspaceId, loc.ws.ActiveTabId)
+	}
+	_ = s.B.DeleteBlock(ctx, blockId)
+	return "", err
 }

@@ -57,6 +57,9 @@ type fakeBackend struct {
 
 	// failOn names one focus call ("FocusWindow", "SetActiveTab", "SetBlockFocus") that fails the first time, after it is recorded.
 	failOn string
+	// tabErrs fails every SetActiveTab to one tab id; deleteErr fails every DeleteBlock.
+	tabErrs   map[string]error
+	deleteErr error
 }
 
 var errFocusFailed = errors.New("focus call failed")
@@ -95,6 +98,9 @@ func (f *fakeBackend) FocusWindow(ctx context.Context, windowId string) error {
 }
 func (f *fakeBackend) SetActiveTab(ctx context.Context, workspaceId string, tabId string) error {
 	f.calls = append(f.calls, "SetActiveTab:"+tabId)
+	if err := f.tabErrs[tabId]; err != nil {
+		return err
+	}
 	return f.failed("SetActiveTab")
 }
 func (f *fakeBackend) SetBlockFocus(ctx context.Context, tabId string, blockId string) error {

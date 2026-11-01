@@ -44,6 +44,8 @@ type gotoRequest struct {
 
 type errorResponse struct {
 	Error string `json:"error"`
+	// BlockId names a block a failed call made and could not take back.
+	BlockId string `json:"blockid,omitempty"`
 }
 
 type listResponse struct {
@@ -86,13 +88,17 @@ func statusForError(err error) int {
 }
 
 func writeError(w http.ResponseWriter, err error) {
+	writeErrorLeaving(w, err, "")
+}
+
+func writeErrorLeaving(w http.ResponseWriter, err error, blockId string) {
 	status := statusForError(err)
 	if status == http.StatusInternalServerError {
 		log.Printf("waveapi: internal error: %v\n", err)
-		writeJson(w, status, errorResponse{Error: "internal error"})
+		writeJson(w, status, errorResponse{Error: "internal error", BlockId: blockId})
 		return
 	}
-	writeJson(w, status, errorResponse{Error: err.Error()})
+	writeJson(w, status, errorResponse{Error: err.Error(), BlockId: blockId})
 }
 
 func readLimitedBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
@@ -238,7 +244,7 @@ func MakeHandler(token string, svc *Service) http.Handler {
 		}
 		blockId, err := svc.Open(r.Context(), req)
 		if err != nil {
-			writeError(w, err)
+			writeErrorLeaving(w, err, blockId)
 			return
 		}
 		writeJson(w, http.StatusOK, openResponse{BlockId: blockId})

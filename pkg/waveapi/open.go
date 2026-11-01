@@ -90,9 +90,15 @@ func (s *Service) Open(ctx context.Context, req OpenRequest) (string, error) {
 		return blockId, nil
 	}
 	// Take back what this call did, so a failed open leaves no block and the tab as it was. A raised window stays raised.
+	// A take-back that fails is joined to the focus error, and a block that could not be deleted is still named.
+	errs := []error{err}
 	if switched {
-		_ = s.B.SetActiveTab(ctx, loc.ws.WorkspaceId, loc.ws.ActiveTabId)
+		if backErr := s.B.SetActiveTab(ctx, loc.ws.WorkspaceId, loc.ws.ActiveTabId); backErr != nil {
+			errs = append(errs, fmt.Errorf("switch the tab back: %w", backErr))
+		}
 	}
-	_ = s.B.DeleteBlock(ctx, blockId)
-	return "", err
+	if delErr := s.B.DeleteBlock(ctx, blockId); delErr != nil {
+		return blockId, errors.Join(append(errs, fmt.Errorf("delete the new block: %w", delErr))...)
+	}
+	return "", errors.Join(errs...)
 }

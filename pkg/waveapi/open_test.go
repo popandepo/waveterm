@@ -26,7 +26,7 @@ func (f *fakeBackend) CreateWebBlock(ctx context.Context, tabId string, url stri
 
 func (f *fakeBackend) DeleteBlock(ctx context.Context, blockId string) error {
 	f.calls = append(f.calls, "DeleteBlock:"+blockId)
-	return nil
+	return f.deleteErr
 }
 
 func newOpenSvc() (*Service, *fakeBackend) {
@@ -86,6 +86,51 @@ func TestOpenFocusFailureTakesBack(t *testing.T) {
 		}
 		if !reflect.DeepEqual(fb.calls, c.want) {
 			t.Fatalf("%s: calls: %v", c.failOn, fb.calls)
+		}
+	}
+}
+
+// When the take-back fails too, nothing is dropped: every error comes back joined, and a block that could not be deleted is
+// still named so the caller can say where it was left.
+func TestOpenFailedTakeBackIsReported(t *testing.T) {
+	errBack := errors.New("switch back failed")
+	errDelete := errors.New("delete failed")
+
+	svc, fb := newOpenSvc()
+	fb.failOn = "SetBlockFocus"
+	fb.tabErrs = map[string]error{tabA: errBack}
+	fb.deleteErr = errDelete
+	id, err := svc.Open(context.Background(), OpenRequest{TabId: tabB, Url: "https://example.org/", Focus: true})
+	if id != blkNew || !errors.Is(err, errFocusFailed) || !errors.Is(err, errBack) || !errors.Is(err, errDelete) {
+		t.Fatalf("both failed: want the block id and all three errors, got %q, %v", id, err)
+	}
+
+	svc, fb = newOpenSvc()
+	fb.failOn = "SetBlockFocus"
+	fb.tabErrs = map[string]error{tabA: errBack}
+	id, err = svc.Open(context.Background(), OpenRequest{TabId: tabB, Url: "https://example.org/", Focus: true})
+	if id != "" || !errors.Is(err, errFocusFailed) || !errors.Is(err, errBack) {
+		t.Fatalf("switch back failed: want no block id and both errors, got %q, %v", id, err)
+	}
+}
+
+// Over the wire, a block left behind is named in the error answer; a block taken back is not.
+func TestOpenAnswerNamesALeftBlock(t *testing.T) {
+	for _, left := range []bool{true, false} {
+		h, fb := newTestHandler()
+		fb.newBlockId = blkNew
+		fb.failOn = "FocusWindow"
+		if left {
+			fb.deleteErr = errors.New("delete failed")
+		}
+		body := `{"tabid":"` + tabB + `","url":"https://example.org/","focus":true}`
+		rec := doCall(t, h, "POST", "/v1/open", testToken, body)
+		var got errorResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusInternalServerError {
+			t.Fatalf("left=%v: status %d: %s", left, rec.Code, rec.Body.String())
+		}
+		if want := map[bool]string{true: blkNew, false: ""}[left]; got.BlockId != want {
+			t.Fatalf("left=%v: blockid %q, want %q", left, got.BlockId, want)
 		}
 	}
 }

@@ -520,6 +520,18 @@ if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
         [Console]::Error.WriteLine("Note: the Wave token could not be exchanged (swap=$swapCode), so this session starts without wsh access. Restarting the block gives a new token.")
     }
 }
+# The hold comes after the token exchange, the token is only valid for 5 minutes and a release can come much later. It comes before the trust watcher, whose clock must
+# start when claude is about to start, before the account 2 copy, which must not be up to a give-up time old when claude reads it, and before the account record, which says a start happened.
+if ((Get-StartGate) -eq 'hold') {
+    Write-SwapLog 'held' @() 'start'
+    [Console]::Out.WriteLine("Held by the start gate: this session starts when the manager releases it, or by itself after $GateGiveUpSeconds seconds. Nothing has been lost.")
+    $heldAt = Get-Date; $released = $false
+    while (-not $released -and ((Get-Date) - $heldAt).TotalSeconds -lt $GateGiveUpSeconds) {
+        try { $released = Test-GateReleased $gateSince } catch { break }
+        if (-not $released) { Start-Sleep -Seconds 1 }
+    }
+    Write-SwapLog $(if ($released) { 'released' } else { 'gave-up' }) @() 'start'
+}
 # ---- account 2: the copy of account 1's CLAUDE.md and settings.json (planned above) ---------------------------------------------------------------------------
 # ONE line in the starter log per start that tried to copy: account2copy=<ok|partial|failed> set=<file>:<first 12 hex of its SHA-256 after the copy, or "failed">,...
 # so that a start can be shown to have copied (and what), not only to have found equal files. ok: every planned file was copied; failed: none was; partial: some
@@ -541,18 +553,6 @@ if ($account2Copy.Count -gt 0) {
     }
     $copyCode = if ($copiedCount -eq $account2Copy.Count) { 'ok' } elseif ($copiedCount -eq 0) { 'failed' } else { 'partial' }
     Write-SwapLog $copyCode $copyResults 'account2copy'
-}
-# The hold comes after the token exchange, the token is only valid for 5 minutes and a release can come much later. It comes before the trust watcher, whose clock must
-# start when claude is about to start, and before the account record, which says a start happened.
-if ((Get-StartGate) -eq 'hold') {
-    Write-SwapLog 'held' @() 'start'
-    [Console]::Out.WriteLine("Held by the start gate: this session starts when the manager releases it, or by itself after $GateGiveUpSeconds seconds. Nothing has been lost.")
-    $heldAt = Get-Date; $released = $false
-    while (-not $released -and ((Get-Date) - $heldAt).TotalSeconds -lt $GateGiveUpSeconds) {
-        try { $released = Test-GateReleased $gateSince } catch { break }
-        if (-not $released) { Start-Sleep -Seconds 1 }
-    }
-    Write-SwapLog $(if ($released) { 'released' } else { 'gave-up' }) @() 'start'
 }
 # ---- the "trust this folder" question ---------------------------------------------------------------------------------------------------------------------
 # Claude asks once per folder whether to trust it, and the default answer is "No, exit". A session opened in a background tile then sits on that question

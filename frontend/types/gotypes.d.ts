@@ -1195,6 +1195,7 @@ declare global {
         ephemeral: boolean;
         targetblockid?: string;
         position?: string;
+        queuedatversion?: number;
     };
 
     // waveobj.LayoutState

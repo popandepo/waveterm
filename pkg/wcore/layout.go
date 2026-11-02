@@ -88,29 +88,25 @@ func GetLayoutIdForTab(ctx context.Context, tabId string) (string, error) {
 }
 
 func QueueLayoutAction(ctx context.Context, layoutStateId string, actions ...waveobj.LayoutActionData) error {
-	layoutStateObj, err := wstore.DBGet[*waveobj.LayoutState](ctx, layoutStateId)
-	if err != nil {
-		return fmt.Errorf("unable to get layout state for given id %s: %w", layoutStateId, err)
-	}
-	if layoutStateObj == nil {
-		return fmt.Errorf("unable to get layout state for given id %s: not found", layoutStateId)
-	}
-
 	for i := range actions {
 		if actions[i].ActionId == "" {
 			actions[i].ActionId = uuid.New().String()
 		}
 	}
 
-	if layoutStateObj.PendingBackendActions == nil {
-		layoutStateObj.PendingBackendActions = &actions
-	} else {
-		*layoutStateObj.PendingBackendActions = append(*layoutStateObj.PendingBackendActions, actions...)
-	}
-
-	err = wstore.DBUpdate(ctx, layoutStateObj)
+	// one transaction: two block deletes at the same moment must not each start from the list the other is about to replace
+	err := wstore.DBUpdateFn(ctx, layoutStateId, func(layoutStateObj *waveobj.LayoutState) {
+		for i := range actions {
+			actions[i].QueuedAtVersion = layoutStateObj.Version + 1
+		}
+		if layoutStateObj.PendingBackendActions == nil {
+			layoutStateObj.PendingBackendActions = &actions
+		} else {
+			*layoutStateObj.PendingBackendActions = append(*layoutStateObj.PendingBackendActions, actions...)
+		}
+	})
 	if err != nil {
-		return fmt.Errorf("unable to update layout state with new actions: %w", err)
+		return fmt.Errorf("unable to update layout state %s with new actions: %w", layoutStateId, err)
 	}
 	return nil
 }

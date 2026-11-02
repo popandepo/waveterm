@@ -22,7 +22,7 @@ const config = {
         {
             from: "./dist",
             to: "./dist",
-            filter: ["**/*", "!bin/*", "bin/wavesrv.${arch}*", "bin/wsh*", "!tsunamiscaffold/**/*"],
+            filter: ["**/*", "!bin/*", "bin/conpty.dll", "bin/OpenConsole.exe", "bin/wavesrv.${arch}*","bin/wsh*", "!tsunamiscaffold/**/*"],
         },
         {
             from: ".",

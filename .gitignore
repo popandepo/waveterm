@@ -11,6 +11,8 @@ bindings/
 bin/
 *.dmg
 *.exe
+# the pinned OpenConsole.exe of the bundled ConPTY must be tracked (third_party/conpty/README.md)
+!third_party/conpty/x64/OpenConsole.exe
 .DS_Store
 *~
 out/

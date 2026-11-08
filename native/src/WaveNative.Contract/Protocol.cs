@@ -57,13 +57,20 @@ public sealed class Request
 
     public static Request Parse(string line)
     {
-        var o = JsonNode.Parse(line) as JsonObject ?? throw new JsonException("request is not an object");
-        return new Request
+        try
         {
-            Verb = o["verb"]?.GetValue<string>() ?? "",
-            Args = o["args"] as JsonObject ?? new JsonObject(),
-            Token = o["token"]?.GetValue<string>(),
-        };
+            var o = JsonNode.Parse(line) as JsonObject ?? throw new JsonException("request is not an object");
+            return new Request
+            {
+                Verb = o["verb"]?.GetValue<string>() ?? "",
+                Args = o["args"] as JsonObject ?? new JsonObject(),
+                Token = o["token"]?.GetValue<string>(),
+            };
+        }
+        catch (Exception e) when (e is InvalidOperationException or FormatException or ArgumentException)
+        {
+            throw new JsonException("the request has the wrong shape");
+        }
     }
 }
 
@@ -78,8 +85,15 @@ public sealed class Reply
 
     public static Reply Parse(string line)
     {
-        var o = JsonNode.Parse(line) as JsonObject ?? throw new JsonException("reply is not an object");
-        return new Reply { Exit = o["exit"]?.GetValue<int>() ?? 1, Out = o["out"]?.DeepClone(), Err = o["err"]?.DeepClone() };
+        try
+        {
+            var o = JsonNode.Parse(line) as JsonObject ?? throw new JsonException("reply is not an object");
+            return new Reply { Exit = o["exit"]?.GetValue<int>() ?? 1, Out = o["out"]?.DeepClone(), Err = o["err"]?.DeepClone() };
+        }
+        catch (Exception e) when (e is InvalidOperationException or FormatException or ArgumentException)
+        {
+            throw new JsonException("the reply has the wrong shape");
+        }
     }
 
     public static Reply Ok(JsonNode body) => new() { Exit = Contract.Exit.Ok, Out = body };

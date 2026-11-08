@@ -122,7 +122,7 @@ public sealed partial class VerbTests
         Assert.Equal("pwsh", Str(m["cmd"]));
         Assert.Equal(new[] { "-NoLogo", "-File", "s1.ps1" }, Strs(m["cmd:args"]));
         Assert.Equal(w.Cwd, Str(m["cmd:cwd"]));
-        Assert.Equal(JsonValueKind.True, m["cmd:runonstart"]!.GetValueKind());
+        Assert.Equal(JsonValueKind.False, m["cmd:runonstart"]!.GetValueKind());
         Assert.Null(m["cmd:env"]);
         Assert.Null(e["hidden"]);
     }

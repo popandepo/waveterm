@@ -60,6 +60,24 @@ public sealed partial class ContractHost
         }
     }
 
+    // The app (or the owner in the UI) groups blocks of one tab into a stack: the first block stays the shown member.
+    public Tile MakeStackAsApp(Tab tab, params string[] blockIds)
+    {
+        lock (gate)
+        {
+            var first = TileOf(tab, blockIds[0]) ?? throw new InvalidOperationException("block is not in the tab");
+            first.IsStack = true;
+            foreach (var id in blockIds.Skip(1))
+            {
+                var b = blocks[id];
+                RemoveFromTiles(tab, b);
+                first.Members.Add(id);
+                b.TabId = tab.Id;
+            }
+            return first;
+        }
+    }
+
     public Block StartWebBlockAsApp(Tab tab, string url)
     {
         lock (gate)
@@ -77,7 +95,9 @@ public sealed partial class ContractHost
     {
         lock (gate)
         {
-            var tab = w.Tabs.FirstOrDefault(t => t.Name == cfg.Tab) ?? MakeTab(w, cfg.Tab, null);
+            if (cfg.Session.TryGetValue("session:name", out var mgrName) && mgrName.Length > 0 && blocks.Values.Any(x => x.WorkspaceId == w.Id && x.Session.TryGetValue("session:name", out var m) && string.Equals(m, mgrName, StringComparison.OrdinalIgnoreCase)))
+                throw new ConfigException($"manager: a session named \"{mgrName}\" already exists");
+            var tab = w.Tabs.FirstOrDefault(t => string.Equals(t.Name, cfg.Tab, StringComparison.OrdinalIgnoreCase)) ?? MakeTab(w, cfg.Tab, null);
             var b = NewTermBlock(tab, cfg.Argv.ToArray(), cfg.Cwd, cfg.Env, restart: true, createdBy: null, cfg.Caps);
             foreach (var kv in cfg.Session) b.Session[kv.Key] = kv.Value;
             b.Title = cfg.Name;
@@ -230,7 +250,9 @@ public sealed partial class ContractHost
             int max = 0;
             foreach (var x in w.Tabs)
                 if (x.Name.StartsWith('T') && int.TryParse(x.Name.AsSpan(1), out var n) && n > max) max = n;
-            t.Name = "T" + (max + 1);
+            int next = max == int.MaxValue ? 1 : max + 1;
+            while (w.Tabs.Any(x => string.Equals(x.Name, "T" + next, StringComparison.OrdinalIgnoreCase))) next++;
+            t.Name = "T" + next;
         }
         w.Tabs.Add(t);
         tabs[t.Id] = t;
@@ -354,7 +376,7 @@ public sealed partial class ContractHost
     // session:name is the key scripts close sessions by: one per workspace.
     void RequireUniqueSessionName(string workspaceId, Dictionary<string, string> meta, Block? except)
     {
-        if (!meta.TryGetValue("session:name", out var n)) return;
+        if (!meta.TryGetValue("session:name", out var n) || n.Length == 0) return;
         if (blocks.Values.Any(x => x != except && x.WorkspaceId == workspaceId && x.Session.TryGetValue("session:name", out var m) && string.Equals(m, n, StringComparison.OrdinalIgnoreCase)))
             throw CliError.Refused($"a session named \"{TextSafety.Escape(n, false)}\" already exists");
     }
@@ -382,6 +404,7 @@ public sealed partial class ContractHost
 
     // ---- session start and run (one implementation; `run` starts in an existing tab, `session start` makes a tab) ----
 
+    // Order of checks (cli-contract.md 4.1): usage 2, scope 4, rights 3, restart 5, uniqueness 5. Nothing is created before all of them pass.
     JsonObject SessionStart(Block caller, JsonObject a, string verb)
     {
         bool isRun = verb == "run";
@@ -395,10 +418,11 @@ public sealed partial class ContractHost
         var env = Validators.EnvPairs(L(a, "env"));
         var meta = Validators.SessionMetaPairs(L(a, "meta"));
         bool restart = B(a, "restart");
-        if (restart) Validators.CheckRestartArgv(argv);
         bool activate = B(a, isRun ? "focus" : "activate");
         var stackArg = S(a, "stack");
         var capsAsked = L(a, "cap");
+        foreach (var cap in capsAsked)
+            if (!Caps.All.Contains(cap)) throw CliError.Usage($"unknown capability \"{TextSafety.Escape(cap, false)}\": focus, admin or crossworkspace");
 
         Block? stackTarget = stackArg != null ? ResolveBlock(caller, stackArg) : null;
         Tab? tab = null;
@@ -413,8 +437,12 @@ public sealed partial class ContractHost
 
         if (activate) RequireCap(caller, Caps.Focus, isRun ? "--focus" : "--activate");
         var give = CapsToGive(caller, capsAsked);
-        RequireUniqueSessionName(caller.WorkspaceId, meta, null);
         if (isRun && stackTarget == null) RequireOwnTabForTile(caller, tab!);
+
+        if (restart) Validators.CheckRestartArgv(argv);
+        RequireUniqueSessionName(caller.WorkspaceId, meta, null);
+        if (!isRun && stackTarget == null && !string.IsNullOrEmpty(name) && workspaces[caller.WorkspaceId].Tabs.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+            throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
 
         if (!isRun && stackTarget == null)
         {
@@ -454,4 +482,7 @@ public sealed partial class ContractHost
         }
         return result;
     }
+
+    // A program with no recorded end is treated as possibly running: status none (not started in this app run) and unknown count as unfinished.
+    static bool Unfinished(Block b) => b.View == "term" && b.Status != Status.Done;
 }

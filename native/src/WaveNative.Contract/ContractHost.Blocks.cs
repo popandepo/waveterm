@@ -19,7 +19,7 @@ public sealed partial class ContractHost
                 m["cmd:args"] = new JsonArray(b.Argv.Skip(1).Select(x => (JsonNode?)x).ToArray());
                 m["cmd:cwd"] = b.Cwd;
             }
-            m["cmd:runonstart"] = true;
+            m["cmd:runonstart"] = b.Restart;
         }
         else
         {
@@ -72,8 +72,8 @@ public sealed partial class ContractHost
     {
         var b = ResolveBlock(caller, S(a, "block"));
         RequireOwn(caller, b);
-        if (!B(a, "force") && b.View == "term" && b.IsRunning)
-            throw CliError.Refused($"a program may still be running in the block (status {b.Status}); deleting it stops the program: use --force to delete it anyway");
+        if (!B(a, "force") && Unfinished(b))
+            throw CliError.Refused($"the program in the block is not known to be finished (status {b.Status}); deleting it stops it: use --force to delete it anyway");
         DeleteBlockInternal(b);
         return new JsonObject { ["deleted"] = b.Id };
     }
@@ -192,12 +192,7 @@ public sealed partial class ContractHost
 
     // ---- groups (stacks) ----
 
-    JsonObject StackAnswer(Tile tile, string key, string value)
-    {
-        var o = new JsonObject { ["stack"] = tile.Id, ["members"] = new JsonArray(tile.Members.Select(x => (JsonNode?)x).ToArray()) };
-        o[key] = value;
-        return o;
-    }
+    static JsonObject StackAnswer(Tile tile) => new() { ["stack"] = tile.Id, ["members"] = new JsonArray(tile.Members.Select(x => (JsonNode?)x).ToArray()) };
 
     JsonObject GroupAdd(Block caller, JsonObject a)
     {
@@ -214,7 +209,7 @@ public sealed partial class ContractHost
         if (from == to && to.IsStack) throw CliError.Refused("both blocks are already in the same group");
         RemoveFromTiles(tab, b);
         AddMember(tab, to, b, focus);
-        return StackAnswer(to, "status", "ok");
+        return StackAnswer(to);
     }
 
     JsonObject GroupRemove(Block caller, JsonObject a)
@@ -231,7 +226,7 @@ public sealed partial class ContractHost
         var nt = new Tile { ActiveId = b.Id };
         nt.Members.Add(b.Id);
         tab.Tiles.Insert(tab.Tiles.IndexOf(tile) + 1, nt);
-        return new JsonObject { ["unstacked"] = b.Id, ["status"] = "ok" };
+        return new JsonObject { ["unstacked"] = b.Id };
     }
 
     JsonObject GroupMove(Block caller, JsonObject a)
@@ -255,7 +250,7 @@ public sealed partial class ContractHost
             AddMember(tab, toTile, m, false);
         }
         if (focus) toTile.ActiveId = moving.Any(m => m.Id == activeBefore) ? activeBefore : from.Id;
-        return StackAnswer(toTile, "status", "ok");
+        return StackAnswer(toTile);
     }
 
     JsonObject GroupActivate(Block caller, JsonObject a)

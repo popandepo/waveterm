@@ -44,6 +44,10 @@ static class Program
         {
             return Fail(stderr, e.Code, e.Message);
         }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            return Fail(stderr, Exit.Internal, "internal error: " + e.GetType().Name);
+        }
     }
 
     static int Fail(Stream err, int code, string message)
@@ -62,7 +66,7 @@ static class Program
 
 // The argument grammar of cli-contract.md section 4: which words make a verb, which positionals and flags it takes. Unknown flags and missing
 // positionals are exit 2 before anything is sent.
-static class ArgParser
+public static class ArgParser
 {
     enum Kind { Str, Bool, Int, Repeat }
 
@@ -189,10 +193,12 @@ static class ArgParser
         switch (kind)
         {
             case Kind.Bool:
+                if (o.ContainsKey(key)) throw CliError.Usage($"--{name} given twice");
                 if (value != null && !bool.TryParse(value, out _)) throw CliError.Usage($"--{name} takes no value");
                 o[key] = value == null || bool.Parse(value);
                 break;
             case Kind.Int:
+                if (o.ContainsKey(key)) throw CliError.Usage($"--{name} given twice");
                 if (!int.TryParse(value, out var n)) throw CliError.Usage($"--{name} must be a whole number");
                 o[key] = n;
                 break;
@@ -207,6 +213,12 @@ static class ArgParser
         }
     }
 
+    static string ReadStdin()
+    {
+        using var reader = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd().TrimStart('\uFEFF');
+    }
+
     // Things only the client can do: read a file or stdin.
     static void PostProcess(string verb, Spec spec, JsonObject o, string[] args)
     {
@@ -217,8 +229,8 @@ static class ArgParser
             {
                 if (dashDash) throw CliError.Usage("give the command after -- or in --args-file, not both");
                 string text;
-                try { text = File.ReadAllText(f.GetValue<string>(), new UTF8Encoding(false)).TrimStart('﻿'); }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { throw CliError.Usage("reading --args-file: " + e.Message); }
+                try { text = File.ReadAllText(f.GetValue<string>(), new UTF8Encoding(false)).TrimStart('\uFEFF'); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { throw CliError.Usage("reading --args-file: " + e.Message); }
                 try
                 {
                     var arr = JsonNode.Parse(text) as JsonArray ?? throw CliError.Usage("--args-file must be a JSON array of strings");
@@ -235,14 +247,14 @@ static class ArgParser
             var path = jf.GetValue<string>();
             try
             {
-                o["json"] = path == "-" ? Console.In.ReadToEnd() : File.ReadAllText(path, new UTF8Encoding(false)).TrimStart('﻿');
+                o["json"] = path == "-" ? ReadStdin() : File.ReadAllText(path, new UTF8Encoding(false)).TrimStart('\uFEFF');
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { throw CliError.Usage("reading --json-file: " + e.Message); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { throw CliError.Usage("reading --json-file: " + e.Message); }
             o.Remove("jsonFile");
         }
         if (verb == "send" && o["stdin"] is JsonValue sv && sv.GetValue<bool>())
         {
-            var text = Console.In.ReadToEnd().TrimEnd('\r', '\n');
+            var text = ReadStdin().TrimEnd('\r', '\n');
             var tokens = o["tokens"] as JsonArray ?? new JsonArray();
             tokens.Add("text:" + text);
             o["tokens"] = tokens;

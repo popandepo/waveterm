@@ -24,11 +24,11 @@ public static partial class Validators
         "steelblue","tan","teal","thistle","tomato","turquoise","violet","wheat","white","whitesmoke","yellow","yellowgreen",
     };
 
-    [GeneratedRegex("^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")] private static partial Regex HexColorRe();
-    [GeneratedRegex("^[a-z0-9-]{1,40}$")] private static partial Regex IconNameRe();
-    [GeneratedRegex("^session:[A-Za-z0-9._-]+$")] private static partial Regex SessionKeyRe();
-    [GeneratedRegex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")] private static partial Regex UuidRe();
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*$")] private static partial Regex EnvKeyRe();
+    [GeneratedRegex("^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})\\z")] private static partial Regex HexColorRe();
+    [GeneratedRegex("^[a-z0-9-]{1,40}\\z")] private static partial Regex IconNameRe();
+    [GeneratedRegex("^session:[A-Za-z0-9._-]+\\z")] private static partial Regex SessionKeyRe();
+    [GeneratedRegex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\z")] private static partial Regex UuidRe();
+    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]*\\z")] private static partial Regex EnvKeyRe();
 
     public static bool IsUuid(string s) => UuidRe().IsMatch(s);
 

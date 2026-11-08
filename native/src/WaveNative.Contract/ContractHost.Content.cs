@@ -164,6 +164,8 @@ public sealed partial class ContractHost
         return new JsonObject { ["lines"] = new JsonArray(escaped.Select(l => (JsonNode?)l).ToArray()), ["total"] = total, ["truncated"] = truncated };
     }
 
+    static readonly System.Text.RegularExpressions.Regex ShotName = new(@"^shot-\d{17}-\d{6}\.png\z");
+
     static readonly byte[] OnePixelPng = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
 
     JsonObject BlockShot(Block caller, JsonObject a)
@@ -175,7 +177,7 @@ public sealed partial class ContractHost
         var path = Path.Combine(dir, $"shot-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{++shotSeq:D6}.png");
         File.WriteAllBytes(path, OnePixelPng);
         // The app deletes only its own files in its own folder, never a subfolder, and keeps the newest 50.
-        var own = new DirectoryInfo(dir).GetFiles("shot-*.png").OrderByDescending(f => f.Name, StringComparer.Ordinal).ToList();
+        var own = new DirectoryInfo(dir).GetFiles("shot-*.png").Where(f => ShotName.IsMatch(f.Name)).OrderByDescending(f => f.Name, StringComparer.Ordinal).ToList();
         foreach (var old in own.Skip(50)) old.Delete();
         return new JsonObject { ["path"] = path, ["width"] = 1, ["height"] = 1 };
     }
@@ -230,6 +232,7 @@ public sealed partial class ContractHost
             else if (pv.TryGetValue<string>(out var ps) && double.TryParse(ps, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pp)) priority = pp;
             else throw CliError.Usage("--priority must be a number");
         }
+        if (double.IsNaN(priority) || double.IsInfinity(priority)) throw CliError.Usage("--priority must be a finite number");
         if (!clear) icon = Validators.Symbol(icon);
         if (S(a, "block") != null && S(a, "tab") != null) throw CliError.Usage("give --block or --tab, not both");
         string targetId;

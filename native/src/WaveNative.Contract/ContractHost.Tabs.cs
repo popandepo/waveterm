@@ -60,13 +60,14 @@ public sealed partial class ContractHost
         foreach (var b in members) RequireOwn(caller, b);
         if (!force)
         {
-            var open = members.FirstOrDefault(b => b.View == "term" && b.IsRunning);
+            var open = members.FirstOrDefault(Unfinished);
             if (open != null) throw CliError.Refused($"block {open.Id} is not known to be finished (status {open.Status}); use --force to close anyway");
         }
         foreach (var b in members) DeleteBlockInternal(b);
         int idx = w.Tabs.IndexOf(tab);
         w.Tabs.Remove(tab);
         tabs.Remove(tab.Id);
+        badges.Remove(tab.Id);
         if (w.ActiveTabId == tab.Id) w.ActiveTabId = w.Tabs[Math.Max(0, Math.Min(idx - 1, w.Tabs.Count - 1))].Id;
         return new JsonObject { ["closed"] = tab.Id, ["blocks"] = members.Count };
     }

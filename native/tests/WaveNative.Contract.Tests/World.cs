@@ -43,7 +43,14 @@ public sealed class World : IDisposable
     public void Dispose()
     {
         Pipe.Dispose();
-        try { Directory.Delete(DataDir, true); } catch (IOException) { }
+        // Named files first, then the folders from the bottom up: no recursive delete.
+        try
+        {
+            foreach (var f in Directory.EnumerateFiles(DataDir, "*", SearchOption.AllDirectories)) File.Delete(f);
+            foreach (var dir in Directory.EnumerateDirectories(DataDir, "*", SearchOption.AllDirectories).OrderByDescending(x => x.Length)) Directory.Delete(dir, false);
+            Directory.Delete(DataDir, false);
+        }
+        catch (IOException) { }
     }
 
     public static JsonObject Args(params (string Key, object? Value)[] kv)
@@ -81,6 +88,7 @@ public sealed class World : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = stdin != null,
+            StandardInputEncoding = stdin != null ? new System.Text.UTF8Encoding(false) : null,
             UseShellExecute = false,
             CreateNoWindow = true,
         };

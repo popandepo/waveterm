@@ -1,6 +1,6 @@
-# Native Wave: the CLI contract (gates 2 and 3), version 0.3
+# Native Wave: the CLI contract (gates 2 and 3), version 0.3.1
 
-Session: projects-wave-shell. 8 Nov 2026. Status: v0.3, revised after three blind reviews (PR 107); the stub host and tests of PR feat/native-cli-stub execute it.
+Session: projects-wave-shell. 8 Nov 2026. Status: v0.3.1, revised after three blind reviews (PR 107) and after the executable tests (branch feat/native-cli-stub, 1253 tests) found the ambiguities of section 12; the stub host and tests execute it.
 What this is: the contract of the command tool that replaces the Go `wsh` in the native rewrite (no Go, no Electron). Every caller (PowerShell
 tools, the wave-sessions skill, CLAUDE.md text, the never-rules hook, the Test-* stand-ins) is updated in the same piece. No alias, no old form
 accepted: "No backwards compatibility" (owner rule, 31 Oct 2026).
@@ -249,6 +249,23 @@ The Job Object binding and its limits; capabilities, `createdby` and the four ve
 5. The manager config entry of 3.5: each rule as a test (unknown key, relative cwd, missing cwd, empty argv, bad env name, unknown or duplicate capability, a `session` value with a refused character), the block starts with restart and the listed capabilities and no `createdby`, the rights survive a simulated app restart, a config error starts nothing and gives no rights, `--cap grant` is refused, promotion clears `createdby`.
 6. Against the real app (gates 3 and 4), including the D6 test (with a test tile being typed into, `group activate` and `tab switch` change what is shown and leave keyboard focus where it was): the Job Object check (a token used from a process outside the job is refused; an orphan inside the job works), a new stack member added by a session is hidden, "no keyboard focus moved" for the focus verbs while a test tile is typed into.
 7. Before code is deleted: grep Tether, Atlas, AI-tools and the broker repositories for the verbs, WAVETERM_* names, `wave-api.sock`.
+
+## 12. Clarifications found by writing the executable tests (v0.3.1)
+These were undefined or contradictory in v0.3 and are now fixed here; the stub and its tests follow them.
+- READ CONTENT verbs (`screen`, `block shot`, `web text`) answer an unknown id, an unreachable id and a denied block with ONE message, "that block is not available to this caller", exit 4 (so existence does not leak). Section 4.10's "that web tile ..." wording is replaced by this one.
+- Order of checks for `session close`: usage 2, scope 4, caller's own tab 5, last tab 5, tab ownership 3, block ownership 3, running program 5.
+- Tab names are unique case-insensitively (as `session:name`). A tab or block id that is not a full lower-case id (or the keywords `this`, `tab`) is exit 2; an unknown or unreachable id is exit 4.
+- `--cap` with an unknown name is exit 2; with `grant` (a real capability that cannot be passed on) exit 3. `tab move --index` out of range and an empty `tab rename` name are exit 2.
+- Empty values: `frame:title` and `session:*` may be the empty string; `frame:icon`, `icon:color`, `frame:bordercolor` have no empty form (exit 2, use `meta unset`); `url` cannot be set to null or unset (exit 2). Colours are stored lower-case.
+- Validation sees the value as given: a control character is refused even where trimming would remove it (`"A\n"` as a symbol is exit 2, not "A").
+- `meta get` with no keys carries `"hidden"` like a list element when `cmd` fields are left out; with explicit keys a hidden key is simply absent. A `--json` object with a repeated key is exit 2.
+- `send` key bytes (xterm): enter and return CR, escape and esc ESC, tab HT, backtab ESC [ Z, backspace DEL (0x7F), delete ESC [ 3 ~, insert ESC [ 2 ~, space, up/down/right/left ESC [ A/B/C/D, home ESC [ H, end ESC [ F, pageup ESC [ 5 ~, pagedown ESC [ 6 ~, f1..f4 ESC O P/Q/R/S, f5..f12 ESC [ 15,17,18,19,20,21,23,24 ~, ctrl+a..z bytes 1..26, alt+letter ESC then the letter. Empty tokens are skipped; all tokens empty is exit 2.
+- `screen`: `total` is the number of lines after trailing blank lines are removed and before `--last` or `--max-bytes` cut; `truncated` is true when either cut dropped a line; `--max-bytes` is at least 1 (else exit 2); an empty screen answers `[]`. `web text` with a selector that matches nothing is exit 5.
+- `attention clear` with one `--only-if-*` flag compares only that flag; a reason is trimmed and the 120-code-point limit applies after trimming. `badge --priority` is a number (the client passes it as given text; a non-number is exit 2).
+- `run --stack` and `web open --stack` also return `stackedwith`. `--focus` on a new top-level tile (owned tab) makes that tile the focused tile of its tab and never switches the shown tab; it needs `focus`.
+- `redact` and equality: user info is dropped before comparing urls (`http://u:p@h/` equals `http://h/`); a url must start with `http://`, `https://` or `file:` (a drive path or a `//host/` path is exit 2).
+- Manager config: `caps: []` means no capabilities; `name` and `tab` cannot be empty; a wrong-typed container (`caps`, `env`, `session`) is a config error and never falls back to the default capabilities; an env key with `=` in it is a config error.
+- Not decided here (the stub does the first listed; say if it should change): the default tab name `T<n>` uses the highest existing number plus one, so a number is not reused after a close.
 
 ## Appendix (today's behaviour, from the Go source)
 `parts/today-sessions-tabs-run.md`, `parts/today-blocks-meta-groups-api.md`, `parts/today-web-send-screen-identity.md`: the three extraction passes, unedited. Each claim has file:line; "not read" lists are at the end of each file.

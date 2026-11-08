@@ -166,6 +166,9 @@ public sealed class ManagerConfig
         if (manager.ContainsKey("session"))
         {
             if (manager["session"] is not JsonObject s) throw new ConfigException("manager: session must be an object of strings");
+            foreach (var kv in s)
+                if (!System.Text.RegularExpressions.Regex.IsMatch(kv.Key, @"\A[A-Za-z0-9._-]+\z"))
+                    throw new ConfigException("manager: session key \"" + TextSafety.Escape(kv.Key, false) + "\" must match [A-Za-z0-9._-]+");
             try { c.Session = Validators.SessionMetaPairs(s.Select(kv => "session:" + kv.Key + "=" + Str(kv.Value, "session"))); }
             catch (CliError ex) { throw new ConfigException("manager: " + ex.Message); }
         }

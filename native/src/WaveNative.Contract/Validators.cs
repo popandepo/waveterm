@@ -62,7 +62,7 @@ public static partial class Validators
         throw CliError.Usage($"invalid {what} \"{TextSafety.Escape(v, false)}\": use a CSS colour name or #RRGGBB or #RRGGBBAA");
     }
 
-    // A Font Awesome name (optional solid@ regular@ brands@) or at most two graphemes / 32 bytes of text without <>&"' backtick backslash.
+    // An icon name ([a-z0-9-]{1,40}, no style prefix) or at most two graphemes / 32 bytes of text without <>&"' backtick backslash.
     public static string Symbol(string value)
     {
         NoRefused("symbol", value);

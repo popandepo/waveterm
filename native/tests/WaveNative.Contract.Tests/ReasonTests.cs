@@ -74,6 +74,21 @@ public sealed class ReasonTests : IDisposable
     }
 
     [Fact]
+    public void Putting_blocks_in_the_group_they_are_already_in_says_samegroup_for_add_and_for_move()
+    {
+        Assert.Equal(0, w.Call(w.Manager, "group add", ("block", w.S1.Id), ("to", w.S2.Id)).Exit);
+        Expect(5, "samegroup", w.Call(w.Manager, "group add", ("block", w.S1.Id), ("to", w.S2.Id)));
+        Expect(5, "samegroup", w.Call(w.Manager, "group move", ("from", w.S1.Id), ("to", w.S2.Id)));
+    }
+
+    [Fact]
+    public void A_manager_config_session_key_with_an_equals_sign_is_a_config_error()
+    {
+        var o = CrH.Cfg(x => x["session"] = new JsonObject { ["a=b"] = "c" });
+        Assert.Throws<ConfigException>(() => CrH.Parse(o));
+    }
+
+    [Fact]
     public void A_usage_error_and_a_not_found_carry_no_reason_unless_one_was_named()
     {
         Assert.Null(ReasonOf(w.Call(w.S1, "tab move", ("tab", "tab"), ("index", 99))));

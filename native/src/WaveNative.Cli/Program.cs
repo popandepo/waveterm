@@ -17,7 +17,7 @@ static class Program
         {
             var req = ArgParser.Parse(args);
             req.Token = Environment.GetEnvironmentVariable("WAVE_TOKEN");
-            if (string.IsNullOrEmpty(req.Token)) return Fail(stderr, Exit.Denied, "no token: run this inside a Wave block (WAVE_TOKEN is not set)");
+            if (string.IsNullOrEmpty(req.Token)) return Fail(stderr, Exit.Denied, "no token: run this inside a Wave block (WAVE_TOKEN is not set)", "notoken");
             var pipe = Environment.GetEnvironmentVariable("WAVE_PIPE");
             if (string.IsNullOrEmpty(pipe)) return Fail(stderr, Exit.Unreachable, "WAVE_PIPE is not set");
             Reply reply;
@@ -50,9 +50,9 @@ static class Program
         }
     }
 
-    static int Fail(Stream err, int code, string message)
+    static int Fail(Stream err, int code, string message, string? reason = null)
     {
-        Write(err, Reply.Failure(code, message).Err!.ToJsonString());
+        Write(err, Reply.Failure(code, message, null, reason).Err!.ToJsonString());
         return code;
     }
 

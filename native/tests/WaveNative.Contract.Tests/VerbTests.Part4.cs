@@ -300,7 +300,7 @@ public sealed partial class VerbTests
         Assert.True(w.Host.HasTab(Str(o["tabid"])));
         Assert.False(string.IsNullOrWhiteSpace(Str(o["warning"])));
         var e = J(r.Stderr)["error"]!;
-        Keys(e, "code", "kind", "message");
+        ErrorKeys(e);
         Assert.Equal(7, e["code"]!.GetValue<int>());
         Assert.Equal("partial", Str(e["kind"]));
     }

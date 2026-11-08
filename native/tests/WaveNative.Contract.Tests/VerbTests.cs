@@ -25,6 +25,13 @@ public sealed partial class VerbTests : IDisposable
     static string[] Names(JsonNode n) => n.AsObject().Select(kv => kv.Key).ToArray();
     static string NewId() => Guid.NewGuid().ToString();
 
+    // The error object has code, kind, message and, for refusals a script may want to tell apart, a short stable reason.
+    static void ErrorKeys(JsonNode n)
+    {
+        var k = n.AsObject().Select(x => x.Key).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        Assert.True(k.SequenceEqual(new[] { "code", "kind", "message" }) || k.SequenceEqual(new[] { "code", "kind", "message", "reason" }), string.Join(",", k));
+    }
+
     static void Keys(JsonNode n, params string[] keys) => Assert.Equal(keys.OrderBy(x => x, StringComparer.Ordinal), Names(n).OrderBy(x => x, StringComparer.Ordinal));
 
     static readonly Dictionary<int, string> KindOf = new() { [2] = "usage", [3] = "denied", [4] = "notfound", [5] = "refused", [6] = "unreachable", [7] = "partial" };
@@ -41,7 +48,7 @@ public sealed partial class VerbTests : IDisposable
         Assert.True(r.Exit == code, "wanted exit " + code + " got " + r.Exit + " out " + r.Out?.ToJsonString() + " err " + r.Err?.ToJsonString());
         Assert.Null(r.Out);
         var e = r.Err!["error"]!;
-        Keys(e, "code", "kind", "message");
+        ErrorKeys(e);
         Assert.Equal(code, e["code"]!.GetValue<int>());
         Assert.Equal(KindOf[code], Str(e["kind"]));
         Assert.False(string.IsNullOrWhiteSpace(Str(e["message"])));
@@ -75,7 +82,7 @@ public sealed partial class VerbTests : IDisposable
         Assert.Equal(code, exit);
         Assert.Equal("", stdout);
         var e = J(stderr)["error"]!;
-        Keys(e, "code", "kind", "message");
+        ErrorKeys(e);
         Assert.Equal(code, e["code"]!.GetValue<int>());
         Assert.Equal(KindOf[code], Str(e["kind"]));
         Assert.False(string.IsNullOrWhiteSpace(Str(e["message"])));
@@ -430,7 +437,7 @@ public sealed partial class VerbTests : IDisposable
         Assert.Equal("partial", Str(r.Out!["status"]));
         Assert.False(string.IsNullOrWhiteSpace(Str(r.Out!["warning"])));
         var e = r.Err!["error"]!;
-        Keys(e, "code", "kind", "message");
+        ErrorKeys(e);
         Assert.Equal(7, e["code"]!.GetValue<int>());
         Assert.Equal("partial", Str(e["kind"]));
         Assert.Equal(blocks + 1, Blocks);

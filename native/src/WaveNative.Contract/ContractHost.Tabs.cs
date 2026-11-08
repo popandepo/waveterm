@@ -56,16 +56,16 @@ public sealed partial class ContractHost
     {
         var tab = ResolveTab(caller, S(a, "tab"));
         bool force = B(a, "force");
-        if (tab.Id == caller.TabId) throw CliError.Refused("this is your own tab: it is not closed from inside");
+        if (tab.Id == caller.TabId) throw CliError.Refused("this is your own tab: it is not closed from inside").WithReason("owntab");
         var w = workspaces[tab.WorkspaceId];
-        if (w.Tabs.Count == 1) throw CliError.Refused("this is the last tab: the window is not closed by a command");
-        if (!OwnsTab(caller, tab)) throw CliError.Denied("that tab is not yours: it needs the admin capability");
+        if (w.Tabs.Count == 1) throw CliError.Refused("this is the last tab: the window is not closed by a command").WithReason("lasttab");
+        if (!OwnsTab(caller, tab)) throw CliError.Denied("that tab is not yours: it needs the admin capability").WithReason("notowner");
         var members = tab.BlockIds.Select(id => blocks[id]).ToList();
         foreach (var b in members) RequireOwn(caller, b);
         if (!force)
         {
             var open = members.FirstOrDefault(Unfinished);
-            if (open != null) throw CliError.Refused($"block {open.Id} is not known to be finished (status {open.Status}); use --force to close anyway");
+            if (open != null) throw CliError.Refused($"block {open.Id} is not known to be finished (status {open.Status}); use --force to close anyway").WithReason("unfinished");
         }
         foreach (var b in members) DeleteBlockInternal(b);
         int idx = w.Tabs.IndexOf(tab);
@@ -101,8 +101,8 @@ public sealed partial class ContractHost
         var t = ResolveTab(caller, S(a, "tab"));
         var name = Validators.Name(S(a, "name") ?? throw CliError.Usage("a name is required"));
         if (name.Length == 0) throw CliError.Usage("name is empty");
-        if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability");
-        if (workspaces[t.WorkspaceId].Tabs.Any(x => x != t && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
+        if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability").WithReason("notowner");
+        if (workspaces[t.WorkspaceId].Tabs.Any(x => x != t && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists").WithReason("duplicate");
         t.Name = name;
         return new JsonObject { ["tabid"] = t.Id, ["name"] = TextSafety.Escape(t.Name, false) };
     }
@@ -113,7 +113,7 @@ public sealed partial class ContractHost
         var w = workspaces[t.WorkspaceId];
         int index = I(a, "index") ?? throw CliError.Usage("--index is required");
         if (index < 0 || index >= w.Tabs.Count) throw CliError.Usage($"--index must be between 0 and {w.Tabs.Count - 1}");
-        if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability");
+        if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability").WithReason("notowner");
         w.Tabs.Remove(t);
         w.Tabs.Insert(index, t);
         return new JsonObject { ["tabid"] = t.Id, ["index"] = index };
@@ -129,7 +129,7 @@ public sealed partial class ContractHost
         string? vc = color != null ? Validators.Color(color) : null;
         string? va = accent != null ? Validators.Color(accent, "accent") : null;
         string? vs = symbol != null ? Validators.Symbol(symbol) : null;
-        if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability");
+        if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability").WithReason("notowner");
         if (clear) { t.Color = null; t.Accent = null; t.Symbol = null; }
         if (vc != null) t.Color = vc;
         if (va != null) t.Accent = va;

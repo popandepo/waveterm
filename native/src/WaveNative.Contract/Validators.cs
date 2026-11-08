@@ -145,6 +145,7 @@ public static partial class Validators
     public static string NormalizeUrl(string value)
     {
         var u = new Uri(value, UriKind.Absolute);
+        if (u.Scheme == "file") return u.GetLeftPart(UriPartial.Path) + u.Query + u.Fragment;
         var sb = new StringBuilder();
         sb.Append(u.Scheme).Append("://").Append(u.Host.ToLowerInvariant());
         if (!u.IsDefaultPort && u.Port > 0) sb.Append(':').Append(u.Port);
@@ -156,6 +157,7 @@ public static partial class Validators
     public static string RedactUrl(string value)
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var u)) return "";
+        if (u.Scheme == "file") return TextSafety.Escape(u.GetLeftPart(UriPartial.Path), false);
         var sb = new StringBuilder();
         sb.Append(u.Scheme).Append("://").Append(u.Host);
         if (!u.IsDefaultPort && u.Port > 0) sb.Append(':').Append(u.Port);
@@ -195,14 +197,14 @@ public static partial class Validators
     public static void CheckRestartArgv(IReadOnlyList<string> argv)
     {
         if (argv.Any(a => a.Contains("--session-id", StringComparison.Ordinal)))
-            throw CliError.Refused("--restart cannot be used with --session-id in the command: the second start must resume the session (--resume), not create it again; use a starter script that makes that choice");
+            throw CliError.Refused("--restart cannot be used with --session-id in the command: the second start must resume the session (--resume), not create it again; use a starter script that makes that choice").WithReason("restart");
         var cmd = argv[0].ToLowerInvariant();
         var slash = cmd.LastIndexOfAny(new[] { '/', '\\' });
         if (slash >= 0) cmd = cmd[(slash + 1)..];
         if (cmd.EndsWith(".exe", StringComparison.Ordinal)) cmd = cmd[..^4];
         bool inline = cmd == "wsl" || (InlineCodeFlags.TryGetValue(cmd, out var flags) && argv.Skip(1).Any(a => flags.Contains(a.ToLowerInvariant())));
         if (inline)
-            throw CliError.Refused($"--restart cannot be used with an inline shell command ({TextSafety.Escape(argv[0], false)} ...): start a script file instead");
+            throw CliError.Refused($"--restart cannot be used with an inline shell command ({TextSafety.Escape(argv[0], false)} ...): start a script file instead").WithReason("restart");
     }
 
     // The meta keys of section 6 that `meta set` may write on a block, with their rules. Returns the value to store.

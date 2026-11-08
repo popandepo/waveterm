@@ -20,7 +20,7 @@ public sealed partial class ContractHost
         var tab = ResolveTab(caller, S(a, "tab") ?? "tab");
         if (stackTarget != null)
         {
-            if (a["tab"] != null && stackTarget.TabId != tab.Id) throw CliError.Refused("the stack target is in another tab than --tab");
+            if (a["tab"] != null && stackTarget.TabId != tab.Id) throw CliError.Refused("the stack target is in another tab than --tab").WithReason("othertab");
             tab = tabs[stackTarget.TabId];
         }
         if (stackTarget == null) RequireOwnTabForTile(caller, tab);
@@ -51,8 +51,8 @@ public sealed partial class ContractHost
         if (max < 1 || max > 262144) throw CliError.Usage("--max-bytes must be between 1 and 262144");
         var b = ResolveBlock(caller, S(a, "block"), ContentDenied);
         RequireContentAccess(caller, b);
-        if (b.View != "web") throw CliError.Refused("the block is not a web tile");
-        if (!b.Page.TryGetValue(selector ?? "", out var raw)) throw CliError.Refused("nothing on the page matches the selector");
+        if (b.View != "web") throw CliError.Refused("the block is not a web tile").WithReason("notweb");
+        if (!b.Page.TryGetValue(selector ?? "", out var raw)) throw CliError.Refused("nothing on the page matches the selector").WithReason("nomatch");
         var escaped = TextSafety.Escape(raw);
         var (text, truncated) = CutBytes(escaped, max);
         return new JsonObject { ["text"] = text, ["truncated"] = truncated };
@@ -122,7 +122,7 @@ public sealed partial class ContractHost
         if (total == 0) throw CliError.Usage("nothing to send: every token was empty");
         var b = ResolveBlock(caller, S(a, "block"));
         RequireOwn(caller, b);
-        if (b.View != "term" || !b.IsRunning) throw CliError.Refused("the block is not a running terminal");
+        if (b.View != "term" || !b.IsRunning) throw CliError.Refused("the block is not a running terminal").WithReason("notrunning");
         int written = 0;
         foreach (var c in chunks)
         {
@@ -143,7 +143,7 @@ public sealed partial class ContractHost
         if (max < 1) throw CliError.Usage("--max-bytes must be at least 1");
         var b = ResolveBlock(caller, S(a, "block"), ContentDenied);
         RequireContentAccess(caller, b);
-        if (b.View != "term") throw CliError.Refused("the block is not a terminal");
+        if (b.View != "term") throw CliError.Refused("the block is not a terminal").WithReason("notterm");
         var lines = b.Screen.ToList();
         while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[^1])) lines.RemoveAt(lines.Count - 1);
         int total = lines.Count;
@@ -239,7 +239,7 @@ public sealed partial class ContractHost
         if (S(a, "tab") is string tabArg)
         {
             var t = ResolveTab(caller, tabArg);
-            if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability");
+            if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability").WithReason("notowner");
             targetId = t.Id;
         }
         else

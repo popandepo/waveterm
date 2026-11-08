@@ -196,7 +196,7 @@ public sealed partial class ContractHost
             }
             catch (CliError e)
             {
-                return Reply.Failure(e.Code, e.Message);
+                return Reply.Failure(e.Code, e.Message, null, e.Reason);
             }
             catch (Exception e) when (e is not OutOfMemoryException)
             {
@@ -217,7 +217,7 @@ public sealed partial class ContractHost
     Block Caller(string? token)
     {
         if (string.IsNullOrEmpty(token) || !tokens.TryGetValue(token, out var id) || !blocks.TryGetValue(id, out var b))
-            throw CliError.Denied("no valid token: run this inside a Wave block");
+            throw CliError.Denied("no valid token: run this inside a Wave block").WithReason("badtoken");
         return b;
     }
 
@@ -245,7 +245,7 @@ public sealed partial class ContractHost
 
     Tab MakeTab(Workspace w, string name, string? createdBy)
     {
-        if (name.Length > 0 && w.Tabs.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
+        if (name.Length > 0 && w.Tabs.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists").WithReason("duplicate");
         var t = new Tab { WorkspaceId = w.Id, Name = name, CreatedBy = createdBy };
         if (string.IsNullOrEmpty(t.Name))
         {
@@ -343,12 +343,12 @@ public sealed partial class ContractHost
 
     void RequireOwn(Block caller, Block target)
     {
-        if (!Owns(caller, target)) throw CliError.Denied("that block is not yours: it needs the admin capability");
+        if (!Owns(caller, target)) throw CliError.Denied("that block is not yours: it needs the admin capability").WithReason("notowner");
     }
 
     void RequireCap(Block caller, string cap, string what)
     {
-        if (!caller.Caps.Contains(cap)) throw CliError.Denied($"{what} needs the {cap} capability");
+        if (!caller.Caps.Contains(cap)) throw CliError.Denied($"{what} needs the {cap} capability").WithReason("capability");
     }
 
     void RequireContentAccess(Block caller, Block target)
@@ -364,8 +364,8 @@ public sealed partial class ContractHost
         foreach (var c in asked)
         {
             if (!Caps.All.Contains(c)) throw CliError.Usage($"unknown capability \"{TextSafety.Escape(c, false)}\": focus, admin or crossworkspace");
-            if (!Caps.Passable.Contains(c)) throw CliError.Denied($"the capability \"{TextSafety.Escape(c, false)}\" cannot be given with --cap");
-            if (!caller.Caps.Contains(c)) throw CliError.Denied($"the caller does not hold the {c} capability, so it cannot give it");
+            if (!Caps.Passable.Contains(c)) throw CliError.Denied($"the capability \"{TextSafety.Escape(c, false)}\" cannot be given with --cap").WithReason("capability");
+            if (!caller.Caps.Contains(c)) throw CliError.Denied($"the caller does not hold the {c} capability, so it cannot give it").WithReason("capability");
         }
         return asked.Distinct().ToList();
     }
@@ -373,7 +373,7 @@ public sealed partial class ContractHost
     // A new top-level tile changes what the tab looks like for everyone in it: only the owner of the tab (or admin) may add one. Anyone may add a hidden stack member.
     void RequireOwnTabForTile(Block caller, Tab tab)
     {
-        if (!OwnsTab(caller, tab)) throw CliError.Denied("adding a tile to a tab that is not yours needs the admin capability; use --stack to add a hidden member");
+        if (!OwnsTab(caller, tab)) throw CliError.Denied("adding a tile to a tab that is not yours needs the admin capability; use --stack to add a hidden member").WithReason("notowner");
     }
 
     // session:name is the key scripts close sessions by: one per workspace.
@@ -381,7 +381,7 @@ public sealed partial class ContractHost
     {
         if (!meta.TryGetValue("session:name", out var n) || n.Length == 0) return;
         if (blocks.Values.Any(x => x != except && x.WorkspaceId == workspaceId && x.Session.TryGetValue("session:name", out var m) && string.Equals(m, n, StringComparison.OrdinalIgnoreCase)))
-            throw CliError.Refused($"a session named \"{TextSafety.Escape(n, false)}\" already exists");
+            throw CliError.Refused($"a session named \"{TextSafety.Escape(n, false)}\" already exists").WithReason("duplicate");
     }
 
     // The UI fallback of the manager config entry: the block gets the manager rights and no creator, so no session owns it through a chain.
@@ -433,7 +433,7 @@ public sealed partial class ContractHost
         {
             tab = ResolveTab(caller, S(a, "tab") ?? "tab");
             if (stackTarget != null && stackTarget.TabId != tab.Id && a["tab"] != null)
-                throw CliError.Refused("the stack target is in another tab than --tab");
+                throw CliError.Refused("the stack target is in another tab than --tab").WithReason("othertab");
             if (stackTarget != null) tab = tabs[stackTarget.TabId];
         }
         else if (stackTarget != null) tab = tabs[stackTarget.TabId];
@@ -445,7 +445,7 @@ public sealed partial class ContractHost
         if (restart) Validators.CheckRestartArgv(argv);
         RequireUniqueSessionName(caller.WorkspaceId, meta, null);
         if (!isRun && stackTarget == null && !string.IsNullOrEmpty(name) && workspaces[caller.WorkspaceId].Tabs.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
-            throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
+            throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists").WithReason("duplicate");
 
         if (!isRun && stackTarget == null)
         {

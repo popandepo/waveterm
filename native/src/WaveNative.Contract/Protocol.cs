@@ -32,8 +32,16 @@ public static class Exit
 public sealed class CliError : Exception
 {
     public int Code { get; }
+    public string? Reason { get; private set; }
 
     public CliError(int code, string message) : base(message) => Code = code;
+
+    // A short stable word for scripts (the message is for people): capability, notowner, badtoken, unfinished, owntab, lasttab, duplicate, restart, nomatch, notweb, ...
+    public CliError WithReason(string reason)
+    {
+        Reason = reason;
+        return this;
+    }
 
     public static CliError Usage(string m) => new(Exit.Usage, m);
     public static CliError Denied(string m) => new(Exit.Denied, m);
@@ -98,10 +106,10 @@ public sealed class Reply
 
     public static Reply Ok(JsonNode body) => new() { Exit = Contract.Exit.Ok, Out = body };
 
-    public static Reply Failure(int code, string message, JsonNode? out_ = null) => new()
+    public static Reply Failure(int code, string message, JsonNode? out_ = null, string? reason = null)
     {
-        Exit = code,
-        Out = out_,
-        Err = new JsonObject { ["error"] = new JsonObject { ["code"] = code, ["kind"] = Contract.Exit.Kind(code), ["message"] = TextSafety.Escape(message, keepNewlineAndTab: false) } },
-    };
+        var err = new JsonObject { ["code"] = code, ["kind"] = Contract.Exit.Kind(code), ["message"] = TextSafety.Escape(message, keepNewlineAndTab: false) };
+        if (reason != null) err["reason"] = reason;
+        return new Reply { Exit = code, Out = out_, Err = new JsonObject { ["error"] = err } };
+    }
 }

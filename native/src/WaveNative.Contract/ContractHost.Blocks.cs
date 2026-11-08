@@ -73,7 +73,7 @@ public sealed partial class ContractHost
         var b = ResolveBlock(caller, S(a, "block"));
         RequireOwn(caller, b);
         if (!B(a, "force") && Unfinished(b))
-            throw CliError.Refused($"the program in the block is not known to be finished (status {b.Status}); deleting it stops it: use --force to delete it anyway");
+            throw CliError.Refused($"the program in the block is not known to be finished (status {b.Status}); deleting it stops it: use --force to delete it anyway").WithReason("unfinished");
         DeleteBlockInternal(b);
         return new JsonObject { ["deleted"] = b.Id };
     }
@@ -201,12 +201,12 @@ public sealed partial class ContractHost
         bool focus = B(a, "focus");
         if (focus) RequireCap(caller, Caps.Focus, "--focus");
         if (b.Id == target.Id) throw CliError.Refused("a block cannot be grouped with itself");
-        if (b.TabId != target.TabId) throw CliError.Refused("both blocks must be in the same tab");
+        if (b.TabId != target.TabId) throw CliError.Refused("both blocks must be in the same tab").WithReason("othertab");
         RequireOwn(caller, b);
         var tab = tabs[b.TabId];
         var from = TileOf(tab, b.Id)!;
         var to = TileOf(tab, target.Id)!;
-        if (from == to && to.IsStack) throw CliError.Refused("both blocks are already in the same group");
+        if (from == to && to.IsStack) throw CliError.Refused("both blocks are already in the same group").WithReason("samegroup");
         RemoveFromTiles(tab, b);
         AddMember(tab, to, b, focus);
         return StackAnswer(to);
@@ -220,7 +220,7 @@ public sealed partial class ContractHost
         RequireOwn(caller, b);
         var tab = tabs[b.TabId];
         var tile = TileOf(tab, b.Id)!;
-        if (!tile.IsStack || tile.Members.Count < 2) throw CliError.Refused("the block is not in a group");
+        if (!tile.IsStack || tile.Members.Count < 2) throw CliError.Refused("the block is not in a group").WithReason("notingroup");
         RequireOwnTabForTile(caller, tab);
         RemoveFromTiles(tab, b);
         var nt = new Tile { ActiveId = b.Id };
@@ -236,11 +236,11 @@ public sealed partial class ContractHost
         bool focus = B(a, "focus");
         if (focus) RequireCap(caller, Caps.Focus, "--focus");
         if (from.Id == to.Id) throw CliError.Refused("--from and --to are the same block");
-        if (from.TabId != to.TabId) throw CliError.Refused("both blocks must be in the same tab");
+        if (from.TabId != to.TabId) throw CliError.Refused("both blocks must be in the same tab").WithReason("othertab");
         var tab = tabs[from.TabId];
         var fromTile = TileOf(tab, from.Id)!;
         var toTile = TileOf(tab, to.Id)!;
-        if (fromTile == toTile) throw CliError.Refused("both blocks are already in the same group");
+        if (fromTile == toTile) throw CliError.Refused("both blocks are already in the same group").WithReason("samegroup");
         var moving = fromTile.IsStack ? fromTile.Members.Select(id => blocks[id]).ToList() : new List<Block> { from };
         foreach (var m in moving) RequireOwn(caller, m);
         var activeBefore = fromTile.ActiveId;
@@ -258,7 +258,7 @@ public sealed partial class ContractHost
         RequireCap(caller, Caps.Focus, "group activate");
         var b = ResolveBlock(caller, S(a, "block"));
         var tile = TileOf(tabs[b.TabId], b.Id)!;
-        if (!tile.IsStack || tile.Members.Count < 2) throw CliError.Refused("the block is not in a group");
+        if (!tile.IsStack || tile.Members.Count < 2) throw CliError.Refused("the block is not in a group").WithReason("notingroup");
         tile.ActiveId = b.Id;
         return new JsonObject { ["active"] = b.Id };
     }

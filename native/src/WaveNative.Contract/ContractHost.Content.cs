@@ -49,8 +49,8 @@ public sealed partial class ContractHost
         if (selector != null) Validators.Selector(selector);
         int max = I(a, "maxBytes") ?? 262144;
         if (max < 1 || max > 262144) throw CliError.Usage("--max-bytes must be between 1 and 262144");
-        var b = ResolveBlock(caller, S(a, "block"));
-        RequireContentAccess(caller, b, "web tile");
+        var b = ResolveBlock(caller, S(a, "block"), ContentDenied);
+        RequireContentAccess(caller, b);
         if (b.View != "web") throw CliError.Refused("the block is not a web tile");
         if (!b.Page.TryGetValue(selector ?? "", out var raw)) throw CliError.Refused("nothing on the page matches the selector");
         var escaped = TextSafety.Escape(raw);
@@ -141,8 +141,8 @@ public sealed partial class ContractHost
         int max = I(a, "maxBytes") ?? 200000;
         if (last < 0 || last > 10000) throw CliError.Usage("--last must be between 0 and 10000");
         if (max < 1) throw CliError.Usage("--max-bytes must be at least 1");
-        var b = ResolveBlock(caller, S(a, "block"));
-        RequireContentAccess(caller, b, "block");
+        var b = ResolveBlock(caller, S(a, "block"), ContentDenied);
+        RequireContentAccess(caller, b);
         if (b.View != "term") throw CliError.Refused("the block is not a terminal");
         var lines = b.Screen.ToList();
         while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[^1])) lines.RemoveAt(lines.Count - 1);
@@ -168,8 +168,8 @@ public sealed partial class ContractHost
 
     JsonObject BlockShot(Block caller, JsonObject a)
     {
-        var b = ResolveBlock(caller, S(a, "block"));
-        RequireContentAccess(caller, b, "block");
+        var b = ResolveBlock(caller, S(a, "block"), ContentDenied);
+        RequireContentAccess(caller, b);
         var dir = Path.Combine(DataDir, "shots");
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, $"shot-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{++shotSeq:D6}.png");
@@ -205,7 +205,7 @@ public sealed partial class ContractHost
         {
             var onlyLevel = S(a, "onlyIfLevel");
             var onlyReason = S(a, "onlyIfReason");
-            bool matches = (onlyLevel == null && onlyReason == null) || (b.AttentionLevel == onlyLevel && b.AttentionReason == onlyReason);
+            bool matches = (onlyLevel == null || b.AttentionLevel == onlyLevel) && (onlyReason == null || b.AttentionReason == onlyReason);
             if (matches) { b.AttentionLevel = null; b.AttentionReason = null; }
         }
         else
@@ -223,7 +223,13 @@ public sealed partial class ContractHost
         bool clear = B(a, "clear");
         var icon = S(a, "icon") ?? "circle-small";
         var color = S(a, "color") is string c ? Validators.Color(c) : null;
-        double priority = a["priority"] is JsonValue pv && pv.TryGetValue<double>(out var pd) ? pd : 10;
+        double priority = 10;
+        if (a["priority"] is JsonValue pv)
+        {
+            if (pv.TryGetValue<double>(out var pd)) priority = pd;
+            else if (pv.TryGetValue<string>(out var ps) && double.TryParse(ps, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pp)) priority = pp;
+            else throw CliError.Usage("--priority must be a number");
+        }
         if (!clear) icon = Validators.Symbol(icon);
         if (S(a, "block") != null && S(a, "tab") != null) throw CliError.Usage("give --block or --tab, not both");
         string targetId;

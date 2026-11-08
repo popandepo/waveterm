@@ -55,6 +55,7 @@ public sealed partial class ContractHost
         if (tab.Id == caller.TabId) throw CliError.Refused("this is your own tab: it is not closed from inside");
         var w = workspaces[tab.WorkspaceId];
         if (w.Tabs.Count == 1) throw CliError.Refused("this is the last tab: the window is not closed by a command");
+        if (!OwnsTab(caller, tab)) throw CliError.Denied("that tab is not yours: it needs the admin capability");
         var members = tab.BlockIds.Select(id => blocks[id]).ToList();
         foreach (var b in members) RequireOwn(caller, b);
         if (!force)
@@ -96,7 +97,7 @@ public sealed partial class ContractHost
         var name = Validators.Name(S(a, "name") ?? throw CliError.Usage("a name is required"));
         if (name.Length == 0) throw CliError.Usage("name is empty");
         if (!OwnsTab(caller, t)) throw CliError.Denied("that tab is not yours: it needs the admin capability");
-        if (workspaces[t.WorkspaceId].Tabs.Any(x => x != t && x.Name == name)) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
+        if (workspaces[t.WorkspaceId].Tabs.Any(x => x != t && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
         t.Name = name;
         return new JsonObject { ["tabid"] = t.Id, ["name"] = TextSafety.Escape(t.Name, false) };
     }

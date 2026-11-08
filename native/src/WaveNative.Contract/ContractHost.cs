@@ -176,6 +176,11 @@ public sealed partial class ContractHost
             {
                 return Reply.Failure(e.Code, e.Message);
             }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                // No exception may leave the host: the caller gets exit 1 and the type, never a secret.
+                return Reply.Failure(Exit.Internal, "internal error: " + e.GetType().Name);
+            }
         }
     }
 
@@ -218,7 +223,7 @@ public sealed partial class ContractHost
 
     Tab MakeTab(Workspace w, string name, string? createdBy)
     {
-        if (name.Length > 0 && w.Tabs.Any(x => x.Name == name)) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
+        if (name.Length > 0 && w.Tabs.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw CliError.Refused($"a tab named \"{TextSafety.Escape(name, false)}\" already exists");
         var t = new Tab { WorkspaceId = w.Id, Name = name, CreatedBy = createdBy };
         if (string.IsNullOrEmpty(t.Name))
         {
@@ -270,12 +275,15 @@ public sealed partial class ContractHost
         else if (tile.ActiveId == b.Id) tile.ActiveId = tile.Members[Math.Min(idx, tile.Members.Count - 1)];
     }
 
-    Block ResolveBlock(Block caller, string? id)
+    public const string ContentDenied = "that block is not available to this caller";
+
+    // hideAs: the READ CONTENT verbs answer an unknown, an unreachable and a denied block with one message, so existence does not leak.
+    Block ResolveBlock(Block caller, string? id, string? hideAs = null)
     {
         if (string.IsNullOrEmpty(id)) throw CliError.Usage("a block id is required");
         if (id == "this") return caller;
         if (!Validators.IsUuid(id)) throw CliError.Usage($"\"{TextSafety.Escape(id, false)}\" is not a block id (a full lower-case id, or this)");
-        if (!blocks.TryGetValue(id, out var b) || !Reaches(caller, b.WorkspaceId)) throw CliError.NotFound("block not found");
+        if (!blocks.TryGetValue(id, out var b) || !Reaches(caller, b.WorkspaceId)) throw CliError.NotFound(hideAs ?? "block not found");
         return b;
     }
 
@@ -318,9 +326,9 @@ public sealed partial class ContractHost
         if (!caller.Caps.Contains(cap)) throw CliError.Denied($"{what} needs the {cap} capability");
     }
 
-    void RequireContentAccess(Block caller, Block target, string what)
+    void RequireContentAccess(Block caller, Block target)
     {
-        if (!Owns(caller, target)) throw CliError.NotFound($"that {what} is not available to this caller");
+        if (!Owns(caller, target)) throw CliError.NotFound(ContentDenied);
     }
 
     // The capabilities a creator may give (cli-contract.md 3.4): needs grant, only what it holds, never grant itself.
@@ -330,6 +338,7 @@ public sealed partial class ContractHost
         RequireCap(caller, Caps.Grant, "--cap");
         foreach (var c in asked)
         {
+            if (!Caps.All.Contains(c)) throw CliError.Usage($"unknown capability \"{TextSafety.Escape(c, false)}\": focus, admin or crossworkspace");
             if (!Caps.Passable.Contains(c)) throw CliError.Denied($"the capability \"{TextSafety.Escape(c, false)}\" cannot be given with --cap");
             if (!caller.Caps.Contains(c)) throw CliError.Denied($"the caller does not hold the {c} capability, so it cannot give it");
         }

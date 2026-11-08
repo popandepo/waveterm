@@ -117,25 +117,39 @@ public sealed class ManagerConfig
         foreach (var kv in manager)
             if (!allowedKeys.Contains(kv.Key)) throw new ConfigException($"manager: unknown key \"{kv.Key}\"");
         var c = new ManagerConfig();
-        if (manager["name"] is JsonNode n) c.Name = Validators.Name(Str(n, "name"));
-        if (manager["tab"] is JsonNode t) c.Tab = Validators.Name(Str(t, "tab"), "tab");
-        c.Cwd = Str(manager["cwd"], "cwd");
-        try { Validators.Cwd(c.Cwd, directoryExists); } catch (CliError e) { throw new ConfigException("manager: " + e.Message); }
+        try
+        {
+            if (manager.ContainsKey("name")) c.Name = Validators.Name(Str(manager["name"], "name"));
+            if (manager.ContainsKey("tab")) c.Tab = Validators.Name(Str(manager["tab"], "tab"), "tab");
+            if (c.Name.Length == 0 || c.Tab.Length == 0) throw CliError.Usage("name and tab cannot be empty");
+            c.Cwd = Str(manager["cwd"], "cwd");
+            Validators.Cwd(c.Cwd, directoryExists);
+        }
+        catch (CliError e) { throw new ConfigException("manager: " + e.Message); }
         if (manager["argv"] is not JsonArray a || a.Count == 0) throw new ConfigException("manager: argv must be a non-empty array of strings");
         foreach (var x in a) c.Argv.Add(Str(x, "argv"));
         if (string.IsNullOrEmpty(c.Argv[0])) throw new ConfigException("manager: argv[0] is empty");
-        if (manager["env"] is JsonObject envObj)
-            foreach (var kv in envObj) c.Env[kv.Key] = Str(kv.Value, "env");
-        try { Validators.EnvPairs(c.Env.Select(kv => kv.Key + "=" + kv.Value)); } catch (CliError ex) { throw new ConfigException("manager: " + ex.Message); }
-        if (manager["caps"] is JsonArray caps)
+        if (manager.ContainsKey("env"))
         {
+            if (manager["env"] is not JsonObject envObj) throw new ConfigException("manager: env must be an object of strings");
+            foreach (var kv in envObj)
+            {
+                var value = Str(kv.Value, "env");
+                try { Validators.EnvKey(kv.Key); } catch (CliError e) { throw new ConfigException("manager: " + e.Message); }
+                c.Env[kv.Key] = value;
+            }
+        }
+        if (manager.ContainsKey("caps"))
+        {
+            if (manager["caps"] is not JsonArray caps) throw new ConfigException("manager: caps must be an array of strings");
             c.Caps = caps.Select(x => Str(x, "caps")).ToList();
             foreach (var cap in c.Caps)
                 if (!WaveNative.Contract.Caps.All.Contains(cap)) throw new ConfigException($"manager: unknown capability \"{cap}\"");
             if (c.Caps.Distinct().Count() != c.Caps.Count) throw new ConfigException("manager: a capability is listed twice");
         }
-        if (manager["session"] is JsonObject s)
+        if (manager.ContainsKey("session"))
         {
+            if (manager["session"] is not JsonObject s) throw new ConfigException("manager: session must be an object of strings");
             try { c.Session = Validators.SessionMetaPairs(s.Select(kv => "session:" + kv.Key + "=" + Str(kv.Value, "session"))); }
             catch (CliError ex) { throw new ConfigException("manager: " + ex.Message); }
         }

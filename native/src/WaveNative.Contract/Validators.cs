@@ -54,6 +54,7 @@ public static partial class Validators
     // Colour name (stored lower-case) or #RRGGBB / #RRGGBBAA.
     public static string Color(string value, string what = "color")
     {
+        NoRefused(what, value);
         var v = value.Trim();
         if (HexColorRe().IsMatch(v)) return v.ToLowerInvariant();
         if (v.StartsWith('#')) throw CliError.Usage($"{what} must be #RRGGBB or #RRGGBBAA");
@@ -64,8 +65,8 @@ public static partial class Validators
     // A Font Awesome name (optional solid@ regular@ brands@) or at most two graphemes / 32 bytes of text without <>&"' backtick backslash.
     public static string Symbol(string value)
     {
+        NoRefused("symbol", value);
         var v = value.Trim();
-        NoRefused("symbol", v);
         if (IconNameRe().IsMatch(v)) return v;
         if (v.Length > 0 && v.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '-' or '@'))
             throw CliError.Usage("icon names are lowercase letters, digits and dashes, at most 40 characters");
@@ -104,6 +105,12 @@ public static partial class Validators
         return d;
     }
 
+    public static string EnvKey(string k)
+    {
+        if (!EnvKeyRe().IsMatch(k)) throw CliError.Usage($"invalid --env key \"{TextSafety.Escape(k, false)}\"");
+        return k;
+    }
+
     public static Dictionary<string, string> EnvPairs(IEnumerable<string> pairs)
     {
         var d = new Dictionary<string, string>();
@@ -111,8 +118,7 @@ public static partial class Validators
         {
             var i = p.IndexOf('=');
             if (i <= 0) throw CliError.Usage($"invalid --env \"{TextSafety.Escape(p, false)}\": want KEY=VALUE");
-            var k = p[..i];
-            if (!EnvKeyRe().IsMatch(k)) throw CliError.Usage($"invalid --env key \"{TextSafety.Escape(k, false)}\"");
+            var k = EnvKey(p[..i]);
             if (!d.TryAdd(k, p[(i + 1)..])) throw CliError.Usage($"--env {k} given twice");
         }
         return d;
@@ -128,7 +134,9 @@ public static partial class Validators
 
     public static string Url(string value)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https" or "file"))
+        // Uri.TryCreate reads "//host/path" as a file: UNC address on Windows: the text itself must start with an allowed scheme.
+        bool schemeText = value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || value.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || value.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+        if (!schemeText || !Uri.TryCreate(value, UriKind.Absolute, out var u) || u.Scheme is not ("http" or "https" or "file"))
             throw CliError.Usage("the address must be an http:, https: or file: URL");
         return value;
     }

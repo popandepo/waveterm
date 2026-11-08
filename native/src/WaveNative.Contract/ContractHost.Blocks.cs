@@ -90,7 +90,11 @@ public sealed partial class ContractHost
             items.RemoveAt(0);
         }
         var all = BlockMeta(caller, target, fullUrl: target == caller);
-        if (items.Count == 0) return all;
+        if (items.Count == 0)
+        {
+            if (target.View == "term" && !Owns(caller, target)) all["hidden"] = new JsonArray("cmd", "cmd:args", "cmd:cwd");
+            return all;
+        }
         var o = new JsonObject();
         foreach (var k in items)
             if (all.TryGetPropertyValue(k, out var v) && !o.ContainsKey(k)) o[k] = v?.DeepClone();
@@ -119,17 +123,8 @@ public sealed partial class ContractHost
             }
             if (S(a, "json") is string js)
             {
-                JsonObject obj;
-                try { obj = JsonNode.Parse(js) as JsonObject ?? throw CliError.Usage("--json must be an object"); }
-                catch (System.Text.Json.JsonException) { throw CliError.Usage("--json is not valid JSON"); }
-                foreach (var kv in obj)
-                {
-                    string? v;
-                    if (kv.Value == null) v = null;
-                    else if (kv.Value is JsonValue jv && jv.TryGetValue<string>(out var sv)) v = sv;
-                    else throw CliError.Usage($"the value of {TextSafety.Escape(kv.Key, false)} must be a string or null");
-                    if (!changes.TryAdd(kv.Key, v)) throw CliError.Usage($"key {TextSafety.Escape(kv.Key, false)} given twice");
-                }
+                foreach (var kv in ParseJsonChanges(js))
+                    if (!changes.TryAdd(kv.Key, kv.Value)) throw CliError.Usage($"key {TextSafety.Escape(kv.Key, false)} given twice");
             }
             if (changes.Count == 0) throw CliError.Usage("no keys to set");
         }
@@ -155,6 +150,29 @@ public sealed partial class ContractHost
             if (kv.Value == null) removed.Add(kv.Key); else set.Add(kv.Key);
         }
         return new JsonObject { ["id"] = target.Id, ["set"] = set, ["unset"] = removed };
+    }
+
+    // The whole object is read inside one guard: a repeated key throws on enumeration, not on parse.
+    static List<KeyValuePair<string, string?>> ParseJsonChanges(string js)
+    {
+        var list = new List<KeyValuePair<string, string?>>();
+        try
+        {
+            var obj = JsonNode.Parse(js) as JsonObject ?? throw CliError.Usage("--json must be an object");
+            foreach (var kv in obj)
+            {
+                string? v;
+                if (kv.Value == null) v = null;
+                else if (kv.Value is JsonValue jv && jv.TryGetValue<string>(out var sv)) v = sv;
+                else throw CliError.Usage($"the value of {TextSafety.Escape(kv.Key, false)} must be a string or null");
+                list.Add(new(kv.Key, v));
+            }
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or ArgumentException)
+        {
+            throw CliError.Usage("--json is not valid JSON (or repeats a key)");
+        }
+        return list;
     }
 
     static void ApplyMeta(Block b, string key, string? value)

@@ -1,6 +1,6 @@
-# Native Wave: the CLI contract (gates 2 and 3), version 0.3.1
+# Native Wave: the CLI contract (gates 2 and 3), version 0.3.2
 
-Session: projects-wave-shell. 8 Nov 2026. Status: v0.3.1, revised after three blind reviews (PR 107) and after the executable tests (branch feat/native-cli-stub, 1253 tests) found the ambiguities of section 12; the stub host and tests execute it.
+Session: projects-wave-shell. 8 Nov 2026. Status: v0.3.2, revised after three blind reviews of the document, after the executable tests found the ambiguities of section 12, and after a blind review of the stub; the stub host and its tests (branch feat/native-cli-stub, run `dotnet test` in its native folder: the count is printed there) execute it.
 What this is: the contract of the command tool that replaces the Go `wsh` in the native rewrite (no Go, no Electron). Every caller (PowerShell
 tools, the wave-sessions skill, CLAUDE.md text, the never-rules hook, the Test-* stand-ins) is updated in the same piece. No alias, no old form
 accepted: "No backwards compatibility" (owner rule, 31 Oct 2026).
@@ -240,6 +240,8 @@ The Job Object binding and its limits; capabilities, `createdby` and the four ve
 - D11 `file:` URLs let a session read a local file through its own web tile with `web text`. It can read the same file with its ordinary tools; accepted. It does bypass the hooks on tool calls, which is the owner's to weigh.
 - D12 A session can add noise (an extra hidden member in a stack, a second home-page tile) where it may add a hidden member: the scripts that look for exactly one Home tile fail closed (HomeTab.Lib.ps1 refuses "not exactly one"). Accepted: a nuisance, not a privilege.
 - D13 `--url` is an equality oracle (4.5): accepted, stated.
+- D14 A session may add a hidden member to ANY tile of its workspace, including a plain tile such as the manager's: the tile then becomes a stack and is drawn with stack chrome (the shown member does not change). Default: allowed (a nuisance, not a privilege; Show-InWave.ps1 relies on adding to the Home status stack). Alternative: making a stack out of a plain tile needs ownership of that tile (the stub had it for a while: it broke 35 tests that treat plain tiles as targets, and would need the Home status block to be a stack from the start).
+- D15 `--restart` needs no capability: a session can start a program that restarts at every app launch and keeps its rights-less token. The refusal table is text matching only (abbreviations such as `-comm`, `env bash -c`, `php -r` pass). Default: allowed, accepted (the program is a block the session created and the owner sees it). Alternative: `--restart` needs `admin`.
 
 ## 11. How this is checked (what gate 3 must run before anything is called done)
 1. A stub host (the CLI against an in-memory fake app) with one test per verb and per exit code of section 1, each asserting exact stdout JSON and stderr JSON. Red: any caller of section 5 has a verb or field with no test.
@@ -265,6 +267,12 @@ These were undefined or contradictory in v0.3 and are now fixed here; the stub a
 - `run --stack` and `web open --stack` also return `stackedwith`. `--focus` on a new top-level tile (owned tab) makes that tile the focused tile of its tab and never switches the shown tab; it needs `focus`.
 - `redact` and equality: user info is dropped before comparing urls (`http://u:p@h/` equals `http://h/`); a url must start with `http://`, `https://` or `file:` (a drive path or a `//host/` path is exit 2).
 - Manager config: `caps: []` means no capabilities; `name` and `tab` cannot be empty; a wrong-typed container (`caps`, `env`, `session`) is a config error and never falls back to the default capabilities; an env key with `=` in it is a config error.
+- (v0.3.2) Unfinished programs: for a terminal block the safety refusal of 3.3 applies unless its status is `done`; status `none` (no program started in this app run) and `init` count as unfinished (a web block never needs `--force`). `send` still needs a running terminal.
+- (v0.3.2) `cmd:runonstart` in listings reports whether the block was started with `--restart` (true) or not (false); it is no longer always true.
+- (v0.3.2) Order of checks for `session start` and `run`: usage 2, scope 4, rights 3 (capabilities, `--focus`/`--activate`, the top-level-tile rule), restart refusal 5, uniqueness 5 (`session:name`, tab name); nothing is created before all pass.
+- (v0.3.2) `session list` shows every `session:*` key of a block, not only the five named in 4.2. Group verbs return exactly `{"stack","members"}` and `{"unstacked"}` (no `status`). `--stack` puts `--color` on both the icon colour and the border colour of the block. `screen --max-bytes` always keeps the last line, even when that single line is longer than the cap. An empty `session:name` is not checked for uniqueness.
+- (v0.3.2) Generated tab names (`T<n>`) never collide with an existing name (case-insensitive); `badge --priority` must be a finite number; a badge on a tab is removed with the tab; the shot folder is pruned only of files the app named itself (`shot-` + 17 digits + `-` + 6 digits + `.png`); `--flag` given twice is exit 2 for every non-repeatable flag; the client reads stdin and files as UTF-8; the pipe host answers a malformed request with exit 2, drops a client that sends nothing after a few seconds or sends a line over 1 MiB, serves requests concurrently, and no exception leaves a connection.
+- (v0.3.2) Keys, ids and symbols are matched as a whole (a trailing newline is not ignored). `ManagerConfig` finds its tab case-insensitively and is a config error when a block already holds the same `session:name`.
 - Not decided here (the stub does the first listed; say if it should change): the default tab name `T<n>` uses the highest existing number plus one, so a number is not reused after a close.
 
 ## Appendix (today's behaviour, from the Go source)

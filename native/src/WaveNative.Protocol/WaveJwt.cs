@@ -18,7 +18,7 @@ public sealed class WaveClaims
     public string? Conn { get; set; }
     public bool Router { get; set; }
 
-    public string GenerateRouteId() => !string.IsNullOrEmpty(RouteId) ? RouteId : "";
+    public string GenerateRouteId() => !string.IsNullOrEmpty(RouteId) ? RouteId : ProcRoute ? "proc:" + Guid.NewGuid() : "";
 }
 
 public sealed class WaveJwt
@@ -35,17 +35,22 @@ public sealed class WaveJwt
 
     public static WaveJwt Generate() => new(new Ed25519PrivateKeyParameters(new Org.BouncyCastle.Security.SecureRandom()));
 
-    public string Sign(WaveClaims c)
+    public string Sign(WaveClaims c, TimeSpan? lifetime = null)
     {
         var now = DateTimeOffset.UtcNow;
-        var claims = new JsonObject { ["iss"] = Issuer, ["iat"] = now.ToUnixTimeSeconds(), ["exp"] = now.AddDays(365).ToUnixTimeSeconds() };
+        var claims = new JsonObject { ["iss"] = Issuer, ["iat"] = now.ToUnixTimeSeconds(), ["exp"] = now.Add(lifetime ?? TimeSpan.FromDays(365)).ToUnixTimeSeconds() };
         if (!string.IsNullOrEmpty(c.Sock)) claims["sock"] = c.Sock;
         if (!string.IsNullOrEmpty(c.RouteId)) claims["routeid"] = c.RouteId;
         if (c.ProcRoute) claims["procroute"] = true;
         if (!string.IsNullOrEmpty(c.BlockId)) claims["blockid"] = c.BlockId;
         if (!string.IsNullOrEmpty(c.Conn)) claims["conn"] = c.Conn;
         if (c.Router) claims["router"] = true;
-        var head = B64(Encoding.UTF8.GetBytes("{\"alg\":\"EdDSA\",\"typ\":\"JWT\"}"));
+        return SignClaims(claims);
+    }
+
+    internal string SignClaims(JsonObject claims, string alg = "EdDSA")
+    {
+        var head = B64(Encoding.UTF8.GetBytes("{\"alg\":\"" + alg + "\",\"typ\":\"JWT\"}"));
         var body = B64(Encoding.UTF8.GetBytes(claims.ToJsonString()));
         var signingInput = Encoding.ASCII.GetBytes(head + "." + body);
         var signer = new Ed25519Signer();

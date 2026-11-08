@@ -18,13 +18,14 @@ public sealed class WshProtocolTests : IDisposable
     readonly WaveJwt jwt = WaveJwt.Generate();
     readonly SwapTokenStore swaps = new();
     readonly WaveRpcServer server;
+    volatile string? lastOref;
 
     public WshProtocolTests()
     {
         server = new WaveRpcServer(sock, jwt, swaps);
         server.Handle("getmeta", (caller, data) =>
         {
-            Assert.Equal("block:" + BlockId, data?["oref"]?.GetValue<string>());
+            lastOref = data?["oref"]?.GetValue<string>();
             return Task.FromResult<JsonNode?>(new JsonObject { ["view"] = "term", ["controller"] = "shell", ["caller"] = caller.RouteId });
         });
         server.Start();
@@ -40,7 +41,7 @@ public sealed class WshProtocolTests : IDisposable
         {
             var bin = Path.Combine(dir.FullName, "dist", "bin");
             if (!Directory.Exists(bin)) continue;
-            var hit = Directory.GetFiles(bin, "wsh-*-windows.x64.exe").FirstOrDefault();
+            var hit = Directory.GetFiles(bin, "wsh-*-windows.x64.exe").OrderByDescending(f => f).FirstOrDefault();
             if (hit != null) return hit;
         }
         throw new FileNotFoundException("no wsh binary: set WAVENATIVE_WSH to a wsh-*-windows.x64.exe");
@@ -91,6 +92,7 @@ public sealed class WshProtocolTests : IDisposable
         Assert.Contains("\"view\"", r.Out);
         Assert.Contains("term", r.Out);
         Assert.Contains("proc:test", r.Out);
+        Assert.Equal("block:" + BlockId, lastOref);
     }
 
     [Fact]

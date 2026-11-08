@@ -35,6 +35,7 @@ public sealed class SwapTokenStore
 
     public void Add(SwapEntry entry)
     {
+        if (string.IsNullOrEmpty(entry.Token)) throw new InvalidOperationException("token cannot be empty");
         Sweep();
         if (!entries.TryAdd(entry.Token, entry)) throw new InvalidOperationException("token already exists");
     }

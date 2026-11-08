@@ -1,6 +1,6 @@
-# Native Wave: the CLI contract (gates 2 and 3), version 0.3.3
+# Native Wave: the CLI contract (gates 2 and 3), version 0.4
 
-Session: projects-wave-shell. 8 Nov 2026. Status: v0.3.3, revised after four blind reviews of the document, after the executable tests found the ambiguities of section 12, and after a blind review of the stub; the stub host and its tests (branch feat/native-cli-stub, run `dotnet test` in its native folder: the count is printed there) execute it.
+Session: projects-wave-shell. 8 Nov 2026. Status: v0.4, revised after four blind reviews of the document, after the executable tests found the ambiguities of section 12, after a blind review of the stub, and after three caller migrations were run against the stub (section 12, v0.4); the stub host and its tests (branch feat/native-cli-stub, run `dotnet test` in its native folder: the count is printed there) execute it.
 What this is: the contract of the command tool that replaces the Go `wsh` in the native rewrite (no Go, no Electron). Every caller (PowerShell
 tools, the wave-sessions skill, CLAUDE.md text, the never-rules hook, the Test-* stand-ins) is updated in the same piece. No alias, no old form
 accepted: "No backwards compatibility" (owner rule, 31 Oct 2026).
@@ -25,7 +25,7 @@ uses and nobody asked to keep (section 8).
 - Binary: `wave.exe` (a thin client). It reads the block token from env, sends one request `{verb, args, token}` over the named pipe `\\.\pipe\wave-<instance>`
   on a fresh connection, prints the app's reply, exits. The request format is internal and may change with the app.
 - Environment given to a program the app starts in a block (and nothing else of ours): `WAVE_TOKEN` (opaque, per block, rotated each app start; replaces WAVETERM_JWT
-  and the swap token), `WAVE_PIPE`, `WAVE_BLOCK`, `WAVE_TAB`, `WAVE_WORKSPACE` (information for scripts, ignored as identity), `WAVE_BIN` (folder with wave.exe, put on PATH by the app).
+  and the swap token), `WAVE_PIPE`, `WAVE_BLOCK`, `WAVE_TAB`, `WAVE_WORKSPACE` (information for scripts, ignored as identity), `WAVE_BIN` (folder with wave.exe, put on PATH by the app; the app promises no fixed root for it, so a script must not compare it to one).
   The app also sets `TERM_PROGRAM=wave`; no variable named WAVETERM exists any more. `WAVE_CONN` and `WAVE_VERSION` are dropped (no caller in the two script trees reads them; Tether/Atlas were not searched: gate 3 greps them first). The app starts the program directly with this
   environment: no swap-token exchange, no `token` verb. D1 is decided here: the names are renamed and every reader changes (section 5).
 - A wave.exe outside a block has no token: every verb fails with exit 3; scripts keep their own early check (exit 2 today) on WAVE_TOKEN.
@@ -43,7 +43,7 @@ uses and nobody asked to keep (section 8).
   block the caller can see); 4 not found (an id that does not exist OR that the caller may not reach: the two are indistinguishable, same message); 5 refused by a safety rule (running
   program, own tab, invalid state such as "not in a group"); 6 app not reachable; 7 partial success (only `session start`, `run`, `web open`: something was created and a later step failed; stdout
   carries the ids with `"status":"partial"` and a `"warning"`, stderr carries the error object).
-- stderr on failure: `{"error":{"code":<exit code>,"kind":"<denied|notfound|refused|usage|partial|internal|unreachable>","message":"<safe text>"}}`. Messages never contain a secret.
+- stderr on failure: `{"error":{"code":<exit code>,"kind":"<denied|notfound|refused|usage|partial|internal|unreachable>","message":"<safe text>","reason"?:"<word>"}}`. Messages never contain a secret. `reason` is present when a script may want to tell causes apart without reading the message; the words are stable: `notoken` (client, no WAVE_TOKEN), `badtoken`, `capability`, `notowner`, `unfinished`, `owntab`, `lasttab`, `duplicate`, `restart`, `nomatch`, `notweb`, `notterm`, `notrunning`, `notingroup`, `samegroup`, `othertab`. Other refusals carry none. Scripts branch on the exit code first and on `reason` only inside one exit code.
 
 ## 2. Object model the verbs see
 workspace > tabs (ordered) > blocks. A tab shows its blocks as tiles; a stack (group) is one tile with several member blocks, one shown.
@@ -89,13 +89,13 @@ Rules (each a test in section 11): only these keys (an unknown key is a config e
 - `--cap`: needs `grant`; else exit 3. Neither `--args-file` nor `--` (no command) is exit 2; `--cwd` defaults to the caller block's cwd.
 - Order: every check (usage 2, scope 4, rights 3, restart 5, uniqueness 5) happens BEFORE anything is created, so a refused call leaves nothing behind and a caller without `grant` or `focus` gets exit 3, never exit 7.
 - Effects, in this order: create tab (not shown), set tab style, create the block (the program starts even when the tab is never shown), `--activate`. A failure before the block exists leaves nothing behind. A failure after returns exit 7 with the ids.
-- stdout: `{"tabid","blockid","status":"ok"}`, with `--stack` also `"stackedwith"`.
+- stdout: `{"tabid","blockid","status":"ok"}`, with `--stack` also `"stackedwith"`; with `--stack`, `tabid` is the EXISTING tab that holds the stack, never a new one (so exit-7 cleanup in stack mode is `block delete BLOCK --force`, and closing that tab would close the host).
 - Callers: Open-WaveSession.ps1:133-156 (flags unchanged), Restore-Sessions.ps1:100-119 only if D5 keeps it.
 
 ### 4.2 session list
 `wave session list [--all]` (`--all` needs `crossworkspace`). Own workspace by default. stdout: array in tab-bar order, `[]` when empty:
 `{"tabid","name","workspaceid","index":<0-based>,"active":<bool>,"color"?,"symbol"?,"running":<bool>,"unfinished":<bool>,"blocks":[{"blockid","view","title"?,"status":"none|init|running|done","exitcode":<int>,"unfinished":<bool>,"meta":{every session:* key of the block}}]}`.
-`running` = a terminal block is alive; `unfinished` = a terminal block is not known to have ended (section 1): a script that decides whether `session close` needs `--force` reads `unfinished`, not `running`. New fields: `index`, `active` (replaces `api list --json` `activetabid`), `blocks[].meta` (replaces `blocks list --json` for `session:name`). `running` is true when any term block is `init` or `running`; `none` = no program started in this app run.
+`running` = a terminal block is alive; `unfinished` = a terminal block is not known to have ended (section 1): a script that decides whether `session close` needs `--force` reads `unfinished`, not `running`. New fields: `index`, `active` (replaces `api list --json` `activetabid`), `blocks[].meta` (replaces `blocks list --json` for `session:name`). `running` is true when any term block is `init` or `running`; `none` = no program started in this app run. A script that shows "ended" or decides about `--force` reads `unfinished` (or `blocks[].status == "done"`), never `running == false`: a block with status `none` has `running:false` and is still unfinished.
 Callers: Wave-Sessions.ps1:127 and :130 (the `api list` call is deleted), HomeTab.Lib.ps1:13, Set-HomeTile.ps1, Show-InWave.ps1, Check-HomeTile.ps1.
 
 ### 4.3 session close
@@ -194,6 +194,20 @@ Callers: Show-InWave.ps1:101 (`group activate`, manager only), Restore-Sessions.
 | skill boot-and-sweep (lines 12, 17, 37), Test-OpenWaveSession.ps1 (both copies), Test-ResumableSession.ps1 | `wsh` calls and stand-ins in text and tests | the new verbs and WAVE_* names; the tests assert the new strings |
 | Check-Seams.ps1, seams-expected.txt (Go source greps at :66-125), Update-FromUpstream.ps1:194-195 (`go test ./cmd/wsh/...`) | guard the Go fork against upstream updates | deleted with the Go tool |
 | Launcher variables WAVETERM_DATA_HOME, WAVETERM_CONFIG_HOME (Boot.ps1:38, Get-WaveLauncher.ps1:28-33) and WaveFork.exe | find and start the old app | not part of this contract (the native app has its own data folder and launcher); listed so the implementation PR does not forget them |
+| Open-WaveSession.ps1:71 (marker) | refuses a starter whose text lacks `WAVETERM_WSHBINDIR` | v0.4: refuses a starter that contains `WAVETERM_` or lacks `WAVE_TOKEN` |
+| Wave-Sessions.ps1:246 (own block) | compares with WAVETERM_BLOCKID | take the own block id and tab id from `wave whoami` (`blockid`, `tabid`), never from env: WAVE_BLOCK is information only, and the app allows a block to delete itself with `--force` (3.3), so this check is the script's alone |
+| Wave-Sessions.ps1:145 (`[ended]`) | `running` false means ended | `unfinished` false (or status `done`) means ended; `running:false` with status `none` is not ended |
+| Wave-Sessions.ps1:230-231, Open-WaveSession.ps1 (helper chain) | helper failure is a throw | the helper passes exit 7 on after its cleanup, and the caller prints "nothing was kept"; a caller that sees any other non-zero code prints the stderr JSON message |
+| Wave-Sessions.ps1:166-167 (meaning of the gate) | "is the manager session" | "holds `focus`": any block started with `--cap focus` passes; that is intended |
+| Wave-Sessions.ps1 and the other callers on Windows PowerShell 5.1 | `2>&1` | with `$ErrorActionPreference = 'Stop'` a native command that writes to stderr throws even with `2>file`, and 5.1 writes a decorated error record, not the raw JSON, into that file; the stderr JSON can only be read there through System.Diagnostics.Process (or with the preference relaxed around the one call and the exit code read; then the message text is not clean). Every script in this table that parses stderr uses one of the two |
+| Show-InWave.ps1 on exit 7 | any non-zero is a failure | `web open` exit 7: read `blockid` from stdout and report it (a created tile stays, the owner sees it); every other non-zero code fails |
+| Show-InWave.ps1:69 and every caller that compares a listed url | `$_.meta.url -eq $url` | listed urls are redacted (no user info, query or fragment) so they are not round-trippable: ask `block list --view web --url U` (the app compares the full normalized url), never compare the listed field with a full url |
+| Set-HomeTile.ps1 (partition repair) | `setmeta web:partition` | no verb sets a partition; the script replaces the tile (already above); a session never does this |
+| Restore-Sessions.ps1:124 (only if D5 keeps it) | `group add -b B --to A` after starting each session in its own tab | `group add` is same tab only (exit 5 otherwise), so start the member with `session start --stack ANCHORBLOCK`; its state source `wave-state.json` is deleted by D5, so keeping it needs a new source (`session list` has no cwd or permission mode): a second reason for the D5 default |
+| Wave-Sessions.ps1 and Open-WaveSession.ps1 reopen | a second open with a name that is in use works | exit 5 `duplicate`; the script says "a session with that name exists: close it first" instead of "failed (5)" |
+| Open-WaveSession.ps1 `-Stack` with `-Activate` | refused by the script | allowed (4.1: a stacked block is shown only with `--activate`, which needs `focus`); the script check is dropped |
+| never-rules hook, plain writes | not defined | `send`, `meta set|unset`, `block delete`, `session close`, `group add|remove|move`, `tab rename|move|style`, `workspace style`, `attention`, `badge` are not on the allow-list: refused for sessions, refused for the manager while he is active (D17) |
+| Start-ResumableSession.ps1 (folder rule) | `Resolve-WshFolder` compared WAVE_BIN with a fixed root | only the refusal of paths under `.claude` or `.claude-work` stays; there is no fixed root (section 1) |
 
 ## 6. Meta keys the app accepts (anything else is exit 2)
 | key | on | type | rule |
@@ -245,6 +259,8 @@ The Job Object binding and its limits; capabilities, `createdby` and the four ve
 - D13 `--url` is an equality oracle (4.5): accepted, stated.
 - D14 A session may add a hidden member to ANY tile of its workspace, including a plain tile such as the manager's: the tile then becomes a stack and is drawn with stack chrome (the shown member does not change). Default: allowed (a nuisance, not a privilege; Show-InWave.ps1 relies on adding to the Home status stack). Alternative: making a stack out of a plain tile needs ownership of that tile (the stub had it for a while: it broke the tests that treat plain tiles as stack targets, and would need the Home status block to be a stack from the start).
 - D15 `--restart` needs no capability: a session can start a program that restarts at every app launch and keeps its rights-less token. The refusal table is text matching only (abbreviations such as `-comm`, `env bash -c`, `php -r` pass). Default: allowed, accepted (the program is a block the session created and the owner sees it). Alternative: `--restart` needs `admin`.
+- D16 The hook now lets `tab new` and `session start` without `--activate` through while he is active (the old rule refused them, because it keyed on `--no-focus`). It matches the inverted default of section 5 (background is the default, focus words are the exception). Default: accept; the alternative is to refuse every creating verb while he is active.
+- D17 Plain writes through the hook (the row above) are refused while he is active, as the old rule did; creating verbs and reads pass. Alternative: let plain writes pass like creates.
 
 ## 11. How this is checked (what gate 3 must run before anything is called done)
 1. A stub host (the CLI against an in-memory fake app) with one test per verb and per exit code of section 1, each asserting exact stdout JSON and stderr JSON. Red: any caller of section 5 has a verb or field with no test.
@@ -276,6 +292,9 @@ These were undefined or contradictory in v0.3 and are now fixed here; the stub a
 - (v0.3.2) `session list` shows every `session:*` key of a block, not only the five named in 4.2. Group verbs return exactly `{"stack","members"}` and `{"unstacked"}` (no `status`). `--stack` puts `--color` on both the icon colour and the border colour of the block. `screen --max-bytes` always keeps the last line, even when that single line is longer than the cap. An empty `session:name` is not checked for uniqueness.
 - (v0.3.2) Generated tab names (`T<n>`) never collide with an existing name (case-insensitive); `badge --priority` must be a finite number; a badge on a tab is removed with the tab; the shot folder is pruned only of files the app named itself (`shot-` + 17 digits + `-` + 6 digits + `.png`); `--flag` given twice is exit 2 for every non-repeatable flag; the client reads stdin and files as UTF-8; the pipe host answers a malformed request with exit 2, drops a client that sends nothing after a few seconds or sends a line over 1 MiB, serves requests concurrently, and no exception leaves a connection.
 - (v0.3.2) Keys, ids and symbols are matched as a whole (a trailing newline is not ignored). `ManagerConfig` finds its tab case-insensitively and is a config error when a block already holds the same `session:name`.
+- (v0.4) The error object may carry `reason` (section 1); the stub and its tests (ReasonTests) check each word. Listed `file:` urls keep `file:///` and the path (no query or fragment), as `http` urls keep scheme, host and path; `block list --url` still compares the whole normalized url, query and fragment included.
+- (v0.4) Three callers were run against the stub on copies (wavesessions, opensession, showpage): the section 5 rows added in v0.4 are what they found. Not run against the stub: a real program start, exit 7 from the real `session start` (the stub has no partial failure; shims simulated it), `session list` with a `none` terminal block, several workspaces, the real He-IsActive probe, the hook installed. Section 11 items 5 and 6 still need the real app.
+- (v0.4) `TERM_PROGRAM=wave` is set by the app (section 1); it is neither cleared nor ignored by the starters.
 - Not decided here (the stub does the first listed; say if it should change): the default tab name `T<n>` uses the highest existing number plus one, so a number is not reused after a close.
 
 ## Appendix (today's behaviour, from the Go source)

@@ -1,265 +1,239 @@
-# Native Wave: the CLI contract (gate 2), version 0
+# Native Wave: the CLI contract (gate 2), version 0.2
 
-Session: projects-wave-shell. 8 Nov 2026. Status: v0.1, revised after one blind review (PR 107); for a second review, then the manager.
+Session: projects-wave-shell. 8 Nov 2026. Status: v0.2, revised after two blind reviews (PR 107); for the manager.
 What this is: the contract of the command tool that replaces the Go `wsh` in the native rewrite (no Go, no Electron). Every caller (PowerShell
 tools, the wave-sessions skill, CLAUDE.md text, the never-rules hook, the Test-* stand-ins) is updated in the same piece. No alias, no old form
 accepted: "No backwards compatibility" (owner rule, 31 Oct 2026).
 How it was made: behaviour today was extracted from the Go source by three read-only passes (appendix: `parts/today-*.md`, every claim there has a
-file:line or says "not read"); the new contract keeps what a caller depends on and fixes the quirks those passes listed. Where a decision is not
-settled by evidence it is in section 9 as an open item with a default.
-Not in this document: the app internals (layout, terminal), the wire format between CLI and app beyond what the callers see (section 1), and anything
-no caller uses and nobody asked to keep (section 8, the cut list).
+file:line or says "not read"; a reviewer re-checked about 40 of them and found none wrong); the new contract keeps what a caller depends on and fixes
+the quirks those passes listed. What is a DESIGN DECISION and not an extracted fact is listed in section 9. Open items have defaults in section 10.
+Not in this document: the app internals (layout, terminal), the wire format between CLI and app beyond what the callers see, anything no caller
+uses and nobody asked to keep (section 8).
 
 ## 0. Principles (each one removes a defect listed in the appendix)
-1. One output form: JSON on stdout for success, JSON on stderr for failure. An empty list is `[]`, never `null` or prose. No telemetry call.
-2. One id grammar: a full lower-case uuid, or the keyword `this` (the caller's block) or `tab` (the caller's tab). No 8-char prefixes, no numbers,
-   no view names, no `type:` prefixes. The verb says what type it wants; a wrong type is exit 4.
-3. Authority comes from the token, never from an environment value: `this` and `tab` are read from the token's record, not from WAVE_BLOCK.
-4. The app enforces the rules, not the scripts: scope (same workspace), capability (focus), safety (running programs, own tab). The scripts keep
-   their own extra rules (idle probe, never-list) but nothing depends on a well-behaved script.
-5. No verb changes keyboard focus or the shown tab unless it is a focus verb AND the caller holds the `focus` capability (section 3.3). "No focus" is
-   the default of every creating verb; `--focus` is the exception.
+1. One output form: JSON on stdout for success, JSON on stderr for failure. An empty list is `[]`. No telemetry call. Callers must keep the two streams apart (never `2>&1` into a JSON parser).
+2. One id grammar: a full lower-case uuid, or the keyword `this` (the caller's block) or `tab` (the caller's tab), accepted wherever an id of that type is expected. No 8-char prefixes, no numbers, no view names, no `type:` prefixes. The verb says what type it wants.
+3. Authority comes from the app's record of the calling block, never from an environment value: `this` and `tab` are read from the record, not from WAVE_BLOCK.
+4. The app enforces the rules, not the scripts: scope (workspace), ownership, capability (focus, admin), safety (running programs, own tab). The scripts keep their own extra rules (idle probe, never-list) but nothing depends on a well-behaved script. The threat model is stated in section 1: it stops mistakes and prompt-injected sessions, not hostile code of the same Windows user.
+5. No verb moves the shown tab or what a stack shows unless it is a focus verb AND the caller holds `focus` (3.4). Creating verbs add things in the background by default; `--focus` is the exception. No verb ever takes keyboard focus from a tile the owner is typing in (D6).
 6. A change is applied before the call returns, and the answer says what was applied. No "queued".
-7. One text-safety predicate and one escape format for any text the app prints that came from a page, a program or a user (section 7).
-8. Several keys in one call are one change (atomic).
+7. One text-safety rule for output and one for input (section 7).
+8. Several keys or steps in one call are one change: all or nothing, except the creating verbs (exit 7).
+9. Target convention: the main object of a verb is positional (a block, or a tab); secondary objects are flags (`--to`, `--from`, `--stack`, `--tab`). `--block` / `--tab` flags exist only where the object may be left out and then means the caller's own (`attention`, `badge`, `tab style`, `run`, `web open`). `tab rename` and `session close` need an explicit TAB (the keyword `tab` is accepted).
 
-## 1. Transport, identity, exit codes
-- Binary: `wave.exe` (a thin client). It reads the block token from env, sends one request `{verb, args, token}` over the named pipe
-  `\\.\pipe\wave-<instance>` (instance = the data folder name; the pipe name is given to every block in env), prints the app's reply, exits.
-  The pipe ACL admits only the owner. The app and the CLI are one product: the request format is internal and may change with them.
-- Environment given to a program the app starts in a block (and nothing else of ours):
-  `WAVE_TOKEN` (opaque, per block, rotated each app start; replaces WAVETERM_JWT and the swap token),
-  `WAVE_PIPE` (the pipe name),
-  `WAVE_BLOCK`, `WAVE_TAB`, `WAVE_WORKSPACE` (information for scripts; the app ignores them as identity),
-  `WAVE_CONN` and `WAVE_VERSION` are dropped (no caller reads them), `WAVE_BIN` (the folder with wave.exe, put on PATH by the app itself).
-  The app starts the program directly with this environment: there is no swap-token exchange and no `token` verb (Start-ResumableSession.ps1:335 loses
-  its SwapVariables dance and forwards WAVE_TOKEN, WAVE_PIPE, WAVE_BLOCK, WAVE_TAB, WAVE_WORKSPACE).
-- The token is bound to one block, one workspace and that block's capabilities (3.3). A wave.exe outside a block has no token and every verb
-  fails with exit 3 (scripts today exit 2 when WAVETERM_* is missing; they keep that check, now on WAVE_TOKEN).
-- A token in the environment can be read by any process of the same Windows user (the repo itself reads another process's environment:
-  Get-WaveLauncher.ps1:28-29), and the pipe ACL separates nobody from the same user. So the token alone is not the proof. Each block's whole process
-  tree runs inside one Windows Job Object owned by the app. A request is accepted only when (a) the token matches, AND (b) the client process on
-  the pipe (GetNamedPipeClientProcessId) is a member of that block's job (IsProcessInJob). A stolen token used from a process outside the block's job is
-  refused (exit 3). Orphans stay in the job, so a helper that outlives its parent program (Rehome-Manager.ps1:36) keeps working until the block is
-  deleted, which kills the job. The token is revoked when its block is deleted or its job is empty. Tokens are never written to a file by the app.
-  Residual risk, stated: a process inside the same block's job (a child of the session) has the session's authority, as today.
-- Exit codes (stable, the stderr JSON repeats them):
-  0 ok; 1 internal error; 2 usage (bad flag or value, nothing was sent); 3 denied (no token, wrong scope, missing capability);
-  4 not found (id unknown, wrong type); 5 refused by a safety rule (running program, own tab, partition, invalid state); 6 app not reachable;
-  7 partial success (something was created and something after it failed: stdout still carries the ids).
-- stderr on failure: `{"error":{"code":<exit code>,"kind":"<denied|notfound|refused|usage|partial|internal|unreachable>","message":"<text>"}}`.
-  The message is safe text (section 7) and never contains a secret or a token.
+## 1. Transport, identity, threat model, exit codes
+- Binary: `wave.exe` (a thin client). It reads the block token from env, sends one request `{verb, args, token}` over the named pipe `\\.\pipe\wave-<instance>`
+  on a fresh connection, prints the app's reply, exits. The request format is internal and may change with the app.
+- Environment given to a program the app starts in a block (and nothing else of ours): `WAVE_TOKEN` (opaque, per block, rotated each app start; replaces WAVETERM_JWT
+  and the swap token), `WAVE_PIPE`, `WAVE_BLOCK`, `WAVE_TAB`, `WAVE_WORKSPACE` (information for scripts, ignored as identity), `WAVE_BIN` (folder with wave.exe, put on PATH by the app).
+  `WAVE_CONN` and `WAVE_VERSION` are dropped (no caller in the two script trees reads them; Tether/Atlas were not searched: gate 3 greps them first). The app starts the program directly with this
+  environment: no swap-token exchange, no `token` verb. D1 is decided here: the names are renamed and every reader changes (section 5).
+- A wave.exe outside a block has no token: every verb fails with exit 3; scripts keep their own early check (exit 2 today) on WAVE_TOKEN.
+- Threat model, stated plainly. Every session and the owner run as the same Windows user, and a session runs arbitrary code through its tools. The design stops
+  MISTAKES and PROMPT-INJECTED sessions that only use the CLI (and ordinary tools): a session cannot type into, close, delete, retitle or move the manager, nor get focus
+  rights, by calling `wave`. It does NOT stop a hostile process of the same user that attacks the app or another process directly (OpenProcess + thread injection into
+  the manager's process, reading its memory or environment, DuplicateHandle of the job). A real boundary against that needs a separate Windows account for sessions, or a
+  per-process secret handed through a handle the app creates; neither is designed here (D10). The controls below are what the CLI path gets:
+  the token is bound to the block's record; each block's whole process tree runs in one Windows Job Object owned by the app; a request is accepted only when the token
+  matches AND the process on the pipe (GetNamedPipeClientProcessId, read for that one connection) is a member of that block's job (IsProcessInJob). A stolen token used from
+  a process outside the block's job is refused (exit 3). Orphans stay in the job, so a helper that outlives its parent program keeps working until the block is deleted, which
+  kills the job. The token is revoked when its block is deleted or its job is empty. The app never writes a token to a file and never logs a token, argv, `--env` or meta value.
+- "Running" for the safety rules (3.3) means the block's main program has not exited (status `init` or `running`). Helpers still alive in the job do not count; deleting a block
+  kills everything still in its job.
+- Exit codes (stable, repeated in the stderr JSON): 0 ok; 1 internal error; 2 usage (bad flag or value, nothing was sent); 3 denied (no token, missing capability, not the owner of a
+  block the caller can see); 4 not found (an id that does not exist OR that the caller may not reach: the two are indistinguishable, same message); 5 refused by a safety rule (running
+  program, own tab, invalid state such as "not in a group"); 6 app not reachable; 7 partial success (only `session start`, `run`, `web open`: something was created and a later step failed; stdout
+  carries the ids with `"status":"partial"` and a `"warning"`, stderr carries the error object).
+- stderr on failure: `{"error":{"code":<exit code>,"kind":"<denied|notfound|refused|usage|partial|internal|unreachable>","message":"<safe text>"}}`. Messages never contain a secret.
 
 ## 2. Object model the verbs see
 workspace > tabs (ordered) > blocks. A tab shows its blocks as tiles; a stack (group) is one tile with several member blocks, one shown.
-Views in use: `term` (a program in a pty), `web`. No other view exists in the native app (his layout: 4 tabs, 30 blocks, 25 term, 5 web: C:\Projects\Personal\MalfestioMaster
-eports\wave-native-his-layout.md).
-Block meta is a small typed map with a fixed key set (section 6). Ids are server-made lower-case uuids.
+Views in use: `term` (a program in a pty), `web`. No other view exists in the native app (his layout: 4 tabs, 30 blocks, 25 term, 5 web: C:\Projects\Personal\MalfestioMaster\reports\wave-native-his-layout.md, counted by the manager from the block list).
+Every block and every tab records `createdby` (the block whose token made it; none when the app or the owner made it). Block meta is a small typed map with a fixed key set (section 6).
 
 ## 3. Rules that apply to every verb
 ### 3.1 Scope
-A token may act on blocks and tabs of its own workspace. Cross-workspace access needs the `crossworkspace` capability. Reading or writing another
-workspace without it is exit 3 and the message does not say whether the id exists. (Today only web reads obey this; send, screen, setmeta, attention and
-the rest are unscoped: appendix part C 7.4.)
-### 3.2 Who may do what to a block or tab (the ownership rule)
-Every block records `createdby` (the block that made it; blocks made by the app or by the owner in the UI have none). Verbs fall in three classes:
-- READ (`session list`, `block list`, `meta get`, `screen`, `web text`, `block shot`): any token, own workspace. Secrets are redacted (4.5).
-- CREATE (`session start`, `run`, `web open`, `tab new`, `group add` of a block the caller made or placed itself): any token, own workspace. A creator may hand
-  on only capabilities it holds itself (3.3). A session may put a new block into any tab or stack of its workspace (this is how pages are shown to him).
-- ACT ON AN EXISTING BLOCK OR TAB (`send`, `block delete`, `session close`, `meta set`, `attention` and `badge` on another block, `group remove|move|add` of another
-  block, `tab rename|move|style`): allowed for the caller's own block, for blocks it created (the `createdby` chain), and for any block with the `admin`
-  capability. Otherwise exit 3. So a normal session cannot type into, delete, close, retitle or restart the manager or another session.
+A token reaches blocks and tabs of its own workspace. Cross-workspace access needs the `crossworkspace` capability. An id outside the caller's reach behaves exactly like an unknown id (exit 4, same message).
+### 3.2 Four classes of verbs
+- LIST (`session list`, `block list`, `meta get`): any token, own workspace. They show names, status, tab order, `session:*` meta and (for blocks the caller owns or created, or with `admin`) `cmd`/`cmd:args`. Never `cmd:env`; `url` redacted (4.5).
+- READ CONTENT (`screen`, `block shot`, `web text`): the caller's own block, blocks it created, or any block with `admin`. Another session's screen can hold pasted credentials; a normal session does not read it.
+- CREATE (`session start`, `run`, `web open`, `tab new`): any token, own workspace. The new block records `createdby`. A creator may give a new block only capabilities it holds itself (3.4). A session may add a block to any tab or stack of its workspace (this is how it shows him a page), but a new stack member is NEVER made the shown member and never takes focus without `focus` (principle 5): a session cannot cover the manager's terminal with a page.
+- ACT ON AN EXISTING BLOCK OR TAB (`send`, `block delete`, `session close`, `meta set`, `attention` and `badge` on another block, `group add|remove|move` involving a block the caller did not create, `tab rename|move|style`, `workspace style`): allowed for the caller's own block, for blocks it created (the `createdby` chain), and for any block with `admin`. Otherwise exit 3. `session close TAB` checks every block in the tab, not only the tab: a block of another session in a tab the caller created is not the caller's to kill. If an ancestor in a `createdby` chain was deleted, the chain stops there: the orphaned child is unowned (admin only); authority never passes up.
+- FOCUS (`tab switch`, `group activate`, any `--focus`, `--activate`): needs `focus`. Exit 3 otherwise.
 ### 3.3 Safety
-- `block delete` and `session close` refuse a block or tab with a program that is not known to be finished (exit 5) unless `--force`. "Unknown status" counts as running (as today). The refusal is decided by the app, not by a flag the client sets.
-- `session close` refuses the caller's own tab (exit 5) even with `--force`; a block may delete itself only with an explicit id and when it has no running program.
+- `block delete` and `session close` refuse a block or tab whose program is not known to be finished (exit 5) unless `--force`. "Unknown status" counts as running. The refusal is decided by the app, not by a flag the client sets.
+- `session close` refuses the caller's own tab (exit 5) even with `--force`; a block may delete itself only with an explicit id and when its program has finished.
 - Closing the last tab of the window is refused (exit 5); the window is never closed by a CLI call.
 ### 3.4 Capabilities
-A block record carries a set of capabilities, fixed in the app's record when the block is made, never writable by `meta set` and never read from block meta:
-`focus` (may move the shown tab or give keyboard focus), `admin` (may act on blocks it did not create), `crossworkspace`, `grant`. A normal session has none.
-They are given only (a) by the app itself to a block it starts from its own config (the `manager` entry of the app's config file, which no CLI verb can edit), or
-(b) at creation by a token that holds `grant`, with `--cap NAME` (repeatable) on `session start` and `run`, limited to capabilities the creator holds. A block
-started with `--restart` keeps its record, so the rights survive an app restart; nothing about it is stored in meta, so `session:id` and every other meta key
-proves nothing. The manager block has `focus`, `admin`, `grant`. Today "only the manager changes focus" lives in Show-InWave.ps1:81-88 and
-Wave-Sessions.ps1:162-168 and ManagerIdentity.ps1 recognises the manager by walking the process tree to the claude command line (ManagerIdentity.ps1:6,129);
-native: the app refuses (exit 3) a focus verb from a token without `focus`, and the identity check is the capability, not a script. The scripts keep the idle
-probe (`He-IsActive`), because "he is typing" is outside the app.
-### 3.5 Output shape
-Every success object has `"status":"ok"`. Creating verbs (`session start`, `run`, `web open`) return `{"tabid","blockid","status"}` (plus `"stackedwith"` for a stack member); `tab new`
-returns `{"tabid","status"}`; the other verbs return the shape shown in section 4 plus `status`. Exit 7 exists only for `session start`, `run` and `web open` (something after the creation
-failed): stdout still carries the ids with `"status":"partial"` and a `"warning"`. A caller that treats every non-zero exit as total failure (Invoke-Wsh in
-Wave-Sessions.ps1:115, Show-InWave.ps1:35, Open-WaveSession.ps1:156) must on exit 7 read the ids from stdout and either close what was made or report it; see section 5.
+Fields of the app's block record, fixed when the block is made, never writable by `meta set`, never read from meta: `focus` (move the shown tab or a stack's shown member; `--focus`), `admin` (act on blocks it did not create, read other blocks' content),
+`crossworkspace`, `grant` (give capabilities at creation with `--cap`). A normal session has none. They are given only (a) by the app to the block it starts from its own config (the `manager` entry of the app's config file, which no CLI verb writes), or (b) at creation by a token that
+holds `grant`, with `--cap focus|admin|crossworkspace` (repeatable), limited to what the creator holds. `grant` itself is never passed on: only the config entry has it. A block started with `--restart` keeps its record, so rights survive an app restart; `session:id` and every other meta key prove nothing.
+`focus` covers showing (tab switch, stack member); keyboard focus is never moved by any verb (D6). The manager block has `focus`, `admin`, `grant`. `wave whoami` (4.14) lets a script ask its own rights instead of guessing.
 
 ## 4. Verbs (the keep list). Callers that exist today are marked with the file:line they are updated in.
 
 ### 4.1 session start
-`wave session start [--name N] [--cwd ABS] [--args-file F | -- CMD ARGS...] [--color C] [--symbol S] [--stack BLOCK] [--activate] [--restart]
-[--meta session:KEY=VALUE]... [--env K=V]... [--cap focus|admin|crossworkspace|grant]...`
-Target convention for the whole CLI: the main object of a verb is positional (a block, or a tab); secondary objects are flags (`--to`, `--from`, `--stack`, `--tab`);
-`--block`/`--tab` flags exist only where the object may be left out (`attention`, `badge`, `tab style`, `run`, `web open`).
-- `--cap` needs `grant` and only the capabilities the caller holds (3.4); without `grant` it is exit 3. The block's rights live in the app's record, not in meta.
-- `--cwd` must be absolute and exist (exit 2). Default: caller's cwd. (Today session start does not check; run makes it absolute.)
+`wave session start [--name N] [--cwd ABS] [--args-file F | -- CMD ARGS...] [--color C] [--symbol S] [--stack BLOCK] [--activate] [--restart] [--meta session:KEY=VALUE]... [--env K=V]... [--cap focus|admin|crossworkspace]...`
+- `--cwd` must be absolute and exist (exit 2). Default: caller's cwd.
 - `--args-file`: UTF-8 JSON array of strings, BOM tolerated (a PowerShell 5.1 BOM breaks the Go parser today). With `--` command too: exit 2.
-- `--name`: at most 60 UTF-16 units, no control, bidi or format characters (today only checked in `--stack` mode). Empty: the app names the tab `T<n>`.
-- `--color` CSS name or #RRGGBB[AA]; `--symbol` a Font Awesome name (`[a-z0-9-]{1,40}`, optional prefix `solid@ regular@ brands@`; the old `custom@` prefix is dropped: the native app has no custom icon set) or at most 2 graphemes / 32 bytes without `<>&"'` backtick backslash. Same rules as `tab style`.
-- `--stack BLOCK`: no new tab; the block joins the stack of BLOCK (same workspace). `--name/--color/--symbol` then go on the block (title, icon colour, icon); without `--stack` they go on the tab. `--activate` with `--stack` is exit 2. `--activate` needs `focus` (else 3).
-- `--restart`: the app starts the same command again at every app start, output kept (sets `cmd:runonstart=true`, `cmd:runonce=false`, `cmd:clearonstart=false`). Refused (exit 5) when the argv contains `--session-id`, or when the command is a shell/interpreter run with an inline-code flag (the list of shells and flags of wshcmd-session.go:171-187 is copied as is: text matching, a best effort, kept because the starter script is the intended path).
-- `--meta`: only `session:KEY` with KEY `[A-Za-z0-9._-]+`, values strings without control characters, no key twice. (Part A 1.)
-- `--env`: KEY=VALUE, empty key refused, a repeated key is exit 2 (not last wins). The program gets ONLY these plus section 1's variables (and the system environment of the app), never the caller's environment.
-- Effects, in this order, all or nothing before step 4: create tab (not shown), set tab style, create the block (the program starts even when the tab is never shown), `--activate`. A failure up to step 3 leaves nothing behind. A failure after the block exists returns exit 7 with the ids.
-- stdout: `{"tabid","blockid","status":"ok"}` or, with `--stack`, `{"tabid","blockid","stackedwith","status":"ok"}`.
-- Callers: Open-WaveSession.ps1:133-156 (flags unchanged), Restore-Sessions.ps1:100-119 (reads `.tabid`, `.blockid`).
+- `--name`: at most 60 UTF-16 units, no characters the `Refuse` predicate names. Empty: the app names the tab `T<n>`.
+- `--color` CSS name or #RRGGBB[AA]; `--symbol` a Font Awesome name (`[a-z0-9-]{1,40}`, optional prefix `solid@ regular@ brands@`; the old `custom@` is dropped) or at most 2 graphemes / 32 bytes without `<>&"'` backtick backslash. Same rules as `tab style`.
+- `--stack BLOCK`: no new tab; the block joins the stack of BLOCK (same workspace), not shown unless `--activate`. `--name/--color/--symbol` then go on the block (title, icon colour, icon); without `--stack` they go on the tab. `--activate` is a FOCUS verb: it needs `focus`.
+- `--restart`: the app starts the same command again at every app start, output kept (the three cmd flags are set to true/false/false). Refused (exit 5) when the argv contains `--session-id`, or when the command is a shell or interpreter run with an inline-code flag (the list of wshcmd-session.go:171-187, text matching, best effort). The `manager` entry of the app config is not subject to this check (the owner wrote it).
+- `--meta`: only `session:KEY`, KEY `[A-Za-z0-9._-]+`, values strings without `Refuse` characters, at most 200 code points, no key twice.
+- `--env`: KEY=VALUE, empty key refused, a repeated key is exit 2. The program gets ONLY these plus section 1's variables and the app's own system environment, never the caller's environment.
+- `--cap`: needs `grant`; else exit 3.
+- Effects, in this order: create tab (not shown), set tab style, create the block (the program starts even when the tab is never shown), `--activate`. A failure before the block exists leaves nothing behind. A failure after returns exit 7 with the ids.
+- stdout: `{"tabid","blockid","status":"ok"}`, with `--stack` also `"stackedwith"`.
+- Callers: Open-WaveSession.ps1:133-156 (flags unchanged), Restore-Sessions.ps1:100-119 only if D5 keeps it.
 
 ### 4.2 session list
-`wave session list [--all]` (needs `crossworkspace` for `--all`). Own workspace by default; today it lists every workspace and every caller filters.
-stdout: array in tab-bar order, `[]` when empty. Element:
-`{"tabid","name","workspaceid","index":<0-based>,"active":<bool>,"color"?,"symbol"?,"running":<bool>,
-"blocks":[{"blockid","view","title"?,"status":"none|running|done","exitcode":<int>,"meta":{"session:id"?,"session:name"?,"session:model"?,"session:effort"?,"session:permissionmode"?}}]}`.
-New fields: `index`, `active` (replaces `api list --json` `activetabid`), `blocks[].meta` (the `session:*` keys, replaces `blocks list --json` for `session:name`).
-`running` is true when any term block is running or starting. `status` is `none|init|running|done` as today (`init` = the program is starting; `none` = no program started in this app run, not "unknown").
-- Callers: Wave-Sessions.ps1:127 and :130 (the `api list` call is deleted; `active` replaces it), HomeTab.Lib.ps1:13, Set-HomeTile.ps1, Show-InWave.ps1, Check-HomeTile.ps1.
+`wave session list [--all]` (`--all` needs `crossworkspace`). Own workspace by default. stdout: array in tab-bar order, `[]` when empty:
+`{"tabid","name","workspaceid","index":<0-based>,"active":<bool>,"color"?,"symbol"?,"running":<bool>,"blocks":[{"blockid","view","title"?,"status":"none|init|running|done","exitcode":<int>,"meta":{"session:id"?,"session:name"?,"session:model"?,"session:effort"?,"session:permissionmode"?}}]}`.
+New fields: `index`, `active` (replaces `api list --json` `activetabid`), `blocks[].meta` (replaces `blocks list --json` for `session:name`). `running` is true when any term block is `init` or `running`; `none` = no program started in this app run.
+Callers: Wave-Sessions.ps1:127 and :130 (the `api list` call is deleted), HomeTab.Lib.ps1:13, Set-HomeTile.ps1, Show-InWave.ps1, Check-HomeTile.ps1.
 
 ### 4.3 session close
-`wave session close TAB [--force]` -> `{"closed":"<tabid>","blocks":<n>}`. Rules 3.2 and 3.3. Exit 5 text names the first unfinished block. Caller: Wave-Sessions.ps1:300-302 (also keeps its own "never own tab" check, now duplicated by the app).
+`wave session close TAB [--force]` -> `{"closed":"<tabid>","blocks":<n>}`. Rules 3.2 (ownership per block) and 3.3. Exit 5 text names the first unfinished block. Caller: Wave-Sessions.ps1:300-302 (it keeps its own "never own tab" check).
 
-### 4.4 tab (new in the CLI surface because "tab create from the CLI" is wanted)
-- `wave tab new [--name N] [--activate]` -> `{"tabid"}`. The tab starts with no blocks. `--activate` needs `focus`. (Today `CreateTab` may add a default layout block even with "empty": appendix part A, quirk 15, to be tested.)
-- `wave tab rename TAB NAME` -> `{"tabid","name"}`; name rules as `--name`.
-- `wave tab switch TAB` -> `{"active":"<tabid>"}`. Needs `focus`. It never raises an OS window and never takes keyboard focus away from a tile the owner is typing in (the app decides that; open item D6). Replaces `api goto --tab` (Wave-Sessions.ps1:270). `--window` and `--block` of `api goto` are cut (no caller).
-- `wave tab move TAB --index N` -> `{"tabid","index"}`; the app moves, it does not rewrite a stored list (today's server overwrites the id list and can drop a tab).
-- `wave tab style [--tab TAB] [--color C] [--accent C] [--symbol S] [--clear]` -> `{"tabid", "color"?, "accent"?, "symbol"?}`. Keys `tab:flagcolor`, `tab:accent`, `tab:symbol`. Rules as part C section 12 (the colour name is stored lower-case, today as typed). `--clear` with another flag is exit 2. No caller today; kept (attention ledger 20261015-C-8a0e4044 via the manager).
-- `tab list` is cut: `session list` is the one listing (it includes tabs without programs). Rehome-Manager.ps1:21 finds the Home tab by `name` in `session list` JSON instead of parsing a text column.
-- `wave workspace style [--accent C | --clear]` -> `{"workspaceid","accent"?}`; own workspace only (no `--workspace` id). No caller; kept per manager.
+### 4.4 tab and workspace
+- `wave tab new [--name N] [--activate]` -> `{"tabid","status":"ok"}`, no blocks in it. `--activate` is a FOCUS verb. (Today `CreateTab` may add a default block even with "empty": appendix part A quirk 15; D7.)
+- `wave tab rename TAB NAME`, `wave tab move TAB --index N` (the app moves; today's server overwrites the id list and can drop a tab), `wave tab style [--tab TAB] [--color C] [--accent C] [--symbol S] [--clear]` (keys `tab:flagcolor`, `tab:accent`, `tab:symbol`; colour names stored lower-case; `--clear` with another flag is exit 2). Stdout is the tab id and the resulting values.
+- `wave tab switch TAB` -> `{"active":"<tabid>"}`. A FOCUS verb. Never raises an OS window and never moves keyboard focus (D6). Replaces `api goto --tab` (Wave-Sessions.ps1:270); `--window` and `--block` are cut.
+- `wave workspace style [--accent C | --clear]` for the caller's own workspace; needs `admin` (it recolours the whole window). No `--workspace` id.
+- `tab list` is cut: `session list` is the one listing. No caller needs `tab style`, `workspace style`, `tab rename`, `tab move` today; kept per the manager (attention ledger 20261015-C-8a0e4044, "tab create from the CLI").
 
 ### 4.5 block list
-`wave block list [--tab TAB] [--view term|web] [--all]` -> array, `[]` when empty, in tab order then layout order:
-`{"blockid","workspaceid","tabid","view","stack"?:"<stackid>","meta":{...}}`.
-`meta` carries the readable keys of section 6, except: `cmd:env` is never printed; `url` is printed without user info, query and fragment (the home tile's entry token lives in the query and today lands in every listing and every log) and the element also carries `"urlhash"`:
-the lower-case hex SHA-256 of the full url as UTF-8, so a caller can still test "is this page already open" by comparing hashes (Show-InWave.ps1:69 compares `meta.url -eq $url` today and would otherwise open a new block for every url that has a query).
-`cmd` and `cmd:args` are printed in full (Health-Check.ps1:343 reads them): the rule for starters is that no secret goes into an argv (the prompt goes in a file, as today).
-`--tab` accepts a full tab id, `tab` or nothing. Scope 3.1. The unknown-view validation list is just `term` and `web`.
-Callers: Health-Check.ps1:324 (reads meta.cmd, meta.cmd:args, meta.cmd:runonstart), HomeTab.Lib.ps1:16 and Show-InWave.ps1:40 (`--view web`, read tabid, blockid, meta.url), Wave-Sessions.ps1:242 (reads meta.session:name), Set-HomeTile.ps1 (meta.web:partition). One change for them all: the verb name (`blocks list --json` -> `block list`; JSON is the only form).
+`wave block list [--tab TAB] [--view term|web] [--url URL] [--all]` -> array, `[]` when empty, tab order then layout order:
+`{"blockid","workspaceid","tabid","view","stack"?:"<stackid>","meta":{...}}`. `meta` carries the readable keys of section 6 except `cmd:env` (never) and `cmd`/`cmd:args` (only for blocks the caller owns or created, or with `admin`).
+`url` is printed without user info, query and fragment (the home tile's entry token lives in the query and today lands in every listing and log). `--url URL` is the equality test the callers need
+(Show-InWave.ps1:69 compares `meta.url -eq $url` today): the app normalises both addresses the same way and returns the blocks whose stored url equals it, so no hash of a secret is exposed.
+Rule for starters: no secret goes into an argv (the prompt goes in a file, as today); `cmd:args` is admin-readable because it holds `session:id` and a resume of another session must not be a call away.
+Callers: Health-Check.ps1:324 (needs admin; scheduled outside a block it SKIPs as today), HomeTab.Lib.ps1:16 and Show-InWave.ps1:40, Wave-Sessions.ps1:242, Set-HomeTile.ps1. One change for them all: the verb name; JSON is the only form.
 
 ### 4.6 block delete
-`wave block delete BLOCK [--force]` -> `{"deleted":"<blockid>"}`. The id is required: today a bare `deleteblock` deletes the calling block. Rules 3.2 and 3.3.
-Callers: Wave-Sessions.ps1:250 (`--force`), Rehome-Manager.ps1:66 (no `--force`; exit 5 is logged as today).
+`wave block delete BLOCK [--force]` -> `{"deleted":"<blockid>"}`. The id is required (today a bare `deleteblock` deletes the calling block). Rules 3.2 and 3.3.
+Callers: Wave-Sessions.ps1:250 (`--force`, the manager has admin).
 
 ### 4.7 meta
-- `wave meta get [BLOCK|TAB] [KEY]...` -> object of the asked keys (all readable keys when none), a missing key is simply absent (exit 4 for an unknown id). No caller today. Own block: `url` is returned in full (the app is the owner of its token), for another block redacted as in 4.5.
-- `wave meta set BLOCK KEY=VALUE...` stores STRING values only. `wave meta set BLOCK --json '{"key":value,...}'` stores typed values (string, null = delete; the table in section 6 says which keys are strings). Both forms: all keys or none; the keys must be the settable ones of section 6 with the right type and rules, else exit 2 and nothing changes. An empty value is a valid empty string; `meta unset BLOCK KEY...` deletes. No `/` nesting, no octal/hex/number coercion, no `prefix:*` pseudo keys, no silently skipped keys. BLOCK is a block id or `this` (meta of tabs and workspaces is written only by `tab style` and `workspace style`; the `cmd:*` keys are not settable at all, see section 6). Rule 3.2 applies: on a block the caller did not create it needs `admin`. Stdout `{"id","set":[keys],"unset":[keys],"status":"ok"}`. Values are never logged.
-- Callers: Show-InWave.ps1:80 (`frame:title` on the block it just created), Set-HomeTile.ps1:76,91-93 (three calls become one `--json` call; the Home tile was not created by the caller, so the caller needs `admin`: open item D2b), Rehome-Manager.ps1:53 (the restart flag is now `run --restart` and the ids are `--json '{"session:id":"...","session:name":"...","session:permissionmode":"auto"}'`, one call, no 3x retry loop for half-applied state).
+- `wave meta get [BLOCK] [KEY]...` -> object of the asked keys (all readable keys when none); a missing key is absent; own block returns `url` in full, any other block redacted as in 4.5. No caller today.
+- `wave meta set BLOCK KEY=VALUE...` stores STRING values. `wave meta set BLOCK --json '{"key":"value",...}'` stores strings or null (= delete). Both: all keys or none; keys must be the settable ones of section 6, else exit 2 and nothing changes. An empty value is a valid empty string; `meta unset BLOCK KEY...` deletes. No `/` nesting, no number or hex coercion, no `prefix:*` pseudo keys, no silently skipped keys. BLOCK is a block id or `this`. Rule 3.2 applies (a block the caller did not create needs `admin`). Stdout `{"id","set":[keys],"unset":[keys]}`.
+- The `cmd:*` keys, `web:partition`, `view`, attention keys and tab/workspace keys are not settable here (section 6).
+- Callers: Show-InWave.ps1:80 is replaced by `web open --title` (no later `meta set`, so a caller never needs rights over a block it reused); Set-HomeTile.ps1:76,91-93 (title and url on the Home tile, which the caller did not create: the manager runs it, or D2b) becomes one `--json` call; Rehome-Manager.ps1 is deleted (section 5).
 
 ### 4.8 run
-`wave run [--tab TAB] [--stack BLOCK] [--cwd ABS] [--env K=V]... [--restart] [--meta session:KEY=VALUE]... [--cap NAME]... [--focus] -- CMD ARGS...` -> `{"tabid","blockid","status"}`.
-No focus by default (today the default takes focus and callers pass `--no-focus`); `--focus` needs `focus`. `--restart`, `--meta`, `--cap` mean exactly what they mean in `session start`
-(4.1), so a block that must survive an app restart and a new manager block are made in one call (today Rehome-Manager.ps1 runs the block first and sets the restart flag in a second call, which would leave a window without rights).
-The command is the argv after `--` only (no `-c` shell string, no scan of the process arguments); the program gets no inherited environment, only section 1's variables and `--env`
-(Rehome-Manager.ps1 must pass any variable it relied on by `--env`; the starter already strips CLAUDE* and STATUS_*: Start-ResumableSession.ps1:284; to be verified in the implementation PR, not assumed).
-Cut: `-m`, `-x`, `-X`, `--delay`, `-p`, `-a`, `--size` (no caller). `--tab` omitted means the caller's own tab (`tab`); a full tab id works in any workspace the token may reach.
-Caller: Rehome-Manager.ps1:29,47-49 (`--tab <uuid> --cwd <dir> --restart --cap focus --cap admin --cap grant -- pwsh ...`; reads `.blockid` instead of stripping text up to `block:`).
+`wave run [--tab TAB] [--stack BLOCK] [--cwd ABS] [--env K=V]... [--restart] [--meta session:KEY=VALUE]... [--cap NAME]... [--title T] [--focus] -- CMD ARGS...` -> `{"tabid","blockid","status"}`.
+`--restart`, `--meta`, `--cap` as in `session start`; `--title` sets `frame:title` (same rules as `--name`); `--focus` is a FOCUS verb. The command is the argv after `--` only; the program gets no inherited environment.
+`--tab` omitted means the caller's own tab (`tab`); a full tab id works in any workspace the token may reach. No other flags (cut: `-m -x -X --delay -p -a -c --size`). A new block in a stack is not made the shown member without `focus`.
+No script calls it once Rehome-Manager.ps1 goes (section 5); kept because `run` is the direct way to start one more program in a given tab (Boot.ps1:68 text).
 
 ### 4.9 group (stacks)
-- `wave group add BLOCK --to BLOCK` -> `{"stack":"<stackid>","members":[blockids]}`; `wave group remove BLOCK` -> `{"unstacked":"<blockid>"}`; `wave group move --from BLOCK --to BLOCK` -> members; `wave group activate BLOCK` -> `{"active":"<blockid>"}`.
-- Same tab only (exit 5 otherwise). All four are applied before returning and fail loudly (exit 5) when the change is not valid ("not in a group", "already in the same group"), without the 100 ms lag of today's stored-layout check. Optional `--focus` on add, remove, move (needs `focus`). `group activate` needs `focus` because it changes what is shown; it never gives keyboard focus (D6).
-- Callers: Show-InWave.ps1:101 (`group activate`), Restore-Sessions.ps1:124 (`group add`; its check of the exit code now also sees a failed change).
+`wave group add BLOCK --to BLOCK` -> `{"stack","members":[...]}`; `wave group remove BLOCK` -> `{"unstacked"}`; `wave group move --from BLOCK --to BLOCK` -> members; `wave group activate BLOCK` -> `{"active"}` (FOCUS verb: it changes what the stack shows).
+Same tab only (exit 5 otherwise). Applied before returning, exit 5 when the change is not valid ("not in a group", "already in the same group"), without today's 100 ms lag. `--focus` on add/remove/move needs `focus`.
+Without `focus`, `add` places the block as a hidden member and leaves the shown member alone. Rule 3.2: `add`/`remove`/`move` of a block the caller did not create needs `admin`.
+Callers: Show-InWave.ps1:101 (`group activate`, manager only), Restore-Sessions.ps1:124 only if D5 keeps it.
 
 ### 4.10 web
-- `wave web open URL [--tab TAB] [--stack BLOCK] [--focus]` -> `{"tabid","blockid"}`. URL must be `http:`, `https:` or `file:`; anything else is exit 2 (no silent web search). The tile is created with its own partition (`persist:<blockid>`), so `web text` can read it and the "shared default store" refusal disappears. Stack and tab rules as `run`. Caller: Show-InWave.ps1:73 (`--stack B --tab T`, no `--no-focus` needed; the before/after listing diff that finds the new block id is deleted).
-- `wave web text BLOCK [--selector CSS] [--max-bytes N]` -> `{"text":"<safe text>","truncated":<bool>}`. Selector at most 512 characters without control characters, matched as a CSS selector by the app (never spliced into code). `--max-bytes` 1..262144, default the cap; the cap counts bytes of the escaped text. Scope 3.1 (a read, any session); the only denial text is "that web tile is not available to this caller" (existence is not revealed). Reads only; it runs no navigation and takes no focus. One authorization check, in the app. Callers: HomeTab.Lib.ps1:46 (reads `.text`; the `2>&1` merge of today's stderr cut note is gone because the note is the `truncated` field), Check-HomeTile.ps1, Set-HomeTile.ps1.
-- Cut: `web get` (hidden, raw, selector spliced into code; no caller), `web reload|back|forward|url|info|shot` (no caller).
+- `wave web open URL [--tab TAB] [--stack BLOCK] [--title T] [--focus]` -> `{"tabid","blockid","status"}`. URL `http:`, `https:` or `file:` only (exit 2 otherwise; no silent web search). The tile gets its own partition (`persist:<blockid>`) so `web text` can read it. `--title` sets `frame:title` at creation, so no later `meta set` is needed. Stack and tab rules as `run`; not made the shown member without `focus`.
+  Caller: Show-InWave.ps1:73 (`--stack B --tab T --title T`; the before/after listing diff that found the new block id is deleted; the "already open" reuse test is `block list --view web --url U`; on reuse the script changes nothing on the block).
+- `wave web text BLOCK [--selector CSS] [--max-bytes N]` -> `{"text":"<safe text>","truncated":<bool>}`. Selector at most 512 characters without control characters, matched by the app as a CSS selector (never spliced into code). `--max-bytes` 1..262144 (default the cap; counts bytes of the escaped text). READ CONTENT class: own, created, or `admin`; the only denial is exit 4 "that web tile is not available to this caller". Reads only; no navigation, no focus.
+  Callers: HomeTab.Lib.ps1:46 (reads `.text`), Check-HomeTile.ps1, Set-HomeTile.ps1 (run by the manager: admin).
+- Cut: `web get`, `web reload|back|forward|url|info|shot`.
 
 ### 4.11 send and screen
-- `wave send BLOCK TOKEN... [--delay MS] [--stdin] [--raw]` -> `{"bytes":N,"chunks":N}`. Tokens: `key:NAME` (name case-insensitive: enter, return, escape, esc, tab, backtab, backspace, delete, insert, space, up, down, left, right, home, end, pageup, pagedown, f1..f12, `ctrl+<a-z>`, `alt+<letter>`), `text:...` or bare text. The prefix `key:` and `text:` are matched case-insensitively. Text with characters the `Refuse` predicate (section 7) names is exit 2 unless `--raw`. `--delay` 0..1000 (default 40), more than 4096 tokens or 64 KiB in one call is exit 2. Delivered in order; on failure the answer says how many chunks were written. Needs the block to be a running terminal (exit 5 otherwise). Never moves focus or the shown tab. Rule 3.2: typing into a block the caller did not create needs `admin` (today any block of any workspace can be typed into).
-  Callers: Start-ResumableSession.ps1:546-547 (`key:Down`, `key:Enter`).
-- `wave screen BLOCK [--last N] [--max-bytes N]` -> `{"lines":["..."],"total":<n>,"truncated":<bool>}`. Visible rows and scrollback of a terminal block, trailing blank lines removed, `--last` 1..10000 (0 = all), `--max-bytes` default 200000 (oldest lines dropped, `truncated` true; no marker line mixed into the text). Control characters are escaped per section 7. Works for any terminal block whether its tab is shown or not (the native terminal model is always alive); a block that is not a terminal is exit 5, an unreadable one is exit 4, never a silent empty answer.
-  Caller: Start-ResumableSession.ps1:535 (`--last 25`; reads `.lines`).
+- `wave send BLOCK TOKEN... [--delay MS] [--stdin] [--raw]` -> `{"bytes":N,"chunks":N}`. Tokens: `key:NAME` (case-insensitive: enter, return, escape, esc, tab, backtab, backspace, delete, insert, space, up, down, left, right, home, end, pageup, pagedown, f1..f12, `ctrl+<a-z>`, `alt+<letter>`), `text:...` or bare text; the prefixes are matched case-insensitively. Text with characters the `Refuse` predicate names is exit 2 unless `--raw`. `--delay` 0..1000 (default 40); more than 4096 tokens or 64 KiB in one call is exit 2. Delivered in order; on failure the error says how many chunks were written. The block must be a running terminal (exit 5). Never moves focus or the shown tab. ACT class: typing into a block the caller did not create needs `admin`.
+  Callers: Start-ResumableSession.ps1:546-547 (own block).
+- `wave screen BLOCK [--last N] [--max-bytes N]` -> `{"lines":[...],"total":<n>,"truncated":<bool>}`. Visible rows and scrollback, trailing blank lines removed, `--last` 1..10000 (0 = all), `--max-bytes` default 200000 (oldest lines dropped; no marker line mixed into the text). Control characters escaped per section 7. Works whether the tab is shown or not; a block that is not a terminal is exit 5; never a silent empty answer. READ CONTENT class.
+  Caller: Start-ResumableSession.ps1:535 (`--last 25`, own block; reads `.lines`).
 
 ### 4.12 block shot (kept: brief wave-background-capture; no script calls it today)
-`wave block shot BLOCK` -> `{"path":"<png>","width":N,"height":N}`. A picture of one terminal or web block, drawn by the app itself, so it works for a tab never shown and moves nothing. The PNGs go to `<data>\shots`; the app keeps the newest 50 there and deletes only its own files in that folder. Scope 3.1. (Today: term blocks only, with a dance that re-parents a hidden tab view; none of that exists natively.)
+`wave block shot BLOCK` -> `{"path":"<png>","width":N,"height":N}`. A picture of one terminal or web block drawn by the app itself, so it works for a tab never shown and moves nothing. PNGs go to `<data>\shots`; the app keeps the newest 50 there and deletes only its own files in that folder. READ CONTENT class.
 
-### 4.13 attention and badge (kept per the manager's answer of 8 Nov 20:43; no script calls them today)
-- `wave attention info|need|urgent --reason TEXT [--block BLOCK]` and `wave attention clear [--block BLOCK] [--only-if-level L --only-if-reason R]` -> `{"block","level","reason"?}`. Rules as today: reason at most 120 code points, no control or hidden characters, required for need and urgent; stored as block meta `attention:level`, `attention:reason` (survives a restart); need and urgent clear themselves when the owner has the tile in focus (500 ms after focus arrives, 3000 ms if it was already there); `--only-if-*` is the compare-and-clear the app uses itself. Scope 3.1.
-- `wave badge [ICON] [--color C] [--priority P] [--block BLOCK | --tab TAB]` and `wave badge --clear [...]` -> `{"applied":<bool>,"reason"?:"lower priority"}` (today it prints "badge set" even when the store ignored it). The icon is a Font Awesome name or short text (validated as the tab symbol), the colour as `--color` of tab style. Badges are persistent like attention (today memory only). `--pid` and `--beep` are cut.
+### 4.13 attention and badge (kept per the manager, 8 Nov 20:43; no script calls them today; behaviour copied from the old product and to be re-confirmed in gate 3, not required by any caller)
+- `wave attention info|need|urgent --reason TEXT [--block BLOCK]` and `wave attention clear [--block BLOCK] [--only-if-level L --only-if-reason R]` -> `{"block","level","reason"?}`. Reason at most 120 code points, no `Refuse` characters, required for need and urgent; stored as `attention:level`, `attention:reason` (survives a restart); need and urgent clear themselves when the owner has the tile in focus (500 ms after focus arrives, 3000 ms if it was already there). ACT class: another block's mark needs `admin`.
+- `wave badge [ICON] [--color C] [--priority P] [--block BLOCK | --tab TAB]` and `wave badge --clear [...]` -> `{"applied":<bool>,"reason"?:"lower priority"}`. Icon validated as a tab symbol, colour as `--color` of tab style. Persistent (today memory only). ACT class. `--pid` and `--beep` are cut.
+
+### 4.14 whoami
+`wave whoami` -> `{"blockid","tabid","workspaceid","caps":["focus"?,"admin"?,"crossworkspace"?,"grant"?]}`. Own record only. Lets Show-InWave.ps1 decide whether to call `group activate` (it replaces `Test-CallerIsManager`, whose process-tree walk to the claude command line, ManagerIdentity.ps1:6,129, is deleted).
 
 ## 5. What each caller must change (the list the implementation PR works through)
 | Caller (file:line) | Today | Native |
 |---|---|---|
 | Wave-Sessions.ps1:127 | `wsh session list`, filter workspaceid, array order | `wave session list` (own workspace already), same fields, plus `active`, `index` |
 | Wave-Sessions.ps1:130 | `wsh api list --json` for `activetabid` | deleted; `.active` of the list |
-| Wave-Sessions.ps1:242, :250 | `blocks list --json`; `deleteblock -b ID --force` | `wave block list`; `wave block delete ID --force` |
-| Wave-Sessions.ps1:270 | `api goto --tab T` | `wave tab switch T` (manager token has `focus`) |
+| Wave-Sessions.ps1:242, :250 | `blocks list --json`; `deleteblock -b ID --force` | `wave block list`; `wave block delete ID --force` (manager: admin) |
+| Wave-Sessions.ps1:270 | `api goto --tab T` | `wave tab switch T` (manager: focus) |
 | Wave-Sessions.ps1:300 | `session close T [--force]` | `wave session close T [--force]` |
-| Open-WaveSession.ps1:133-156 | `session start ...` flags | same flags; reads JSON `.tabid .blockid .status`; `--cwd` absolute |
-| Restore-Sessions.ps1:100-126 (only if D5 keeps the script; default: dropped) | `session start --restart ...`, `group add -b B --to A` | `wave session start ...`, `wave group add B --to A` |
+| Open-WaveSession.ps1:133-156 | `session start ...` flags | same flags; reads JSON `.tabid .blockid .status`; `--cwd` absolute; line 46 comment and help: `-Stack` takes a block id only (numbers are cut) |
+| Restore-Sessions.ps1:100-126 and Test-RestoreSessions.ps1 (only if D5 keeps them; default: both deleted together with `wave-state.json`) | `session start --restart ...`, `group add -b B --to A` | `wave session start ...`, `wave group add B --to A` |
 | Start-ResumableSession.ps1:335, :535, :546-547 | SwapVariables list, `wsh.exe token`, `screen`, `send` | WAVE_* variables, no token exchange, `wave screen ... .lines`, `wave send` |
-| Show-InWave.ps1:40, :73, :80, :101 | `blocks list`, `web open ... --no-focus --stack --tab`, `setmeta frame:title`, `group activate -b` | `block list --view web`, `web open URL --stack B --tab T` (id in the answer), `meta set B frame:title=T`, `group activate B` |
+| Start-ResumableSession.ps1:25, :158-166, :294-310, :311-480, :478-479, :526, :531 | `WshRoot` default, `Resolve-WshFolder`, `$SwapCodes`, WAVETERM_WSHBINDIR on PATH, the whole swap-token exchange and its notes, the gate on WAVETERM_BLOCKID and WAVETERM_JWT, a thread job starting `wsh.exe` with `-b $block` | deleted or shrunk: the app puts `wave.exe` on PATH (WAVE_BIN) and starts the program with WAVE_* set; the gate is on WAVE_TOKEN; the trust watcher finds `wave.exe` through WAVE_BIN and passes BLOCK positionally; the starter's own tests lose the swap cases |
+| Open-WaveSession.ps1:71 | refuses a starter whose text lacks `WAVETERM_WSHBINDIR` | check removed or changed to the new marker |
+| Show-InWave.ps1:40, :69-80, :73, :84-101 | `blocks list --view=web --json`, `$_.meta.url -eq $url`, `setmeta frame:title`, `web open ... --no-focus --stack --tab`, `group activate -b` after `Test-CallerIsManager` | `block list --view web --url U` for the reuse test; `web open URL --stack B --tab T --title T` (id in the answer, no listing diff, no later `meta set`); `group activate B` only when `wave whoami` lists `focus` (then the idle probe as today) |
 | HomeTab.Lib.ps1:13,16,46 | `session list`, `blocks list --view=web --json`, `web text -b ID --selector '#line'` | `session list`, `block list --view web`, `web text ID --selector '#line'` reads `.text` |
-| Set-HomeTile.ps1:76,91-93 | three `setmeta` calls (title, partition, url with token) | one `meta set B --json {...}` (partition is automatic for new tiles) |
-| Check-HomeTile.ps1, Health-Check.ps1:324 | via HomeTab.Lib, `blocks list --json` | `block list` (`meta.cmd`, `meta.cmd:args`, `meta.cmd:runonstart` unchanged) |
-| Rehome-Manager.ps1:21,29,47-53,66 | `tab list` text column parse, `run --tab --no-focus`, text parse of `block:<uuid>`, three `setmeta` args, `deleteblock` | `session list` by name, `run --tab` JSON `.blockid`, one `meta set --json`, `block delete` |
-| hooks-draft never-rules.ps1:307 | allow-list regex of wsh read verbs | allow-list of `wave screen`, `wave web text`, `wave block shot`, `wave block list`, `wave session list` as reads; every other verb as a write |
-| Test-WaveSessions.ps1, Test-ShowInWave.ps1, Test-SetHomeTile.ps1, Test-RehomeManager.ps1, Test-CheckHomeTile.ps1, Test-RestoreSessions.ps1 | stand-ins named `wsh`, asserting argument strings | stand-ins for `wave`, asserting the new argument strings (their allow-lists already pin "no `--focus` on activate", "one key per setmeta", which change) |
-| wave-sessions skill, CLAUDE.md (about lines 361 and 460), boot text of Boot.ps1:68 | `wsh send/screen/blocks list/deleteblock`, `wsh run --tab`, "wsh needs a block token" stopgap text | the new verbs and WAVE_TOKEN |
-| Start-ResumableSession.ps1:25, :158-166, :294-310, :311-480, :478-479, :526, :531 | `WshRoot` default under WaveFork\profile\data\bin, `Resolve-WshFolder`, `$SwapCodes` (wsh-folder, wsh-missing, no-access), WAVETERM_WSHBINDIR on PATH, the whole swap-token exchange and its notes, the gate on WAVETERM_BLOCKID and WAVETERM_JWT, a thread job that starts `wsh.exe` with `-b $block` | all of that is deleted or shrinks: the app puts `wave.exe` on PATH (WAVE_BIN) and starts the program with WAVE_* set, so there is no folder to resolve and no exchange; the gate is on WAVE_TOKEN; the trust watcher finds `wave.exe` through WAVE_BIN and passes BLOCK positionally; the starter's own tests lose the swap cases |
-| Open-WaveSession.ps1:71 | refuses a starter whose text lacks the string `WAVETERM_WSHBINDIR` | check removed or changed to the new marker (otherwise it rejects the new starter) |
-| Environment variable renames, every reader | WAVETERM_JWT, WAVETERM_BLOCKID, WAVETERM_TABID, WAVETERM_WORKSPACEID: Wave-Sessions.ps1:96,99,242,246,276-282; Show-InWave.ps1:28,54; Set-HomeTile.ps1:31,51; Check-HomeTile.ps1:14,20; Rehome-Manager.ps1:10,19; the `-Wsh` default of Wave-Sessions.ps1 and the `SHOW_IN_WAVE_TEST_WSH`, `SET_HOME_TILE_TEST_WSH`, `CHECK_HOME_TILE_TEST_WSH` seams | WAVE_TOKEN (was JWT), WAVE_BLOCK, WAVE_TAB, WAVE_WORKSPACE (if D1 keeps the old names, this row is empty); the text of the "outside a block" exit (exit 2 today, scripts keep their own check) changes |
-| Launcher variables WAVETERM_DATA_HOME, WAVETERM_CONFIG_HOME (Boot.ps1:38, Get-WaveLauncher.ps1:28-33) and the launcher WaveFork.exe | read/set to find and start the old app | not part of this contract (the native app has its own data folder and launcher); listed so the implementation PR does not forget them |
-| hooks-draft\never-rules\never-rules.ps1:182-330 (not only :307) and never-rules-wave-quiet.test.ps1:9-13,92-95 | keyed on the word `wsh`; treats `--no-focus` as the "background open" test (:187,296-305), `WAVE_WHILE_ACTIVE=1` (:193,302), the help form (:309), and `setmeta ... url=|file=|cmd=|--json` as not a read (:307) | rewritten, not just re-listed: match the word `wave` (far more common than `wsh`, so match `wave` only as the program name of a command); the focus default is inverted (no flag = background; `--focus`, `--activate`, `tab switch`, `group activate` are the focus changers); reads = `session list`, `block list`, `meta get`, `screen`, `web text`, `block shot`; everything else is a write; `meta set` is a write whatever the key; the test file's cases (`wsh term`, `createblock`) are replaced |
-| Check-Seams.ps1, seams-expected.txt (Go source greps at :66-125), Update-FromUpstream.ps1:194-195 (`go test ./cmd/wsh/...`) | guard the Go fork against upstream updates | deleted with the Go tool (the native app has no upstream to replay) |
-| Health-Check.ps1:324 (scheduled, outside any block) | runs `wsh blocks list` with no token and SKIPs with "wsh missing" | the SKIP text says the CLI or token is missing; behaviour (SKIP, not fail) unchanged |
-| Exit 7 handling: Invoke-Wsh in Wave-Sessions.ps1:115, Show-InWave.ps1:35, Open-WaveSession.ps1:156 | any non-zero exit is a total failure | on exit 7 read `tabid`/`blockid` from stdout and close the leftover or report them |
+| Set-HomeTile.ps1:76,91-93 | three `setmeta` calls (title, partition, url with token) | one `meta set B --json {...}` for title and url (partition is automatic for new tiles; an existing tile's partition is already `persist:<blockid>`); run by the manager (`admin`) |
+| Check-HomeTile.ps1, Health-Check.ps1:324 | via HomeTab.Lib, `blocks list --json` | `block list` (`meta.cmd`, `meta.cmd:args`, `meta.cmd:runonstart` read-only as before; needs `admin` for other blocks' cmd; scheduled outside a block it SKIPs, the SKIP text says the CLI or token is missing) |
+| Rehome-Manager.ps1 and Test-RehomeManager.ps1 | puts the manager into a restart-proof block in the Home tab: `tab list` text parse, `run --tab --no-focus` with `pwsh -Command`, three `setmeta` calls, `deleteblock` of the old block, a hidden helper that outlives the old session | DELETED. Its purpose is the app's `manager` config entry (3.4, D3): the app starts the manager in the Home tab at every launch with `focus`, `admin`, `grant`, and restart-at-start is inherent to that entry (so the inline `-Command` refusal of 4.1 does not apply). There is no old block to delete and no helper outliving its parent. The one-time move of the running manager into that entry is a manual step for the owner or the manager. |
+| hooks-draft\never-rules\never-rules.ps1:182-330 and never-rules-wave-quiet.test.ps1:9-13,92-95 | keyed on the word `wsh`; `--no-focus` as the "background open" test (:187,296-305), `WAVE_WHILE_ACTIVE=1` (:193,302), the help form (:309), `setmeta ... url=|file=|cmd=|--json` as not a read (:307) | rewritten: match `wave` only as a command name; the focus default is inverted (no flag = background; `--focus`, `--activate`, `tab switch`, `group activate` are the focus changers); reads = `session list`, `block list`, `meta get`, `whoami`, `screen`, `web text`, `block shot`; everything else is a write; `meta set` is a write whatever the key; the test cases (`wsh term`, `createblock`) are replaced |
+| Environment renames, every reader | WAVETERM_JWT, WAVETERM_BLOCKID, WAVETERM_TABID, WAVETERM_WORKSPACEID: Wave-Sessions.ps1:96,99,242,246,276-282; Show-InWave.ps1:28,54; Set-HomeTile.ps1:31,51; Check-HomeTile.ps1:14,20; the `-Wsh` default of Wave-Sessions.ps1 and the `SHOW_IN_WAVE_TEST_WSH`, `SET_HOME_TILE_TEST_WSH`, `CHECK_HOME_TILE_TEST_WSH` seams | WAVE_TOKEN (was JWT), WAVE_BLOCK, WAVE_TAB, WAVE_WORKSPACE; the seams are renamed `*_TEST_WAVE` |
+| Exit 7 and stream handling: Invoke-Wsh in Wave-Sessions.ps1:114-115, Show-InWave.ps1:34-35, Open-WaveSession.ps1:156 | merge stderr into stdout (`2>&1`); any non-zero exit is a total failure | keep stdout and stderr apart; on exit 7 read `tabid`/`blockid` from stdout and close the leftover or report it |
+| Test-WaveSessions.ps1, Test-ShowInWave.ps1, Test-SetHomeTile.ps1, Test-CheckHomeTile.ps1 | stand-ins named `wsh`, asserting argument strings | stand-ins for `wave`, asserting the new strings (their allow-lists pin "no `--focus` on activate", "one key per setmeta", which change) |
+| wave-sessions skill (lines 18, 26, 34), CLAUDE.md (about lines 361 and 460), Boot.ps1:68 text | `wsh send/screen/blocks list/deleteblock`, `wsh run --tab`, "wsh needs a block token" stopgap text | the new verbs and WAVE_TOKEN |
+| Check-Seams.ps1, seams-expected.txt (Go source greps at :66-125), Update-FromUpstream.ps1:194-195 (`go test ./cmd/wsh/...`) | guard the Go fork against upstream updates | deleted with the Go tool |
+| Launcher variables WAVETERM_DATA_HOME, WAVETERM_CONFIG_HOME (Boot.ps1:38, Get-WaveLauncher.ps1:28-33) and WaveFork.exe | find and start the old app | not part of this contract (the native app has its own data folder and launcher); listed so the implementation PR does not forget them |
 
 ## 6. Meta keys the app accepts (anything else is exit 2)
 | key | on | type | rule |
 |---|---|---|---|
-| `view` | block | string | `term` or `web`; set by the app, not by `meta set` |
-| `cmd`, `cmd:args`, `cmd:cwd` | block | string, string[], string | set by `session start` and `run` only; not settable by `meta set` (a session could otherwise rewrite another session's command) |
-| `cmd:runonstart`, `cmd:runonce`, `cmd:clearonstart` | block | bool | set only by `--restart` at creation (the triple true/false/false of 4.1); not settable by `meta set` (a lone `cmd:runonstart=true` with `cmd:runonce=true` gives a block that does not restart: appendix part B section 8) |
+| `view` | block | string | `term` or `web`; set by the app |
+| `cmd`, `cmd:args`, `cmd:cwd` | block | string, string[], string | set by `session start`, `run` and the config entry only; not settable by `meta set` |
+| `cmd:runonstart`, `cmd:runonce`, `cmd:clearonstart` | block | bool | set only by `--restart` at creation (true/false/false); not settable by `meta set` (a lone `cmd:runonstart=true` with `cmd:runonce=true` does not restart: appendix part B section 8) |
 | `cmd:env` | block | object of strings | write-only: never listed or returned |
 | `url` | block (web) | string | `http:` `https:` `file:` only; setting it navigates the live tile |
-| `web:partition` | block (web) | string | set by the app at creation; read-only afterwards (today `Set-HomeTile` writes `persist:<blockid>`, which is now the only possible value) |
-| `frame:title` | block | string | at most 200 code points, safe text |
-| `frame:icon`, `icon` | block | string | Font Awesome name or short text, as tab symbol |
+| `web:partition` | block (web) | string | set by the app at creation to `persist:<blockid>`; read-only |
+| `frame:title` | block | string | at most 200 code points, input rule of section 7 |
+| `frame:icon` | block | string | Font Awesome name or short text, as tab symbol (one key; the old `icon` is dropped) |
 | `icon:color`, `frame:bordercolor` | block | string | CSS name or #RRGGBB[AA] |
-| `session:id`, `session:name`, `session:model`, `session:effort`, `session:permissionmode` | block | string | `session:KEY`, KEY `[A-Za-z0-9._-]+`, no control characters, at most 200 code points; further `session:*` keys allowed |
+| `session:id`, `session:name`, `session:model`, `session:effort`, `session:permissionmode`, further `session:KEY` | block | string | KEY `[A-Za-z0-9._-]+`, no `Refuse` characters, at most 200 code points |
 | `attention:level`, `attention:reason` | block | string | by the `attention` verb only |
 | `tab:flagcolor`, `tab:accent`, `tab:symbol` | tab | string | by `tab style` only |
 | `ws:accent` | workspace | string | by `workspace style` only |
-Settable by `meta set` (block, rule 3.2): `url` (web blocks), `frame:title`, `frame:icon`, `icon`, `icon:color`, `frame:bordercolor`, `session:*`. Everything else in the table is written by its own verb or by the app.
-Not accepted: `slot`, `display:*`, `ai:*`, `term:*` and every other key of the old product. `session:*` and `cmd:*` keys on a tab or workspace are exit 2.
-Capabilities (`focus`, `admin`, `crossworkspace`, `grant`) and `createdby` are not meta: they are fields of the app's block record that no verb can write after creation (3.4).
+Settable by `meta set` (block, rule 3.2): `url` (web blocks), `frame:title`, `frame:icon`, `icon:color`, `frame:bordercolor`, `session:*`. Everything else is written by its own verb or by the app.
+Not accepted: `slot`, `display:*`, `ai:*`, `term:*`, `icon` and every other key of the old product. `session:*` and `cmd:*` on a tab or workspace are exit 2.
+Capabilities, `createdby` and the token are not meta: they are fields of the app's record that no verb can write after creation (3.4).
 
-## 7. Text safety (one rule)
-`Unsafe(r)` = Unicode category Cc, Cf, Zl, Zp, U+FFFD, a variation selector, or Other_Default_Ignorable_Code_Point. Any text the app prints that came from a page,
-a program or another session (web text, screen lines, titles, urls, error messages built from such text) has every unsafe rune replaced by `<U+XXXX>`
-(upper-case hex, at least 4 digits); `\n` and `\t` pass in `web text` and `screen`. JSON string escaping applies on top. This replaces five predicates and
-three escape formats (`<U+XXXX>`, `\xNN`/`\uNNNN`, `?`) of today.
-Input that must be refused rather than escaped (names, reasons, symbols, `send` text without `--raw`) uses a second, narrower predicate `Refuse(r)` = Cc, Zl, Zp, and Cf except
-U+200D (zero width joiner) and U+FE0E/U+FE0F (variation selectors) when they sit inside an emoji sequence, so that `send` can type an emoji and a symbol can be one. Bidi control characters
-(U+202A-202E, U+2066-2069) are always refused. Output escaping keeps the wider `Unsafe` predicate: the two are deliberately different (what the app prints must be stricter than what it accepts).
+## 7. Text safety (two rules)
+Output: `Unsafe(r)` = Unicode category Cc, Cf, Zl, Zp, U+FFFD, a variation selector, or Other_Default_Ignorable_Code_Point. Any text the app prints that came from a page, a program or another session (web text, screen lines, titles, urls, error messages built from such text) has every unsafe rune replaced by `<U+XXXX>` (upper-case hex, at least 4 digits); `\n` and `\t` pass in `web text` and `screen`. JSON string escaping applies on top.
+Input: `Refuse(r)` = Cc, Zl, Zp, bidi controls (U+202A-202E, U+2066-2069), and Cf except U+200D (zero width joiner) and U+FE0E/U+FE0F (variation selectors) inside an emoji sequence, so that `send` can type an emoji and a symbol can be one. Refused input is exit 2 (names, reasons, symbols, titles, `send` text without `--raw`).
+The two predicates differ on purpose: what the app prints must be stricter than what it accepts. They replace five predicates and three escape formats (`<U+XXXX>`, `\xNN`/`\uNNNN`, `?`) of today.
 
-## 8. Cut list of the CLI (no caller found, or replaced), with who confirmed it
-Rule: the CLI has exactly the verbs of section 4. Every other verb of the Go tool is cut, including those named below and the ones not named (`term`, `focusblock`, `setconfig`, `editconfig`, `view`, `ai`, `file`, `ssh`, `wsl`, `conn`, `secret`, `getvar`, `setvar`, `launch`, `notify`, `setbg`, `tab close` (it is `session close`), and the rest).
-Cut: `slot *`, `--size`, `web get`, `web reload|back|forward|url|info|shot`, `api focus`, `api goto --window --block --workspace`, `api list` (replaced by `session list`),
-`tab list` (replaced), `createblock` (replaced by `run` and `web open`), `getmeta`'s ref grammar, `stack move` (is `group move`), `token`, `termscrollback`, `badge --pid --beep`, `run -m -x -X --delay -p -a -c`, telemetry activity calls, the local HTTP-over-socket API (`wave-api.sock`: no outside caller found), `blocks list` table output.
-Confirmed by the manager 8 Nov 20:43: keep attention, badge, tab and workspace style; cut slot, --size, web reload/back/forward/url/info/shot, api focus (unless this gate finds a caller: it found none).
+## 8. Cut list of the CLI
+Rule: the CLI has exactly the verbs of section 4. Every other verb of the Go tool is cut, named or not (`term`, `focusblock`, `setconfig`, `editconfig`, `view`, `ai`, `file`, `ssh`, `wsl`, `conn`, `secret`, `getvar`, `setvar`, `launch`, `notify`, `setbg`, `tab close` (it is `session close`), and the rest).
+Cut with evidence "no caller found in MalfestioMaster\tools and the fork's tools\ours" (Tether, Atlas and the broker repositories were not searched: gate 3 greps them before the code is deleted): `slot *`, `--size`, `web get`, `web reload|back|forward|url|info|shot`, `api focus`, `api goto --window --block --workspace`, `api list` (replaced by `session list`), `tab list` (replaced), `createblock` (replaced by `run` and `web open`), `stack move` (is `group move`), `token`, `termscrollback`, `badge --pid --beep`, `run -m -x -X --delay -p -a -c`, the local HTTP-over-socket API (`wave-api.sock`), telemetry activity calls, `blocks list` table output, the `icon` meta key.
+Confirmed by the manager 8 Nov 20:43: keep attention, badge, tab and workspace style; cut slot, --size, web reload/back/forward/url/info/shot and api focus.
 
-## 9. Open items (each has a default; none blocks the draft)
-- D1 Environment names: default rename to `WAVE_*` (section 1), all callers in the same piece. Alternative: keep `WAVETERM_*` to touch fewer lines. Decision needed before the implementation, not before the review.
-- D2 Scope: default same workspace for every verb. The manager block holds `admin` and not `crossworkspace` unless a caller needs `--all`: no current caller does (they filter on their own workspace id, Wave-Sessions.ps1:12,99, which suggests one workspace for manager and sessions; not proven).
-- D2b Which sessions need `admin` beyond the manager: Set-HomeTile.ps1 and Check-HomeTile.ps1 write meta on the Home tile, which they did not create. Default: the manager runs them. If the Tether agent or another session runs them, it needs `admin` (or the Home tile is created by that session). Not decided: who runs Set-HomeTile.ps1 was not read.
-- D3 How the manager block first gets `focus`, `admin`, `grant`: default the `manager` entry of the app's config file (owner-edited, no CLI verb writes it) names the command the app starts at launch with those rights, plus `--cap` at creation by a `grant` holder (Rehome-Manager.ps1). A human action in the app UI ("make this block the manager") is the fallback for the very first start. Proof of identity must never be something a caller can supply (meta, name, environment): that is why `session:id` and all meta are excluded (3.4). The exact config shape is not designed here.
-- D4 Closing the last tab: default refuse (exit 5).
-- D5 (the table row of Restore-Sessions.ps1 depends on this) `Restore-Sessions.ps1` reads `wave-state.json` (a sessions index written 300 ms after any change). With restart-at-start native and `session list` available, its purpose is mostly covered; default: drop the state file and the script unless a recovery case is named.
-- D6 Focus semantics of `group activate` and `tab switch`: today's code says layout changes never take keyboard focus, but Show-InWave.ps1:5-11,89-90 records that `group activate` moved keyboard focus into the web view while he was typing (appendix part B, section 5; the frontend was not read to resolve it). Native default: `activate` and `switch` never move keyboard focus; they change what is shown only. To be tested in the app, not decided here.
+## 9. Design decisions in this document that are NOT facts from the extraction
+The Job Object binding and its limits; capabilities, `createdby` and the four verb classes; the `manager` config entry; deleting Rehome-Manager.ps1 and Restore-Sessions.ps1; `WAVE_*` names; `whoami`; `--url` and `--title`; hidden new stack members; exit codes 3/4/5/7; "block delete kills the job"; "the native terminal model is always alive"; the `Unsafe`/`Refuse` split; the 500/3000 ms attention timings (copied from the old product); `block shot` pruning; and every default in section 10. The extraction supports the "today" descriptions only.
+
+## 10. Open items (each has a default; the manager decides)
+- D2 Scope: same workspace for every verb; the manager holds `admin`, not `crossworkspace`. No current caller needs `--all` (callers filter on their own workspace id, Wave-Sessions.ps1:12,99, which suggests one workspace for manager and sessions; not proven).
+- D2b Who runs Set-HomeTile.ps1 and Check-HomeTile.ps1 (they write or read the Home tile, which they did not create): default the manager (admin). If the Tether agent or another session runs them it needs `admin`, or it creates the Home tile itself. Not read: who runs them.
+- D3 The `manager` config entry: the command the app starts at launch in the Home tab with `focus`, `admin`, `grant`. The exact config shape is not designed here. A UI action ("make this block the manager") is the fallback for the first start. Proof of identity must never be something a caller can supply.
+- D4 Closing the last tab: refuse (exit 5).
+- D5 `Restore-Sessions.ps1` reads `wave-state.json` (written 300 ms after any change). With restart-at-start native and `session list`, its purpose is mostly covered: default drop the state file, the script and its test.
+- D6 Focus semantics of `group activate` and `tab switch`: today's code says layout changes never take keyboard focus, but Show-InWave.ps1:5-11,89-90 records that `group activate` moved keyboard focus into the web view while he was typing (appendix part B section 5; the frontend was not read). Native default: they change what is shown only and never move keyboard focus. To be tested in the app.
 - D7 Is the first tab of a new window empty or does it get a default block? Default: empty (appendix quirk 15).
-- D8 `block shot` pruning to the newest 50 deletes only the app's own files; the alternative is no pruning. Default: prune.
-- D9 The 8-char id prefix: cut. If a human uses it by hand at a prompt, say so.
+- D8 `block shot` pruning of the app's own folder to the newest 50: default prune.
+- D9 The 8-char id prefix and numeric block numbers: cut. Say so if a human uses them at a prompt.
+- D10 The boundary against hostile code of the same Windows user (section 1): default accept the residual risk (the sessions are our own Claude sessions); options are a separate Windows account for sessions or a per-process secret through an app-created handle.
 
-## 10. How this is checked (what gate 3 must run before anything is called done)
-1. A stub host (the CLI against a fake in-memory app) with one test per verb and per exit code in section 1, each asserting exact stdout JSON and stderr JSON. Red: any caller of section 5 has a verb or field with no test.
-2. Each caller of section 5 run against the stub with its Test-* stand-in replaced by the real CLI (the stand-ins' allow-lists updated).
-3. A table-driven test of section 6 (every accepted key and one refused value per rule) and of section 7 (each unsafe class, `\n`, `\t`).
-4. Against the real app (gate 3 and 4): each rule of section 3 with two tokens, one with and one without the capability or scope, including "no keyboard focus moved" for the focus verbs while a test tile is being typed into.
+## 11. How this is checked (what gate 3 must run before anything is called done)
+1. A stub host (the CLI against an in-memory fake app) with one test per verb and per exit code of section 1, each asserting exact stdout JSON and stderr JSON. Red: any caller of section 5 has a verb or field with no test.
+2. Each caller of section 5 run against the stub with its Test-* stand-in replaced by the real CLI (allow-lists updated), including exit 7 and the keep-streams-apart rule.
+3. Table-driven tests of section 6 (every settable key and one refused value per rule) and section 7 (each unsafe class, each refused class, `\n`, `\t`, an emoji with U+FE0F in `send` text).
+4. Ownership tests of 3.2 with three tokens (a manager with admin and focus, a session, a second session): every ACT, READ CONTENT and FOCUS verb as allowed and refused, `session close` of a tab holding another session's block, a chain with a deleted ancestor, a `--cap` beyond the creator's rights, `--cap grant`.
+5. Against the real app (gates 3 and 4): the Job Object check (a token used from a process outside the job is refused; an orphan inside the job works), a new stack member added by a session is hidden, "no keyboard focus moved" for the focus verbs while a test tile is typed into.
+6. Before code is deleted: grep Tether, Atlas, AI-tools and the broker repositories for the verbs, WAVETERM_* names, `wave-api.sock`.
 
 ## Appendix (today's behaviour, from the Go source)
 `parts/today-sessions-tabs-run.md`, `parts/today-blocks-meta-groups-api.md`, `parts/today-web-send-screen-identity.md`: the three extraction passes, unedited. Each claim has file:line; "not read" lists are at the end of each file.

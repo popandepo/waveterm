@@ -67,7 +67,7 @@ public sealed partial class VerbTests
     public void Session_list_tab_object_has_exactly_the_contract_fields_and_omits_unset_color_and_symbol()
     {
         var t = SList(w.S1)[2]!;
-        Keys(t, "tabid", "name", "workspaceid", "index", "active", "running", "blocks");
+        Keys(t, "tabid", "name", "workspaceid", "index", "active", "running", "unfinished", "blocks");
         Assert.Equal(w.Projects.Id, Str(t["tabid"]));
         Assert.Equal(w.Ws.Id, Str(t["workspaceid"]));
         Assert.Equal(JsonValueKind.Number, t["index"]!.GetValueKind());
@@ -79,7 +79,7 @@ public sealed partial class VerbTests
     public void Session_list_block_object_has_blockid_view_title_status_exitcode_meta_and_no_cmd()
     {
         var b = STab(w.S1, w.Projects.Id)["blocks"]![0]!;
-        Keys(b, "blockid", "view", "title", "status", "exitcode", "meta");
+        Keys(b, "blockid", "view", "title", "status", "exitcode", "unfinished", "meta");
         Assert.Equal(w.S1.Id, Str(b["blockid"]));
         Assert.Equal("term", Str(b["view"]));
         Assert.Equal("s1", Str(b["title"]));

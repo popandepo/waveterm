@@ -20,6 +20,7 @@ public sealed partial class ContractHost
                 var t = w.Tabs[i];
                 var bl = new JsonArray();
                 bool running = false;
+                bool unfinished = false;
                 foreach (var id in t.BlockIds)
                 {
                     var b = blocks[id];
@@ -29,9 +30,11 @@ public sealed partial class ContractHost
                     if (b.Title != null) o["title"] = TextSafety.Escape(b.Title, false);
                     o["status"] = b.View == "term" ? b.Status : Status.None;
                     o["exitcode"] = b.ExitCode;
+                    o["unfinished"] = Unfinished(b);
                     o["meta"] = meta;
                     bl.Add(o);
                     running |= b.View == "term" && b.IsRunning;
+                    unfinished |= Unfinished(b);
                 }
                 var tabObj = new JsonObject
                 {
@@ -41,6 +44,7 @@ public sealed partial class ContractHost
                 if (t.Color != null) tabObj["color"] = t.Color;
                 if (t.Symbol != null) tabObj["symbol"] = t.Symbol;
                 tabObj["running"] = running;
+                tabObj["unfinished"] = unfinished;
                 tabObj["blocks"] = bl;
                 rtn.Add(tabObj);
             }

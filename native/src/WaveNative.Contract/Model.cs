@@ -110,10 +110,11 @@ public sealed class ManagerConfig
     public Dictionary<string, string> Env { get; set; } = new();
     public List<string> Caps { get; set; } = new() { WaveNative.Contract.Caps.Focus, WaveNative.Contract.Caps.Admin, WaveNative.Contract.Caps.Grant };
     public Dictionary<string, string> Session { get; set; } = new();
+    public List<string> Tabs { get; set; } = new();
 
     public static ManagerConfig Parse(JsonObject manager, Func<string, bool> directoryExists)
     {
-        var allowedKeys = new HashSet<string> { "name", "tab", "cwd", "argv", "env", "caps", "session" };
+        var allowedKeys = new HashSet<string> { "name", "tab", "cwd", "argv", "env", "caps", "session", "tabs" };
         foreach (var kv in manager)
             if (!allowedKeys.Contains(kv.Key)) throw new ConfigException($"manager: unknown key \"{kv.Key}\"");
         var c = new ManagerConfig();
@@ -146,6 +147,21 @@ public sealed class ManagerConfig
             foreach (var cap in c.Caps)
                 if (!WaveNative.Contract.Caps.All.Contains(cap)) throw new ConfigException($"manager: unknown capability \"{cap}\"");
             if (c.Caps.Distinct().Count() != c.Caps.Count) throw new ConfigException("manager: a capability is listed twice");
+        }
+        if (manager.ContainsKey("tabs"))
+        {
+            if (manager["tabs"] is not JsonArray tabsArr) throw new ConfigException("manager: tabs must be an array of strings");
+            try
+            {
+                foreach (var x in tabsArr)
+                {
+                    var name = Validators.Name(Str(x, "tabs"), "tab");
+                    if (name.Length == 0) throw CliError.Usage("a tab name cannot be empty");
+                    if (c.Tabs.Any(t => string.Equals(t, name, StringComparison.OrdinalIgnoreCase))) throw CliError.Usage($"tab \"{name}\" is listed twice");
+                    c.Tabs.Add(name);
+                }
+            }
+            catch (CliError e) { throw new ConfigException("manager: " + e.Message); }
         }
         if (manager.ContainsKey("session"))
         {

@@ -282,6 +282,78 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Equal(Encoding.UTF8.GetBytes("caf\u00E9 \U0001F600"), w.S1.Input.Last());
     }
 
+    // ---- the area tabs of the manager config exist before a session can take their names ----
+
+    [Fact]
+    public void The_manager_config_creates_the_listed_area_tabs_and_a_session_cannot_take_their_names()
+    {
+        using var w2 = new World();
+        var cfgJson = new JsonObject
+        {
+            ["cwd"] = w2.Cwd,
+            ["argv"] = new JsonArray("pwsh"),
+            ["tabs"] = new JsonArray("Reviews", "Tether", "reviews2"),
+        };
+        var cfg = ManagerConfig.Parse(cfgJson, Directory.Exists);
+        w2.Host.ApplyManagerConfig(w2.Ws, cfg);
+        Assert.Contains(w2.Ws.Tabs, t => t.Name == "Reviews");
+        Assert.Equal(1, w2.Ws.Tabs.Count(t => t.Name == "Tether" || t.Name == "tether"));
+        var squat = w2.Host.Handle(new Request { Verb = "tab new", Args = World.Args(("name", "reviews")), Token = w2.S1.Token });
+        Assert.Equal(5, squat.Exit);
+    }
+
+    [Theory]
+    [InlineData("\"tabs\":\"Home\"")]
+    [InlineData("\"tabs\":[1]")]
+    [InlineData("\"tabs\":[\"A\",\"a\"]")]
+    [InlineData("\"tabs\":[\"\"]")]
+    public void A_bad_tabs_entry_is_a_config_error(string tabs)
+    {
+        var json = "{\"cwd\":" + JsonValue.Create(w.Cwd)!.ToJsonString() + ",\"argv\":[\"pwsh\"]," + tabs + "}";
+        Assert.Throws<ConfigException>(() => ManagerConfig.Parse(JsonNode.Parse(json)!.AsObject(), Directory.Exists));
+    }
+
+    // ---- unfinished is not running ----
+
+    [Fact]
+    public void A_terminal_that_was_not_started_in_this_run_is_unfinished_but_not_running()
+    {
+        w.Host.SimulateAppRestart();
+        var tab = World.Out(w.Call(w.Manager, "session list")).AsArray().First(t => t!["tabid"]!.GetValue<string>() == w.Projects.Id)!;
+        Assert.False(tab["running"]!.GetValue<bool>());
+        Assert.True(tab["unfinished"]!.GetValue<bool>());
+        var block = tab["blocks"]!.AsArray().First(b => b!["blockid"]!.GetValue<string>() == w.S1.Id)!;
+        Assert.Equal("none", block["status"]!.GetValue<string>());
+        Assert.True(block["unfinished"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void A_finished_terminal_and_a_web_block_are_not_unfinished()
+    {
+        w.Host.FinishProgram(w.S1.Id, 0);
+        w.Host.FinishProgram(w.S2.Id, 0);
+        var page = w.Host.StartWebBlockAsApp(w.Managers, "http://127.0.0.1:1/x");
+        var tabs = World.Out(w.Call(w.Manager, "session list")).AsArray();
+        var managers = tabs.First(t => t!["tabid"]!.GetValue<string>() == w.Managers.Id)!;
+        Assert.False(managers["blocks"]!.AsArray().First(b => b!["blockid"]!.GetValue<string>() == page.Id)!["unfinished"]!.GetValue<bool>());
+    }
+
+    // ---- a stack that loses its shown member falls back to its first member ----
+
+    [Fact]
+    public void Removing_the_shown_hidden_page_of_a_stack_shows_the_first_member_again()
+    {
+        var first = w.S2;
+        var a = World.Out(w.Call(w.S1, "run", ("stack", first.Id), ("argv", new[] { "pwsh" })))["blockid"]!.GetValue<string>();
+        var b = World.Out(w.Call(w.S1, "run", ("stack", first.Id), ("argv", new[] { "pwsh" })))["blockid"]!.GetValue<string>();
+        w.Call(w.Manager, "group activate", ("block", a));
+        w.Host.FinishProgram(a, 0);
+        Assert.Equal(0, w.Call(w.S1, "block delete", ("block", a)).Exit);
+        var tile = w.Host.GetTab(w.Projects.Id).Tiles.First(t => t.Members.Contains(first.Id));
+        Assert.Equal(first.Id, tile.ActiveId);
+        Assert.Contains(b, tile.Members);
+    }
+
     // ---- the grammar of every flag reaches the right key of the request ----
 
     [Theory]

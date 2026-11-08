@@ -407,14 +407,15 @@ public sealed partial class OwnershipTests
     }
 
     [Fact]
-    public void Deleting_the_shown_member_shows_the_next_member_not_the_first()
+    public void Deleting_the_shown_member_shows_the_first_member_not_a_hidden_page()
     {
         var h1 = Born(Run(w.S1, ("stack", w.S2.Id)));
         var h2 = Born(Run(w.S1, ("stack", w.S2.Id)));
         Is(0, w.Call(w.Manager, "group activate", ("block", h1.Id)));
         Assert.Equal(h1.Id, TileOf(w.S2).ActiveId);
         Is(0, w.Call(w.S1, "block delete", ("block", h1.Id), ("force", true)));
-        Assert.Equal(h2.Id, TileOf(w.S2).ActiveId);
+        Assert.Equal(w.S2.Id, TileOf(w.S2).ActiveId);
+        Assert.NotEqual(h2.Id, TileOf(w.S2).ActiveId);
     }
 
     [Fact]

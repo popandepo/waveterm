@@ -97,6 +97,8 @@ public sealed partial class ContractHost
         {
             if (cfg.Session.TryGetValue("session:name", out var mgrName) && mgrName.Length > 0 && blocks.Values.Any(x => x.WorkspaceId == w.Id && x.Session.TryGetValue("session:name", out var m) && string.Equals(m, mgrName, StringComparison.OrdinalIgnoreCase)))
                 throw new ConfigException($"manager: a session named \"{mgrName}\" already exists");
+            foreach (var areaTab in cfg.Tabs)
+                if (!w.Tabs.Any(t => string.Equals(t.Name, areaTab, StringComparison.OrdinalIgnoreCase))) MakeTab(w, areaTab, null);
             var tab = w.Tabs.FirstOrDefault(t => string.Equals(t.Name, cfg.Tab, StringComparison.OrdinalIgnoreCase)) ?? MakeTab(w, cfg.Tab, null);
             var b = NewTermBlock(tab, cfg.Argv.ToArray(), cfg.Cwd, cfg.Env, restart: true, createdBy: null, cfg.Caps);
             foreach (var kv in cfg.Session) b.Session[kv.Key] = kv.Value;
@@ -294,7 +296,8 @@ public sealed partial class ContractHost
         int idx = tile.Members.IndexOf(b.Id);
         tile.Members.RemoveAt(idx);
         if (tile.Members.Count == 0) tab.Tiles.Remove(tile);
-        else if (tile.ActiveId == b.Id) tile.ActiveId = tile.Members[Math.Min(idx, tile.Members.Count - 1)];
+        // A stack that loses its shown member falls back to its first member (the original tile), never to a hidden page someone else added.
+        else if (tile.ActiveId == b.Id) tile.ActiveId = tile.Members[0];
     }
 
     public const string ContentDenied = "that block is not available to this caller";

@@ -519,6 +519,11 @@ tasks:
         deps:
             - npm:install
 
+    native:test:
+        desc: Run the tests of the native CLI contract stub (native/WaveNative.sln, .NET 9, no window).
+        cmd: dotnet test native/WaveNative.sln
+        dir: "{{.ROOT_DIR}}"
+
     init:
         desc: Initialize the project for development.
         cmds:

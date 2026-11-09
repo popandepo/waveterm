@@ -34,7 +34,7 @@ $managerTestId = 'aaaaaaaa-2222-3333-4444-555555555555'
 $managerFile = Join-Path $root 'manager.json'
 Make-File $managerFile ('{"sessionId":"' + $managerTestId + '"}')
 $env:WAVEFORK_MANAGER_FILE = $managerFile
-$env:WAVEFORK_WAVE_STARTED_AT = '2020-01-01T00:00:00'
+$env:WAVE_STARTED_AT = '2020-01-01T00:00:00'
 $env:RESUMABLE_TEST_LOG = $swapLog
 $env:RESUMABLE_TEST_LOGROOT = $root
 # The result must be the same inside a Wave block as outside one: the WAVE_* values of a block would leak into every child below.
@@ -67,7 +67,7 @@ try {
     Check 'any other session gets no compact window' ($other[3] -eq 'compact=' -and $later[3] -eq 'compact=') (($other -join ' | ') + ' // ' + ($later -join ' | '))
 
     # ---- the start gate ----
-    $now = (Get-Date).ToString('s'); $env:WAVEFORK_WAVE_STARTED_AT = $now
+    $now = (Get-Date).ToString('s'); $env:WAVE_STARTED_AT = $now
     $gateDir = Join-Path $root 'gate'; Make-Dir $gateDir
     $g = { param($sid, $n) (& $script -SessionId $sid -ConfigDir $cfg -Name $n -GateDir $gateDir -DryRun)[-1] }
     Check 'a restored session is held just after Wave started' ((& $g $id 'n1') -eq 'gate=hold') (& $g $id 'n1')
@@ -97,11 +97,14 @@ try {
     Check 'a release after this Wave start lets it go' ((& $g $id 'n1') -eq 'gate=go') ''
     Make-File (Join-Path $gateDir '_all') 'x'; (Get-Item (Join-Path $gateDir '_all')).LastWriteTime = (Get-Date).AddMinutes(1)
     Check 'the release of all lets any session go' ((& $g $id 'n2') -eq 'gate=go') ''
-    $env:WAVEFORK_WAVE_STARTED_AT = (Get-Date).AddMinutes(-10).ToString('s')
+    $env:WAVE_STARTED_AT = (Get-Date).AddMinutes(-10).ToString('s')
     Check 'a block opened later is not held' ((& $g $id 'n3') -eq 'gate=go') ''
-    $env:WAVEFORK_WAVE_STARTED_AT = 'not a date'
+    $env:WAVE_STARTED_AT = 'not a date'
     Check 'an unreadable start time lets it start' ((& $g $id 'n3') -eq 'gate=go') ''
-    $env:WAVEFORK_WAVE_STARTED_AT = '2020-01-01T00:00:00'
+    $env:WAVE_STARTED_AT = ''
+    Check 'no start time at all (the app did not set WAVE_STARTED_AT) lets it start' ((& $g $id 'n3') -eq 'gate=go') ''
+    Check 'the gate asks the app, not a process: the starter names no wavesrv' (-not ((Get-Content -LiteralPath $script -Raw) -match 'wavesrv')) ''
+    $env:WAVE_STARTED_AT = '2020-01-01T00:00:00'
 
     # ---- how it is run: a child pwsh, so that this shell keeps its environment ----
     $stub = Join-Path $root 'stub.ps1'

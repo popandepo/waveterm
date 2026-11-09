@@ -40,7 +40,7 @@ param(
     [string]$GateDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\start-gate' } else { '' }),
     [ValidateRange(0, 3600)][int]$GateWindowSeconds = 180,
     [ValidateRange(1, 86400)][int]$GateGiveUpSeconds = 900,
-    [string]$WaveStartedAt = $env:WAVEFORK_WAVE_STARTED_AT,   # test seam: otherwise the start time of the running wavesrv
+    [string]$WaveStartedAt = $env:WAVE_STARTED_AT,   # set by the app for every program it starts (cli-contract.md section 1): when the app process started
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -273,7 +273,7 @@ $compactWindow = if ($managerId -and $SessionId -eq $managerId) { '300000' } els
 
 # ---- the start gate ----------------------------------------------------------------------------------------------------------------------------------------
 # Wave restores every block at once when it starts, and each starter would resume its session: 32 sessions in the same three seconds after the reboot of 1 Nov 2026.
-# So a start in the first -GateWindowSeconds after wavesrv started is held, except the manager and -GateAlways, until the manager releases it by writing the file
+# So a start in the first -GateWindowSeconds after the app started (WAVE_STARTED_AT) is held, except the manager and -GateAlways, until the manager releases it by writing the file
 # <GateDir>\<name> (or <GateDir>\_all) after that start. The block and its layout stay as they are, it only waits before claude starts; a block opened later is
 # opened on purpose and is not held. Anything the gate cannot read lets the session start (an unreadable manager file included, the manager must never wait), and a hold
 # ends by itself after -GateGiveUpSeconds: a session that starts is better than one that waits for ever. A name of only dots or _all cannot have a release file of its own, so it is not held.
@@ -281,9 +281,8 @@ $compactWindow = if ($managerId -and $SessionId -eq $managerId) { '300000' } els
 $gateName = $Name -replace '[^A-Za-z0-9_.-]', '_'
 $gateSince = $null
 function Get-WaveStart {
-    if ($WaveStartedAt) { try { return [datetime]::Parse($WaveStartedAt, [Globalization.CultureInfo]::InvariantCulture) } catch { return $null } }
-    $w = Get-Process -Name 'wavesrv*' -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1
-    if ($w) { return $w.StartTime } else { return $null }
+    if (-not $WaveStartedAt) { return $null }
+    try { return [datetime]::Parse($WaveStartedAt, [Globalization.CultureInfo]::InvariantCulture) } catch { return $null }
 }
 function Test-GateReleased([datetime]$since) {
     if (-not $GateDir) { return $true }

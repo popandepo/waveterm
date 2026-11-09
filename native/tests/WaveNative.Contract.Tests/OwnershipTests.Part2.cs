@@ -356,6 +356,19 @@ public sealed partial class OwnershipTests
         var r = w.Call(w.S1, "group move", ("from", child.Id), ("to", c3.Id));
         Is(0, r);
         Assert.Equal(new[] { c3.Id, child.Id, c2.Id }, TileOf(c3).Members.ToArray());
+        Assert.Equal(c3.Id, TileOf(c3).ActiveId);
+    }
+
+    [Fact]
+    public void Group_move_shows_the_moved_shown_member_only_with_focus()
+    {
+        var c2 = Sibling(w.S1);
+        var c3 = Sibling(w.S1);
+        Is(0, w.Call(w.S1, "group add", ("block", c2.Id), ("to", child.Id)));
+        Is(3, w.Call(w.S1, "group move", ("from", child.Id), ("to", c3.Id), ("focus", true)));
+        Assert.Contains(child.Id, TileOf(child).Members);
+        Is(0, w.Call(w.Manager, "group move", ("from", child.Id), ("to", c3.Id), ("focus", true)));
+        Assert.Equal(child.Id, TileOf(c3).ActiveId);
     }
 
     [Fact]
@@ -402,7 +415,8 @@ public sealed partial class OwnershipTests
         Is(0, w.Call(w.S1, "group add", ("block", c2.Id), ("to", child.Id)));
         Is(0, w.Call(w.S1, "group add", ("block", c3.Id), ("to", child.Id)));
         Assert.Equal(child.Id, TileOf(child).ActiveId);
-        Is(0, w.Call(w.S1, "group remove", ("block", child.Id)));
+        Is(3, w.Call(w.S1, "group remove", ("block", child.Id)));
+        Is(0, w.Call(w.Manager, "group remove", ("block", child.Id)));
         Assert.Equal(c2.Id, TileOf(c2).ActiveId);
     }
 
@@ -413,7 +427,8 @@ public sealed partial class OwnershipTests
         var h2 = Born(Run(w.S1, ("stack", w.S2.Id)));
         Is(0, w.Call(w.Manager, "group activate", ("block", h1.Id)));
         Assert.Equal(h1.Id, TileOf(w.S2).ActiveId);
-        Is(0, w.Call(w.S1, "block delete", ("block", h1.Id), ("force", true)));
+        Is(3, w.Call(w.S1, "block delete", ("block", h1.Id), ("force", true)));
+        Is(0, w.Call(w.Manager, "block delete", ("block", h1.Id), ("force", true)));
         Assert.Equal(w.S2.Id, TileOf(w.S2).ActiveId);
         Assert.NotEqual(h2.Id, TileOf(w.S2).ActiveId);
     }

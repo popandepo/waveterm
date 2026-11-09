@@ -289,6 +289,15 @@ public sealed partial class ContractHost
         if (show) target.ActiveId = b.Id;
     }
 
+    // The shown member of a stack is what the owner sees. Taking it out of its stack (delete, group remove, group add) lets the stack fall back to another
+    // member, so it changes what is shown and is a FOCUS change, like switching a tab (cli-contract.md 3.2).
+    void RequireFocusIfShownMember(Block caller, Tab tab, Block b)
+    {
+        var tile = TileOf(tab, b.Id);
+        if (tile is { IsStack: true } && tile.Members.Count > 1 && tile.ActiveId == b.Id)
+            RequireCap(caller, Caps.Focus, "taking the shown member out of a group");
+    }
+
     void RemoveFromTiles(Tab tab, Block b)
     {
         var tile = TileOf(tab, b.Id);

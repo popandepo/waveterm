@@ -62,6 +62,7 @@ public sealed partial class ContractHost
         if (!OwnsTab(caller, tab)) throw CliError.Denied("that tab is not yours: it needs the admin capability").WithReason("notowner");
         var members = tab.BlockIds.Select(id => blocks[id]).ToList();
         foreach (var b in members) RequireOwn(caller, b);
+        if (w.ActiveTabId == tab.Id) RequireCap(caller, Caps.Focus, "closing the shown tab");
         if (!force)
         {
             var open = members.FirstOrDefault(Unfinished);

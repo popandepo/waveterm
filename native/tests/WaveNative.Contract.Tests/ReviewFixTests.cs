@@ -348,7 +348,7 @@ public sealed class ReviewFixTests : IDisposable
         var b = World.Out(w.Call(w.S1, "run", ("stack", first.Id), ("argv", new[] { "pwsh" })))["blockid"]!.GetValue<string>();
         w.Call(w.Manager, "group activate", ("block", a));
         w.Host.FinishProgram(a, 0);
-        Assert.Equal(0, w.Call(w.S1, "block delete", ("block", a)).Exit);
+        Assert.Equal(0, w.Call(w.Manager, "block delete", ("block", a)).Exit);
         var tile = w.Host.GetTab(w.Projects.Id).Tiles.First(t => t.Members.Contains(first.Id));
         Assert.Equal(first.Id, tile.ActiveId);
         Assert.Contains(b, tile.Members);

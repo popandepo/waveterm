@@ -72,6 +72,7 @@ public sealed partial class ContractHost
     {
         var b = ResolveBlock(caller, S(a, "block"));
         RequireOwn(caller, b);
+        if (tabs.TryGetValue(b.TabId, out var ownTab)) RequireFocusIfShownMember(caller, ownTab, b);
         if (!B(a, "force") && Unfinished(b))
             throw CliError.Refused($"the program in the block is not known to be finished (status {b.Status}); deleting it stops it: use --force to delete it anyway").WithReason("unfinished");
         DeleteBlockInternal(b);
@@ -207,6 +208,7 @@ public sealed partial class ContractHost
         var from = TileOf(tab, b.Id)!;
         var to = TileOf(tab, target.Id)!;
         if (from == to && to.IsStack) throw CliError.Refused("both blocks are already in the same group").WithReason("samegroup");
+        RequireFocusIfShownMember(caller, tab, b);
         RemoveFromTiles(tab, b);
         AddMember(tab, to, b, focus);
         return StackAnswer(to);
@@ -222,6 +224,7 @@ public sealed partial class ContractHost
         var tile = TileOf(tab, b.Id)!;
         if (!tile.IsStack || tile.Members.Count < 2) throw CliError.Refused("the block is not in a group").WithReason("notingroup");
         RequireOwnTabForTile(caller, tab);
+        RequireFocusIfShownMember(caller, tab, b);
         RemoveFromTiles(tab, b);
         var nt = new Tile { ActiveId = b.Id };
         nt.Members.Add(b.Id);

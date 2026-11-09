@@ -356,6 +356,19 @@ public sealed partial class OwnershipTests
         var r = w.Call(w.S1, "group move", ("from", child.Id), ("to", c3.Id));
         Is(0, r);
         Assert.Equal(new[] { c3.Id, child.Id, c2.Id }, TileOf(c3).Members.ToArray());
+        Assert.Equal(c3.Id, TileOf(c3).ActiveId);
+    }
+
+    [Fact]
+    public void Group_move_shows_the_moved_shown_member_only_with_focus()
+    {
+        var c2 = Sibling(w.S1);
+        var c3 = Sibling(w.S1);
+        Is(0, w.Call(w.S1, "group add", ("block", c2.Id), ("to", child.Id)));
+        Is(3, w.Call(w.S1, "group move", ("from", child.Id), ("to", c3.Id), ("focus", true)));
+        Assert.Contains(child.Id, TileOf(child).Members);
+        Is(0, w.Call(w.Manager, "group move", ("from", child.Id), ("to", c3.Id), ("focus", true)));
+        Assert.Equal(child.Id, TileOf(c3).ActiveId);
     }
 
     [Fact]

@@ -12,8 +12,6 @@
 # CHANGED 11 Oct 2026 (evening): a prompt of a restartable session now goes through a FILE (-PromptFile under %LOCALAPPDATA%\WaveFork\prompts), and any other
 # argument with a single quote is refused. The next real open must be preceded by a -DryRun (three live sessions were opened with the earlier version).
 # CHANGED 12 Oct 2026: -Stack <block> opens the session into an existing stack instead of a tab of its own (see the note at the param block).
-# -StartSession (the old launcher of the caller) is accepted and ignored: a plain launcher cannot be started again with the same id.
-# -NoRestart opens the old way (no restart, no meta).
 #
 #   .\Open-WaveSession.ps1 -Cwd C:\Projects\Personal\Tether -Name tether-notes -SessionId <guid> `
 #       -Model claude-sonnet-5-5 -Effort low -PermissionMode auto -TabColor '#2D7DD2' -Symbol star -Prompt "a; b"
@@ -30,13 +28,14 @@ param(
     [string]$Symbol,
     [switch]$Activate,
     [string[]]$Meta,
-    [string]$StartSession,
-    [switch]$NoRestart,
     [switch]$DryRun,
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
     # Default: the usage-file mod of the account the config folder belongs to (Get-UsageModDir, after the folder is resolved).
     [string]$PluginDir,
+    # The tool-rows mod; passed on only when the folder exists. -ClickRows starts the session in the fullscreen renderer (off by default).
+    [string]$ToolRowsDir = 'C:\Projects\Personal\MalfestioMaster\tools\mods\tool-rows',
+    [switch]$ClickRows,
     [string]$StarterSource = (Join-Path (Split-Path $PSScriptRoot) 'Start-ResumableSession.ps1'),
     [string]$StarterDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\tools'),
     [string]$PromptDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\prompts'),
@@ -50,40 +49,35 @@ if ($Stack -and $Stack -cnotmatch '^(this|[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{
 . (Join-Path $PSScriptRoot 'Assert-ClaudeConfigDir.ps1')
 $Guid = '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$'
 if ($SessionId -and $SessionId -notmatch $Guid) { throw "SessionId must be a guid: $SessionId" }
-if (-not $NoRestart -and -not $SessionId) { $SessionId = [guid]::NewGuid().ToString() }
+if (-not $SessionId) { $SessionId = [guid]::NewGuid().ToString() }
 
 # The session that this block will start uses the config folder of THIS environment. There is no default: an unset or .claude/.claude-work folder is refused (exit 2).
-$ResolvedConfig = $null
-if (-not $NoRestart) { $ResolvedConfig = Resolve-AllowedConfigDir $ConfigDir $ThrowawayConfig.IsPresent }
-if (-not $NoRestart -and -not $ResolvedConfig) {
+$ResolvedConfig = Resolve-AllowedConfigDir $ConfigDir $ThrowawayConfig.IsPresent
+if (-not $ResolvedConfig) {
     [Console]::Error.WriteLine("Refusing: CLAUDE_CONFIG_DIR '$ConfigDir' is empty, is .claude or .claude-work, or is not under .claude-personal (use -ThrowawayConfig for a throwaway folder).")
     exit 2
 }
 if (-not $PSBoundParameters.ContainsKey('PluginDir')) { $PluginDir = Get-UsageModDir $ResolvedConfig }
 
 # the starter: a copy outside any working folder, because Wave starts it again at every start and a working folder can be on another branch
-$starter = $null
-if (-not $NoRestart) {
-    if (-not (Test-Path -LiteralPath $StarterSource)) { throw "the resumable starter was not found: $StarterSource" }
-    $text = Get-Content -LiteralPath $StarterSource -Raw
-    if ($text -notmatch 'Resolve-AllowedConfigDir') { throw "the starter at $StarterSource has no config folder rule (an old version with a default of .claude): use the starter with the rule" }
-    if ($Prompt -and $text -notmatch 'PromptFile') { throw "the starter at $StarterSource cannot read a prompt from a file (an old version): a prompt with a single quote would be cut by Wave's command quoting" }
-    if ($text -match 'WAVETERM_' -or $text -notmatch 'WAVE_TOKEN') { throw "the starter at $StarterSource still uses the old WAVETERM_ variables or has no WAVE_TOKEN gate (an old version): check out Master or the starter fix first" }
-    $starter = Join-Path $StarterDir 'Start-ResumableSession.ps1'
-    $sameCopy = (Test-Path -LiteralPath $starter) -and ((Get-FileHash -LiteralPath $starter).Hash -eq (Get-FileHash -LiteralPath $StarterSource).Hash)
-    if (-not $sameCopy -and -not $DryRun) {
-        $null = New-Item -ItemType Directory -Force -Path $StarterDir
-        Copy-Item -LiteralPath $StarterSource -Destination $starter -Force
-    }
+if (-not (Test-Path -LiteralPath $StarterSource)) { throw "the resumable starter was not found: $StarterSource" }
+$text = Get-Content -LiteralPath $StarterSource -Raw
+if ($text -notmatch 'Resolve-AllowedConfigDir') { throw "the starter at $StarterSource has no config folder rule (an old version with a default of .claude): use the starter with the rule" }
+if ($Prompt -and $text -notmatch 'PromptFile') { throw "the starter at $StarterSource cannot read a prompt from a file (an old version): a prompt with a single quote would be cut by Wave's command quoting" }
+if ($text -match 'WAVETERM_' -or $text -notmatch 'WAVE_TOKEN') { throw "the starter at $StarterSource still uses the old WAVETERM_ variables or has no WAVE_TOKEN gate (an old version): check out Master or the starter fix first" }
+$starter = Join-Path $StarterDir 'Start-ResumableSession.ps1'
+$sameCopy = (Test-Path -LiteralPath $starter) -and ((Get-FileHash -LiteralPath $starter).Hash -eq (Get-FileHash -LiteralPath $StarterSource).Hash)
+if (-not $sameCopy -and -not $DryRun) {
+    $null = New-Item -ItemType Directory -Force -Path $StarterDir
+    Copy-Item -LiteralPath $StarterSource -Destination $starter -Force
 }
 
-$argv = if ($NoRestart) {
-    if (-not $StartSession) { throw '-StartSession is needed with -NoRestart (the old way)' }
-    @('pwsh', '-NoLogo', '-File', $StartSession, '-Name', $Name)
-} else {
-    @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($PluginDir) { @('-PluginDir', $PluginDir) } else { @() }) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
+$argv = @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($PluginDir) { @('-PluginDir', $PluginDir) } else { @() }) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
+if ($ToolRowsDir) {
+    if (Test-Path -LiteralPath $ToolRowsDir -PathType Container) { $argv += '-ToolRowsDir', $ToolRowsDir }
+    else { [Console]::Error.WriteLine("Note: the tool-rows folder '$ToolRowsDir' does not exist, so tool-rows is not loaded in this session (it still opens).") }
 }
-if ($NoRestart -and $SessionId) { $argv += '-SessionId', $SessionId }
+if ($ClickRows) { $argv += '-ClickRows' }
 if ($Model) { $argv += '-Model', $Model }
 if ($Effort) { $argv += '-Effort', $Effort }
 if ($SkipPermissions) { $argv += '-SkipPermissions' }
@@ -91,12 +85,12 @@ elseif ($PermissionMode) { $argv += '-PermissionMode', $PermissionMode }
 # The prompt of a restartable session goes through a FILE: Wave joins a tile's command with Unix-style quoting (a single quote becomes '"'"'), which PowerShell
 # reads as several arguments, so a prompt with a single quote was cut and its pieces bound to -Model and -Effort (claude exit 1, no transcript). The file is
 # under %LOCALAPPDATA%\WaveFork\prompts (the profile's own folder, not readable by other users), named by the session id, written once and never deleted by the
-# starter. The old way (-NoRestart) still passes -Prompt on the command line.
+# starter.
 $promptFile = $null
-if ($Prompt -and -not $NoRestart) {
+if ($Prompt) {
     $promptFile = Join-Path $PromptDir ($SessionId + '.txt')
     $argv += '-PromptFile', $promptFile, '-PromptRoot', $PromptDir
-} elseif ($Prompt) { $argv += '-Prompt', $Prompt }
+}
 
 # Nothing else on the stored command line may hold a single quote (a name, a folder, a model): Wave's quoting would split it. Refused here, before anything is made.
 foreach ($a in $argv) {
@@ -104,12 +98,10 @@ foreach ($a in $argv) {
 }
 
 $allMeta = @()
-if (-not $NoRestart) {
-    $allMeta += "session:id=$SessionId", "session:name=$Name"
-    if ($Model) { $allMeta += "session:model=$Model" }
-    if ($Effort) { $allMeta += "session:effort=$Effort" }
-    if ($PermissionMode -and -not $SkipPermissions) { $allMeta += "session:permissionmode=$PermissionMode" }
-}
+$allMeta += "session:id=$SessionId", "session:name=$Name"
+if ($Model) { $allMeta += "session:model=$Model" }
+if ($Effort) { $allMeta += "session:effort=$Effort" }
+if ($PermissionMode -and -not $SkipPermissions) { $allMeta += "session:permissionmode=$PermissionMode" }
 foreach ($m in $Meta) { $allMeta += $m }
 
 # The arguments travel in a JSON file, not on a command line, so no quoting layer can split or alter them.
@@ -135,7 +127,7 @@ if ($TabColor) { $waveArgs += '--color', $TabColor }
 if ($Symbol) { $waveArgs += '--symbol', $Symbol }
 if ($Activate) { $waveArgs += '--activate' }
 if ($Stack) { $waveArgs += '--stack', $Stack }
-if (-not $NoRestart) { $waveArgs += '--restart' }
+$waveArgs += '--restart'
 foreach ($m in $allMeta) { $waveArgs += '--meta', $m }
 
 if ($DryRun) {

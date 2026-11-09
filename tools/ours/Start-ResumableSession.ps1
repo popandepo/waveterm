@@ -18,6 +18,12 @@ param(
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
     [string[]]$PluginDir = @(),
+    # The tool-rows mod (MalfestioMaster tools\mods\tool-rows): added to the plugin folders below, but only when it is the one trusted folder
+    # (-ToolRowsAllowed, compared after links and junctions are resolved). Any other folder refuses the start.
+    [string]$ToolRowsDir = '',
+    [string]$ToolRowsAllowed = 'C:\Projects\Personal\MalfestioMaster\tools\mods\tool-rows',
+    # Start in the fullscreen renderer so mouse clicks reach mods (off by default: it changes mouse capture and text selection in Wave).
+    [switch]$ClickRows,
     [string]$Command = 'claude',
     [ValidateRange(0, 120)][int]$CommandWaitSeconds = 30,
     [string]$LookupSignal = '',   # test seam: a file written when the first lookup for the command has failed
@@ -29,6 +35,12 @@ param(
     [ValidateRange(5, 300)][int]$TrustWaitSeconds = 90,
     [string[]]$TrustExclude = @('C:\Projects\Personal\_wt', 'C:\Projects\Personal\_archive'),
     [string]$TrustExcludeFile = 'C:\Projects\Personal\MalfestioMaster\tools\external-repos.json',
+    [string]$ManagerFile = $(if ($env:WAVEFORK_MANAGER_FILE) { $env:WAVEFORK_MANAGER_FILE } else { 'C:\Projects\Personal\MalfestioMaster\tools\manager.json' }),
+    [string[]]$GateAlways = @('manager-duty'),
+    [string]$GateDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\start-gate' } else { '' }),
+    [ValidateRange(0, 3600)][int]$GateWindowSeconds = 180,
+    [ValidateRange(1, 86400)][int]$GateGiveUpSeconds = 900,
+    [string]$WaveStartedAt = $env:WAVEFORK_WAVE_STARTED_AT,   # test seam: otherwise the start time of the running wavesrv
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -132,6 +144,20 @@ $ConfigDir = $resolvedConfig
 # Plugin folders (--plugin-dir): each must be fully qualified, an existing folder, and (after links are resolved) never at or below .claude or .claude-work.
 # What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
 $pluginPaths = @()
+if ($ToolRowsDir) {
+    $trOk = $false
+    if ($ToolRowsDir -match '^[A-Za-z]:[\\/]' -and $ToolRowsAllowed -match '^[A-Za-z]:[\\/]' -and
+        (Test-Path -LiteralPath $ToolRowsDir -PathType Container) -and (Test-Path -LiteralPath $ToolRowsAllowed -PathType Container)) {
+        $trGiven = Get-FinalPath $ToolRowsDir
+        $trTrusted = Get-FinalPath $ToolRowsAllowed
+        $trOk = [bool]($trGiven -and $trTrusted -and ($trGiven -ieq $trTrusted))
+    }
+    if (-not $trOk) {
+        [Console]::Error.WriteLine("Refusing to start Claude: -ToolRowsDir '$ToolRowsDir' is not the trusted tool-rows folder (nothing was opened).")
+        exit 2
+    }
+    $PluginDir = @($PluginDir) + $ToolRowsDir
+}
 foreach ($pd in @($PluginDir | Where-Object { $_ })) {
     $okPlugin = $null
     if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-PlainlyForbidden $pd)) {
@@ -241,7 +267,42 @@ function Get-ClaudeArgs {
 
 # The manager session (and only it) compacts at 300k tokens instead of the default (R-20261016-007; the same line as
 # MalfestioMaster tools\Start-Session.ps1). It is set after the CLAUDE* clean-up below, which would otherwise remove it.
-$compactWindow = if ($SessionId -eq '3c641601-9a7a-44be-a93c-e5a89419429b') { '300000' } else { '' }
+# Which session is the manager is said in one place, the manager file (tools\manager.json in MalfestioMaster). An unreadable file means no session counts as the manager.
+$managerId = try { [string](Get-Content -LiteralPath $ManagerFile -Raw -ErrorAction Stop | ConvertFrom-Json).sessionId } catch { '' }
+$compactWindow = if ($managerId -and $SessionId -eq $managerId) { '300000' } else { '' }
+
+# ---- the start gate ----------------------------------------------------------------------------------------------------------------------------------------
+# Wave restores every block at once when it starts, and each starter would resume its session: 32 sessions in the same three seconds after the reboot of 1 Nov 2026.
+# So a start in the first -GateWindowSeconds after wavesrv started is held, except the manager and -GateAlways, until the manager releases it by writing the file
+# <GateDir>\<name> (or <GateDir>\_all) after that start. The block and its layout stay as they are, it only waits before claude starts; a block opened later is
+# opened on purpose and is not held. Anything the gate cannot read lets the session start (an unreadable manager file included, the manager must never wait), and a hold
+# ends by itself after -GateGiveUpSeconds: a session that starts is better than one that waits for ever. A name of only dots or _all cannot have a release file of its own, so it is not held.
+# Inside the window a block opened by hand looks like a restored one and is held too.
+$gateName = $Name -replace '[^A-Za-z0-9_.-]', '_'
+$gateSince = $null
+function Get-WaveStart {
+    if ($WaveStartedAt) { try { return [datetime]::Parse($WaveStartedAt, [Globalization.CultureInfo]::InvariantCulture) } catch { return $null } }
+    $w = Get-Process -Name 'wavesrv*' -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1
+    if ($w) { return $w.StartTime } else { return $null }
+}
+function Test-GateReleased([datetime]$since) {
+    if (-not $GateDir) { return $true }
+    foreach ($n in '_all', $gateName) {
+        $f = Get-Item -LiteralPath (Join-Path $GateDir $n) -ErrorAction SilentlyContinue
+        if ($f -and -not $f.PSIsContainer -and $f.LastWriteTime -ge $since) { return $true }
+    }
+    return $false
+}
+function Get-StartGate {
+    try {
+        if (-not $Name -or -not $managerId -or $SessionId -eq $managerId -or ($GateAlways -contains $Name)) { return 'go' }
+        if ($gateName -eq '_all' -or $gateName -match '^\.+$') { return 'go' }
+        $script:gateSince = Get-WaveStart
+        if (-not $gateSince -or ((Get-Date) - $gateSince).TotalSeconds -gt $GateWindowSeconds) { return 'go' }
+        if (Test-GateReleased $gateSince) { return 'go' }
+        return 'hold'
+    } catch { return 'go' }
+}
 # Account 2 has its own login and nothing else of its own: CLAUDE.md and settings.json are copies of account 1's, refreshed at every start the way the
 # claude-personal2 command does it (a file link needs admin here). A session started without the refresh ran on an old copy and missed a hook.
 # Only when the folder IS the account 2 folder, and only plain files whose own final place is below account 1's folder (never a link, so nothing outside it
@@ -275,7 +336,7 @@ function Get-Account2CopyPlan {
     return $plan
 }
 $account2Copy = @(Get-Account2CopyPlan)
-if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; return }
+if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; "gate=$(Get-StartGate)"; return }
 
 Get-ChildItem env: |
     Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
@@ -283,6 +344,8 @@ Get-ChildItem env: |
     ForEach-Object { Remove-Item "env:$($_.Name)" -ErrorAction SilentlyContinue }
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
+# -ClickRows: the fullscreen renderer, with the full-repaint fix that goes with it (12 Oct 2026: it left old text on screen without it).
+if ($ClickRows) { $env:CLAUDE_CODE_NO_FLICKER = '1'; $env:CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT = '1' }
 if ($compactWindow) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = $compactWindow }
 # The status page's hook writes nothing unless STATUS_SESSION is set; a key inherited from the session that opened this block would be the wrong one.
 if ($Name) { $env:STATUS_SESSION = $statusSession; $env:STATUS_TAB = $Name }
@@ -326,6 +389,18 @@ function Write-SwapLog([string]$code, [string[]]$names, [string]$label = 'swap')
             try { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } } catch { }
         }
     } catch { }
+}
+# The hold comes before the trust watcher, whose clock must
+# start when claude is about to start, before the account 2 copy, which must not be up to a give-up time old when claude reads it, and before the account record, which says a start happened.
+if ((Get-StartGate) -eq 'hold') {
+    Write-SwapLog 'held' @() 'start'
+    [Console]::Out.WriteLine("Held by the start gate: this session starts when the manager releases it, or by itself after $GateGiveUpSeconds seconds. Nothing has been lost.")
+    $heldAt = Get-Date; $released = $false
+    while (-not $released -and ((Get-Date) - $heldAt).TotalSeconds -lt $GateGiveUpSeconds) {
+        try { $released = Test-GateReleased $gateSince } catch { break }
+        if (-not $released) { Start-Sleep -Seconds 1 }
+    }
+    Write-SwapLog $(if ($released) { 'released' } else { 'gave-up' }) @() 'start'
 }
 # ---- account 2: the copy of account 1's CLAUDE.md and settings.json (planned above) ---------------------------------------------------------------------------
 # ONE line in the starter log per start that tried to copy: account2copy=<ok|partial|failed> set=<file>:<first 12 hex of its SHA-256 after the copy, or "failed">,...

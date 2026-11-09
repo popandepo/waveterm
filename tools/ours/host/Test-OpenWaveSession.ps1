@@ -16,10 +16,14 @@ $env:CLAUDE_CONFIG_DIR = Join-Path $env:USERPROFILE '.claude-personal'
 $id = '11111111-2222-3333-4444-555555555555'
 
 $j = & $script -Cwd $cwd -Name tether-notes -SessionId $id -Model claude-sonnet-5-5 -Effort low -PermissionMode auto -Prompt 'a; b' -TabColor '#2D7DD2' -StarterSource $st -DryRun | ConvertFrom-Json
-$wsh = @($j.waveargs)
-Check 'a starter marker (WAVE_TOKEN) passes' $true ''; $argv = @($j.argv)
-Check 'a session is opened with --restart' ($wsh -contains '--restart') ($wsh -join ' ')
-$metaValues = @(); for ($i = 0; $i -lt $wsh.Count - 1; $i++) { if ($wsh[$i] -eq '--meta') { $metaValues += $wsh[$i + 1] } }
+$waveArgs = @($j.waveargs)
+$argv = @($j.argv)
+# The real starter of this tree, not a fake: the marker check in the opener is text matching only, so this at least proves the two files agree.
+$realThrew = $false
+try { $null = & $script -Cwd $cwd -Name tether-notes -SessionId $id -Prompt 'a' -DryRun } catch { $realThrew = $true }
+Check 'the real starter of this tree passes the marker check of the opener' (-not $realThrew) ''
+Check 'a session is opened with --restart' ($waveArgs -contains '--restart') ($waveArgs -join ' ')
+$metaValues = @(); for ($i = 0; $i -lt $waveArgs.Count - 1; $i++) { if ($waveArgs[$i] -eq '--meta') { $metaValues += $waveArgs[$i + 1] } }
 foreach ($want in "session:id=$id", 'session:name=tether-notes', 'session:model=claude-sonnet-5-5', 'session:effort=low', 'session:permissionmode=auto') {
     Check "meta $want" ($metaValues -contains $want) ($metaValues -join ' | ')
 }
@@ -39,8 +43,6 @@ Check 'only the given facts become meta (name and id here)' (($mv -contains "ses
 $s = & $script -Cwd $cwd -Name n3 -SessionId $id -SkipPermissions -PermissionMode auto -StarterSource $st -DryRun | ConvertFrom-Json
 Check 'skip-permissions is passed on and no permissionmode meta is written for it' ((@($s.argv) -contains '-SkipPermissions') -and (-not (@($s.waveargs) -contains 'session:permissionmode=auto'))) (($s | ConvertTo-Json -Compress))
 
-$old = & $script -Cwd $cwd -Name n4 -NoRestart -StartSession 'C:\x\Start-Session.ps1' -StarterSource $st -DryRun | ConvertFrom-Json
-Check '-NoRestart is the old way: no restart, no meta, the given launcher' ((-not (@($old.waveargs) -contains '--restart')) -and (-not (@($old.waveargs) -contains '--meta')) -and (@($old.argv) -contains 'C:\x\Start-Session.ps1')) ($old | ConvertTo-Json -Compress)
 
 $threw = $false; try { & $script -Cwd $cwd -Name n5 -SessionId 'nope' -StarterSource $st -DryRun | Out-Null } catch { $threw = $true }
 Check 'a session id that is not a guid is refused' $threw ''
@@ -71,6 +73,21 @@ Check 'account 2 gets the usage-file-2 mod' ((PluginOf $u2) -like '*\mods\usage-
 Check 'a throwaway folder gets no usage mod' (-not (PluginOf $thr)) (PluginOf $thr)
 $ux = & $script -Cwd $cwd -Name ux -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal2') -PluginDir $env:TEMP -DryRun | ConvertFrom-Json
 Check 'a plugin folder given by the caller is kept' ((PluginOf $ux) -eq $env:TEMP) (PluginOf $ux)
+# tool-rows and -ClickRows (31 Oct 2026): the mod folder is passed on when it exists; the fullscreen switch only when asked for
+function ArgOf($r, [string]$flag) { $a = @($r.argv); $i = [array]::IndexOf($a, $flag); if ($i -ge 0) { if ($i + 1 -lt $a.Count) { $a[$i + 1] } else { '' } } else { $null } }
+$tr = & $script -Cwd $cwd -Name tr -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ToolRowsDir $env:TEMP -DryRun | ConvertFrom-Json
+Check 'an existing -ToolRowsDir is passed on to the starter' ((ArgOf $tr '-ToolRowsDir') -eq $env:TEMP) ($tr | ConvertTo-Json -Compress)
+Check 'without -ClickRows the starter is not told to go fullscreen' (@($tr.argv) -notcontains '-ClickRows') ($tr | ConvertTo-Json -Compress)
+$missing = Join-Path $env:TEMP 'no-such-tool-rows-folder'
+$errFile = Join-Path $env:TEMP ('tool-rows-stderr-' + [guid]::NewGuid().ToString('N') + '.txt')
+# a child process, so that what the script writes to the process's stderr ([Console]::Error) is caught
+$tn = & pwsh -NoProfile -File $script -Cwd $cwd -Name tn -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ToolRowsDir $missing -DryRun 2>$errFile | ConvertFrom-Json
+Check 'a -ToolRowsDir that does not exist is left out' ($null -eq (ArgOf $tn '-ToolRowsDir')) ($tn | ConvertTo-Json -Compress)
+$errText = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw } else { '' }
+Remove-Item -LiteralPath $errFile -ErrorAction SilentlyContinue
+Check 'and it says so: one line naming the folder and that tool-rows is not loaded' (($errText -split "`n" | Where-Object { $_ -match [regex]::Escape($missing) -and $_ -match 'tool-rows is not loaded' }).Count -eq 1) $errText
+$tc = & $script -Cwd $cwd -Name tc -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ClickRows -DryRun | ConvertFrom-Json
+Check '-ClickRows is passed on to the starter' (@($tc.argv) -contains '-ClickRows') ($tc | ConvertTo-Json -Compress)
 Remove-Item $st -ErrorAction SilentlyContinue
 $env:USERPROFILE = $realProfile
 Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue

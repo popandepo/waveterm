@@ -1,5 +1,5 @@
 # Wave version of MalfestioMaster\tools\Open-SessionTab.ps1: opens a personal Claude session in a NEW BACKGROUND TAB of
-# Wave and prints the tab and block ids as JSON. Must run inside a Wave block (wsh needs the block's token), or with -DryRun.
+# Wave and prints the tab and block ids as JSON. Must run inside a Wave block (wave.exe needs the block's token, WAVE_TOKEN), or with -DryRun.
 # The tab is not shown and nothing takes keyboard focus unless -Activate is given. The program is started directly
 # (no shell, no launcher), so a prompt containing ; & | or quotes reaches the starter unchanged.
 #
@@ -37,19 +37,16 @@ param(
     [switch]$ThrowawayConfig,
     # Default: the usage-file mod of the account the config folder belongs to (Get-UsageModDir, after the folder is resolved).
     [string]$PluginDir,
-    # The tool-rows mod; passed on only when the folder exists. -ClickRows starts the session in the fullscreen renderer (off by default).
-    [string]$ToolRowsDir = 'C:\Projects\Personal\MalfestioMaster\tools\mods\tool-rows',
-    [switch]$ClickRows,
     [string]$StarterSource = (Join-Path (Split-Path $PSScriptRoot) 'Start-ResumableSession.ps1'),
     [string]$StarterDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\tools'),
     [string]$PromptDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\prompts'),
     [string]$Stack
 )
 $ErrorActionPreference = 'Stop'
-# -Stack <block id or number>: NO new tab; the session becomes a member of the group (stack) of that block (wsh session start --stack). -Name, -TabColor and
-# -Symbol then style the block (strip label, colour, strip symbol), not a tab. Not with -Activate. Needs a wsh that has --stack (PR "session start --stack").
-if ($Stack -and $Stack -notmatch '^[A-Za-z0-9:-]{1,64}$') { throw "-Stack must be a block id or number: $Stack" }
-if ($Stack -and $Activate) { throw '-Stack cannot be combined with -Activate (there is no new tab to switch to)' }
+# -Stack <block id>: NO new tab; the session becomes a member of the group (stack) of that block (wave session start --stack). A full lower-case block id or the
+# keyword this; numbers are cut. -Name, -TabColor and -Symbol then style the block (strip label, colour, strip symbol), not a tab.
+# Contract 4.1: --activate with --stack is allowed (needs focus), so the old refusal of -Stack with -Activate is dropped.
+if ($Stack -and $Stack -cnotmatch '^(this|[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12})$') { throw "-Stack must be a full lower-case block id or this: $Stack" }
 . (Join-Path $PSScriptRoot 'Assert-ClaudeConfigDir.ps1')
 $Guid = '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$'
 if ($SessionId -and $SessionId -notmatch $Guid) { throw "SessionId must be a guid: $SessionId" }
@@ -71,7 +68,7 @@ if (-not $NoRestart) {
     $text = Get-Content -LiteralPath $StarterSource -Raw
     if ($text -notmatch 'Resolve-AllowedConfigDir') { throw "the starter at $StarterSource has no config folder rule (an old version with a default of .claude): use the starter with the rule" }
     if ($Prompt -and $text -notmatch 'PromptFile') { throw "the starter at $StarterSource cannot read a prompt from a file (an old version): a prompt with a single quote would be cut by Wave's command quoting" }
-    if ($text -notmatch 'WAVETERM_WSHBINDIR') { throw "the starter at $StarterSource does not put wsh on the PATH (an old version): check out Master or the starter fix first" }
+    if ($text -match 'WAVETERM_' -or $text -notmatch 'WAVE_TOKEN') { throw "the starter at $StarterSource still uses the old WAVETERM_ variables or has no WAVE_TOKEN gate (an old version): check out Master or the starter fix first" }
     $starter = Join-Path $StarterDir 'Start-ResumableSession.ps1'
     $sameCopy = (Test-Path -LiteralPath $starter) -and ((Get-FileHash -LiteralPath $starter).Hash -eq (Get-FileHash -LiteralPath $StarterSource).Hash)
     if (-not $sameCopy -and -not $DryRun) {
@@ -87,11 +84,6 @@ $argv = if ($NoRestart) {
     @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($PluginDir) { @('-PluginDir', $PluginDir) } else { @() }) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
 }
 if ($NoRestart -and $SessionId) { $argv += '-SessionId', $SessionId }
-if (-not $NoRestart -and $ToolRowsDir) {
-    if (Test-Path -LiteralPath $ToolRowsDir -PathType Container) { $argv += '-ToolRowsDir', $ToolRowsDir }
-    else { [Console]::Error.WriteLine("Note: the tool-rows folder '$ToolRowsDir' does not exist, so tool-rows is not loaded in this session (it still opens).") }
-}
-if (-not $NoRestart -and $ClickRows) { $argv += '-ClickRows' }
 if ($Model) { $argv += '-Model', $Model }
 if ($Effort) { $argv += '-Effort', $Effort }
 if ($SkipPermissions) { $argv += '-SkipPermissions' }
@@ -138,16 +130,16 @@ if ($Name -and $LookByName.ContainsKey($Name.ToLowerInvariant())) {
     if (-not $TabColor) { $TabColor = $look[0] }
     if (-not $Symbol) { $Symbol = $look[1] }
 }
-$wshArgs = @('session', 'start', '--name', $Name, '--cwd', $Cwd, '--args-file', '<file>')
-if ($TabColor) { $wshArgs += '--color', $TabColor }
-if ($Symbol) { $wshArgs += '--symbol', $Symbol }
-if ($Activate) { $wshArgs += '--activate' }
-if ($Stack) { $wshArgs += '--stack', $Stack }
-if (-not $NoRestart) { $wshArgs += '--restart' }
-foreach ($m in $allMeta) { $wshArgs += '--meta', $m }
+$waveArgs = @('session', 'start', '--name', $Name, '--cwd', $Cwd, '--args-file', '<file>')
+if ($TabColor) { $waveArgs += '--color', $TabColor }
+if ($Symbol) { $waveArgs += '--symbol', $Symbol }
+if ($Activate) { $waveArgs += '--activate' }
+if ($Stack) { $waveArgs += '--stack', $Stack }
+if (-not $NoRestart) { $waveArgs += '--restart' }
+foreach ($m in $allMeta) { $waveArgs += '--meta', $m }
 
 if ($DryRun) {
-    [pscustomobject]@{ wshargs = $wshArgs; argv = $argv; starter = $starter; sessionid = $SessionId; promptfile = $promptFile } | ConvertTo-Json -Depth 4
+    [pscustomobject]@{ waveargs = $waveArgs; argv = $argv; starter = $starter; sessionid = $SessionId; promptfile = $promptFile } | ConvertTo-Json -Depth 4
     return
 }
 
@@ -158,9 +150,25 @@ if ($promptFile) {
 $argsFile = Join-Path ([IO.Path]::GetTempPath()) ("wave-session-" + [guid]::NewGuid().ToString('N') + '.json')
 try {
     ConvertTo-Json -InputObject @($argv) -Compress | Set-Content -LiteralPath $argsFile -Encoding utf8
-    $wshArgs[$wshArgs.IndexOf('<file>')] = $argsFile
+    $waveArgs[$waveArgs.IndexOf('<file>')] = $argsFile
     if ($SessionId) { Write-Host "session id: $SessionId" }
-    & wsh @wshArgs
-    if ($LASTEXITCODE -ne 0) { throw "wsh session start failed ($LASTEXITCODE)" }
+    if (-not $env:WAVE_TOKEN) { [Console]::Error.WriteLine('Refusing: WAVE_TOKEN is not set (run this inside a Wave block).'); exit 2 }
+    $errFile = Join-Path ([IO.Path]::GetTempPath()) ("wave-session-err-" + [guid]::NewGuid().ToString('N') + '.txt')
+    try {
+        $out = & wave @waveArgs 2>$errFile
+        $code = $LASTEXITCODE
+        $errText = if (Test-Path -LiteralPath $errFile) { (Get-Content -LiteralPath $errFile -Raw) } else { '' }
+    } finally { Remove-Item -LiteralPath $errFile -ErrorAction SilentlyContinue }
+    $answer = $null
+    try { $answer = ($out -join "`n") | ConvertFrom-Json -ErrorAction Stop } catch { }
+    if ($code -eq 7 -and $answer) {
+        # created, then a later step failed: with --restart the block would start again at every launch, so the leftover is removed
+        if ($Stack -and $answer.blockid) { & wave block delete $answer.blockid --force | Out-Null }
+        elseif ($answer.tabid) { & wave session close $answer.tabid --force | Out-Null }
+        throw "wave session start partly failed (7), the leftover was closed (cleanup exit $LASTEXITCODE): $errText"
+    }
+    if ($code -ne 0) { throw "wave session start failed ($code): $errText" }
+    if (-not $answer -or $answer.status -ne 'ok' -or -not $answer.blockid) { throw "wave session start gave no usable answer: $($out -join ' ')" }
+    $answer | ConvertTo-Json -Compress
 }
 finally { Remove-Item -LiteralPath $argsFile -ErrorAction SilentlyContinue }

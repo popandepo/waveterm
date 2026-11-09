@@ -1,4 +1,4 @@
-# Runs INSIDE a Wave terminal block that was made with `wsh session start --restart --meta session:id=<guid> ...`.
+# Runs INSIDE a Wave terminal block that was made with `wave session start --restart --meta session:id=<guid> ...`.
 # Starts claude with a clean environment (the launching session's CLAUDE* variables, NO_COLOR and the like are removed), plus one decision that a plain launcher does not
 # make: with a fixed session id, the FIRST start creates the session under that id (--session-id) and every later start
 # (Wave was restarted) resumes it (--resume), so the same conversation comes back in the same block.
@@ -18,17 +18,9 @@ param(
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
     [string[]]$PluginDir = @(),
-    # The tool-rows mod (MalfestioMaster tools\mods\tool-rows): added to the plugin folders below, but only when it is the one trusted folder
-    # (-ToolRowsAllowed, compared after links and junctions are resolved). Any other folder refuses the start.
-    [string]$ToolRowsDir = '',
-    [string]$ToolRowsAllowed = 'C:\Projects\Personal\MalfestioMaster\tools\mods\tool-rows',
-    # Start in the fullscreen renderer so mouse clicks reach mods (off by default: it changes mouse capture and text selection in Wave).
-    [switch]$ClickRows,
     [string]$Command = 'claude',
     [ValidateRange(0, 120)][int]$CommandWaitSeconds = 30,
     [string]$LookupSignal = '',   # test seam: a file written when the first lookup for the command has failed
-    [ValidateRange(1, 30)][int]$SwapTimeoutSeconds = 15,
-    [string]$WshRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\profile\data\bin' } else { '' }),
     [string]$LogPath = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\starter.log' } else { '' }),
     [string]$LogRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork' } else { '' }),
     [string]$AccountDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\logs\session-accounts' } else { '' }),
@@ -37,12 +29,6 @@ param(
     [ValidateRange(5, 300)][int]$TrustWaitSeconds = 90,
     [string[]]$TrustExclude = @('C:\Projects\Personal\_wt', 'C:\Projects\Personal\_archive'),
     [string]$TrustExcludeFile = 'C:\Projects\Personal\MalfestioMaster\tools\external-repos.json',
-    [string]$ManagerFile = $(if ($env:WAVEFORK_MANAGER_FILE) { $env:WAVEFORK_MANAGER_FILE } else { 'C:\Projects\Personal\MalfestioMaster\tools\manager.json' }),
-    [string[]]$GateAlways = @('manager-duty'),
-    [string]$GateDir = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\start-gate' } else { '' }),
-    [ValidateRange(0, 3600)][int]$GateWindowSeconds = 180,
-    [ValidateRange(1, 86400)][int]$GateGiveUpSeconds = 900,
-    [string]$WaveStartedAt = $env:WAVEFORK_WAVE_STARTED_AT,   # test seam: otherwise the start time of the running wavesrv
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -146,20 +132,6 @@ $ConfigDir = $resolvedConfig
 # Plugin folders (--plugin-dir): each must be fully qualified, an existing folder, and (after links are resolved) never at or below .claude or .claude-work.
 # What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
 $pluginPaths = @()
-if ($ToolRowsDir) {
-    $trOk = $false
-    if ($ToolRowsDir -match '^[A-Za-z]:[\\/]' -and $ToolRowsAllowed -match '^[A-Za-z]:[\\/]' -and
-        (Test-Path -LiteralPath $ToolRowsDir -PathType Container) -and (Test-Path -LiteralPath $ToolRowsAllowed -PathType Container)) {
-        $trGiven = Get-FinalPath $ToolRowsDir
-        $trTrusted = Get-FinalPath $ToolRowsAllowed
-        $trOk = [bool]($trGiven -and $trTrusted -and ($trGiven -ieq $trTrusted))
-    }
-    if (-not $trOk) {
-        [Console]::Error.WriteLine("Refusing to start Claude: -ToolRowsDir '$ToolRowsDir' is not the trusted tool-rows folder (nothing was opened).")
-        exit 2
-    }
-    $PluginDir = @($PluginDir) + $ToolRowsDir
-}
 foreach ($pd in @($PluginDir | Where-Object { $_ })) {
     $okPlugin = $null
     if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-PlainlyForbidden $pd)) {
@@ -181,18 +153,17 @@ foreach ($pd in @($PluginDir | Where-Object { $_ })) {
 $statusSession = $null
 if ($Name) { $statusSession = $Name + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8) }
 
-# The folder that wsh.exe is run from (and put on the PATH): fully qualified, not plainly at or below .claude or .claude-work (checked before anything is
-# opened), existing, and with its final path at or below $WshRoot and not at or below .claude or .claude-work. Returns the final path, or $null.
-function Resolve-WshFolder([string]$dir) {
+# The folder that wave.exe is run from (WAVE_BIN, set by the app): fully qualified, not plainly at or below .claude or .claude-work, existing, and its final
+# path not at or below .claude or .claude-work. Returns the final path, or $null. (The old check that the folder lies under a fixed root has no counterpart:
+# the contract names no folder for WAVE_BIN.)
+function Resolve-WaveFolder([string]$dir) {
     if ([string]::IsNullOrWhiteSpace($dir) -or $dir -notmatch '^[A-Za-z]:[\\/]') { return $null }
     if (Test-PlainlyForbidden $dir) { return $null }
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $null }
     $final = Get-FinalPath $dir
     $homeFinal = Get-FinalPath $env:USERPROFILE
-    $rootFinal = if ($WshRoot -match '^[A-Za-z]:[\\/]' -and -not (Test-PlainlyForbidden $WshRoot)) { Get-FinalPath $WshRoot } else { $null }
-    if (-not $final -or -not $homeFinal -or -not $rootFinal) { return $null }
+    if (-not $final -or -not $homeFinal) { return $null }
     foreach ($bad in '.claude', '.claude-work') { if (Test-Under $final "$homeFinal\$bad") { return $null } }
-    if (-not (Test-Under $final $rootFinal)) { return $null }
     return $final
 }
 
@@ -270,42 +241,7 @@ function Get-ClaudeArgs {
 
 # The manager session (and only it) compacts at 300k tokens instead of the default (R-20261016-007; the same line as
 # MalfestioMaster tools\Start-Session.ps1). It is set after the CLAUDE* clean-up below, which would otherwise remove it.
-# Which session is the manager is said in one place, the manager file (tools\manager.json in MalfestioMaster). An unreadable file means no session counts as the manager.
-$managerId = try { [string](Get-Content -LiteralPath $ManagerFile -Raw -ErrorAction Stop | ConvertFrom-Json).sessionId } catch { '' }
-$compactWindow = if ($managerId -and $SessionId -eq $managerId) { '300000' } else { '' }
-
-# ---- the start gate ----------------------------------------------------------------------------------------------------------------------------------------
-# Wave restores every block at once when it starts, and each starter would resume its session: 32 sessions in the same three seconds after the reboot of 1 Nov 2026.
-# So a start in the first -GateWindowSeconds after wavesrv started is held, except the manager and -GateAlways, until the manager releases it by writing the file
-# <GateDir>\<name> (or <GateDir>\_all) after that start. The block and its layout stay as they are, it only waits before claude starts; a block opened later is
-# opened on purpose and is not held. Anything the gate cannot read lets the session start (an unreadable manager file included, the manager must never wait), and a hold
-# ends by itself after -GateGiveUpSeconds: a session that starts is better than one that waits for ever. A name of only dots or _all cannot have a release file of its own, so it is not held.
-# Inside the window a block opened by hand looks like a restored one and is held too.
-$gateName = $Name -replace '[^A-Za-z0-9_.-]', '_'
-$gateSince = $null
-function Get-WaveStart {
-    if ($WaveStartedAt) { try { return [datetime]::Parse($WaveStartedAt, [Globalization.CultureInfo]::InvariantCulture) } catch { return $null } }
-    $w = Get-Process -Name 'wavesrv*' -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1
-    if ($w) { return $w.StartTime } else { return $null }
-}
-function Test-GateReleased([datetime]$since) {
-    if (-not $GateDir) { return $true }
-    foreach ($n in '_all', $gateName) {
-        $f = Get-Item -LiteralPath (Join-Path $GateDir $n) -ErrorAction SilentlyContinue
-        if ($f -and -not $f.PSIsContainer -and $f.LastWriteTime -ge $since) { return $true }
-    }
-    return $false
-}
-function Get-StartGate {
-    try {
-        if (-not $Name -or -not $managerId -or $SessionId -eq $managerId -or ($GateAlways -contains $Name)) { return 'go' }
-        if ($gateName -eq '_all' -or $gateName -match '^\.+$') { return 'go' }
-        $script:gateSince = Get-WaveStart
-        if (-not $gateSince -or ((Get-Date) - $gateSince).TotalSeconds -gt $GateWindowSeconds) { return 'go' }
-        if (Test-GateReleased $gateSince) { return 'go' }
-        return 'hold'
-    } catch { return 'go' }
-}
+$compactWindow = if ($SessionId -eq '3c641601-9a7a-44be-a93c-e5a89419429b') { '300000' } else { '' }
 # Account 2 has its own login and nothing else of its own: CLAUDE.md and settings.json are copies of account 1's, refreshed at every start the way the
 # claude-personal2 command does it (a file link needs admin here). A session started without the refresh ran on an old copy and missed a hook.
 # Only when the folder IS the account 2 folder, and only plain files whose own final place is below account 1's folder (never a link, so nothing outside it
@@ -339,7 +275,7 @@ function Get-Account2CopyPlan {
     return $plan
 }
 $account2Copy = @(Get-Account2CopyPlan)
-if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; "gate=$(Get-StartGate)"; return }
+if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; return }
 
 Get-ChildItem env: |
     Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
@@ -347,153 +283,14 @@ Get-ChildItem env: |
     ForEach-Object { Remove-Item "env:$($_.Name)" -ErrorAction SilentlyContinue }
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
 $env:CLAUDE_CONFIG_DIR = $ConfigDir
-# -ClickRows: the fullscreen renderer, with the full-repaint fix that goes with it (12 Oct 2026: it left old text on screen without it).
-if ($ClickRows) { $env:CLAUDE_CODE_NO_FLICKER = '1'; $env:CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT = '1' }
 if ($compactWindow) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = $compactWindow }
 # The status page's hook writes nothing unless STATUS_SESSION is set; a key inherited from the session that opened this block would be the wrong one.
 if ($Name) { $env:STATUS_SESSION = $statusSession; $env:STATUS_TAB = $Name }
 if ($Name) { try { $Host.UI.RawUI.WindowTitle = $Name } catch { } }
 
-# Wave puts the folder of wsh on the PATH of the shells it starts (wavepwsh.ps1), not of a program that it starts directly, as this one is. A Claude session
-# in a tile that cannot run wsh cannot use the rest of Wave, so the folder Wave names (WAVETERM_WSHBINDIR) is put on the PATH here, once. It goes AFTER the
-# entries that are already there (a tool of the same name that is already there wins), only when it is a fully qualified path to an existing folder, and is not
-# added when the same folder is already there under another spelling (compared as full paths, case-insensitive, trailing separators ignored). This step can
-# never stop the session: any error leaves the PATH as it was.
-function Get-FullDir([string]$d) { try { return [IO.Path]::GetFullPath($d).TrimEnd('\', '/') } catch { return $null } }
-try {
-    $wshDir = $env:WAVETERM_WSHBINDIR
-    $wshFull = Resolve-WshFolder $wshDir
-    if ($wshFull) {
-        $current = [string]$env:PATH
-        $entries = @($current -split [IO.Path]::PathSeparator | Where-Object { $_ })
-        if ($wshFull -and -not ($entries | Where-Object { (Get-FullDir $_) -ieq $wshFull })) {
-            $env:PATH = $current.TrimEnd([IO.Path]::PathSeparator) + [IO.Path]::PathSeparator + $wshFull
-        }
-    }
-} catch { }
-# Wave starts this program directly, so it gets WAVETERM_SWAPTOKEN (one use, valid 5 minutes after the block started) and none of the variables that wsh
-# needs (WAVETERM_JWT, BLOCKID, TABID, WORKSPACEID ...). The shells that Wave starts exchange it themselves (wavepwsh.ps1); a program started directly never
-# does, and a session that was resumed after a restart sits idle past the 5 minutes. So it is exchanged HERE, before claude starts, and claude and every tool
-# shell below it inherit the variables.
-#  - wsh is the wsh.exe in the folder Wave names (WAVETERM_WSHBINDIR), run ONCE with "token <token> pwsh". That folder is the only one a program is ever run
-#    from, so it gets the same gates as the config and plugin folders: fully qualified; a plain-spelling refusal of .claude and .claude-work before any file
-#    system call; then its FINAL path must be at or below -WshRoot (default %LOCALAPPDATA%\WaveFork\profile\data\bin: what Wave sets, its data folder plus
-#    "bin"; a test names its own root) and never at or below .claude or .claude-work. The same folder is checked before it goes on the PATH.
-#  - The token is the PACKED form Wave puts in the environment (base64 of JSON with the real token and the socket name, a few hundred characters): base64
-#    alphabet only, 8 to 8192 characters, no leading dash, and it must decode to JSON with a token and a rpccontext.sockname (nothing of it is printed);
-#    anything else is no token and wsh is not called. It goes in as ONE argument list element, never joined into a string.
-#  - The outcome is ONE code from a closed list (ok, no-token, token-shape, wsh-folder, wsh-missing, start-failed, timeout, too-large, no-lines, exit-code:<n>),
-#    never wsh's own words. It is on the Note line and in one line of a small log (-LogPath, default %LOCALAPPDATA%\WaveFork\logs\starter.log, 200 lines).
-#  - One deadline (-SwapTimeoutSeconds, default 15) covers the whole exchange: the read of the output and the exit. At the deadline wsh is killed and the
-#    session goes on. The output is read in pieces and refused above 256 KB; a line above 16 KB is ignored.
-#  - What it prints is PARSED, never run: only lines of the exact form  $env:NAME = "value"  with NAME on the fixed list below are taken; every other line is
-#    ignored (a command, a subexpression, an assignment to PATH or to another name, a line with more after the value). Inside the value Wave escapes a double
-#    quote, a backtick and a dollar sign with a backtick; that is all that is undone. A value that holds a newline, a control character or any other
-#    backtick sequence is refused. A non-zero exit means nothing is taken.
-#  - The token never reaches the screen or an error message. It is on the command line of the wsh call while that runs (a few milliseconds; another process of
-#    the same user can list it then, as it can read this process's environment all along); it is single use, and it is removed from this process's environment
-#    afterwards (an empty one too), so claude and its shells never see a spent token.
-#  - A failed, slow or refused exchange never stops the session: it starts without wsh access and one plain line says so. When an exchange was tried and did
-#    not succeed, any WAVETERM_JWT, BLOCKID, TABID and WORKSPACEID that were inherited are removed too, so that they are present only after a success.
-$SwapVariables = @('WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID', 'WAVETERM_CLIENTID', 'WAVETERM_CONN', 'WAVETERM_VERSION', 'WAVETERM', 'TERM_PROGRAM')
-$SwapMaxOutputChars = 262144
-$SwapMaxLineChars = 16384
-
-function ConvertFrom-WshAssignment([string]$line) {
-    if ($line.Length -gt $SwapMaxLineChars) { return $null }
-    $m = [regex]::Match($line, '^\$env:([A-Z][A-Z0-9_]*) = "((?:[^"`$]|`["`$`])*)"$')
-    if (-not $m.Success -or $SwapVariables -cnotcontains $m.Groups[1].Value) { return $null }
-    $value = $m.Groups[2].Value.Replace('``', [string][char]1).Replace('`"', '"').Replace('`$', '$').Replace([string][char]1, '`')
-    if ($value -match '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]') { return $null }
-    return @{ Name = $m.Groups[1].Value; Value = $value }
-}
-
-$SwapCodes = @('ok', 'no-token', 'token-shape', 'wsh-folder', 'wsh-missing', 'start-failed', 'timeout', 'too-large', 'no-lines', 'no-access')
-$script:SwapNames = @()
-
-# The packed token that Wave puts in WAVETERM_SWAPTOKEN: base64 (standard alphabet) of a JSON object {"token": <uuid>, "rpccontext": {...}}
-# (shellutil TokenSwapEntry.PackForClient). It is judged by its form and by what it decodes to, and nothing of it is ever printed or logged: exactly the
-# two keys, the token a lower-case canonical uuid, and rpccontext only the fields of wshrpc.RpcContext with their types, sockname not empty and routeid
-# present (it has no omitempty, so Wave always writes it, often empty).
-$SwapContextTypes = @{ sockname = [string]; routeid = [string]; procroute = [bool]; blockid = [string]; conn = [string]; isrouter = [bool] }
-function Test-PackedSwapToken([string]$token) {
-    if ($token -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9_+/=-]{7,8191}\z') { return $false }
-    try {
-        $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($token)) | ConvertFrom-Json -NoEnumerate -ErrorAction Stop
-        if ($json -isnot [System.Management.Automation.PSCustomObject]) { return $false }
-        $top = @($json.PSObject.Properties.Name)
-        if ($top.Count -ne 2 -or $top -cnotcontains 'token' -or $top -cnotcontains 'rpccontext') { return $false }
-        if ($json.token -isnot [string] -or $json.token -cnotmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z') { return $false }
-        $ctx = $json.rpccontext
-        if ($ctx -isnot [System.Management.Automation.PSCustomObject]) { return $false }
-        foreach ($prop in $ctx.PSObject.Properties) {
-            # field names are matched exactly (a hashtable lookup ignores case, so BLOCKID would pass as blockid)
-            if (@($SwapContextTypes.Keys) -cnotcontains $prop.Name -or $prop.Value -isnot $SwapContextTypes[$prop.Name]) { return $false }
-        }
-        $names = @($ctx.PSObject.Properties.Name)
-        return [bool](($names -ccontains 'sockname') -and $ctx.sockname -and ($names -ccontains 'routeid'))
-    } catch { return $false }
-}
-
-# Returns ONE code from the closed list in $SwapCodes, or 'exit-code:<n>'. Never wsh's own words (its error text can hold a path, a socket name or the token).
-function Invoke-WaveTokenSwap([int]$timeoutSeconds) {
-    $token = $env:WAVETERM_SWAPTOKEN
-    if (-not $token) { return 'no-token' }
-    if (-not (Test-PackedSwapToken $token)) { return 'token-shape' }
-    $binDir = Resolve-WshFolder $env:WAVETERM_WSHBINDIR
-    if (-not $binDir) { return 'wsh-folder' }
-    $wsh = Join-Path $binDir 'wsh.exe'
-    if (-not (Test-Path -LiteralPath $wsh -PathType Leaf)) { return 'wsh-missing' }
-    $proc = $null
-    try {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $wsh
-        foreach ($a in 'token', $token, 'pwsh') { $psi.ArgumentList.Add($a) }
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.CreateNoWindow = $true
-        $clock = [System.Diagnostics.Stopwatch]::StartNew()
-        $deadlineMs = $timeoutSeconds * 1000
-        try { $proc = [System.Diagnostics.Process]::Start($psi) } catch { return 'start-failed' }
-        $null = $proc.StandardError.ReadToEndAsync()
-        # one deadline for the read and the exit: the output is read in pieces (a wsh whose child keeps the pipe open, or one that never ends, ends at the
-        # deadline), and above the size limit it is refused
-        $text = New-Object System.Text.StringBuilder
-        $buffer = New-Object 'char[]' 4096
-        $reader = $proc.StandardOutput
-        while ($true) {
-            $left = $deadlineMs - $clock.ElapsedMilliseconds
-            if ($left -le 0) { try { $proc.Kill($true) } catch { }; return 'timeout' }
-            $read = $reader.ReadAsync($buffer, 0, $buffer.Length)
-            if (-not $read.Wait([int]$left)) { try { $proc.Kill($true) } catch { }; return 'timeout' }
-            if ($read.Result -le 0) { break }
-            [void]$text.Append($buffer, 0, $read.Result)
-            if ($text.Length -gt $SwapMaxOutputChars) { try { $proc.Kill($true) } catch { }; return 'too-large' }
-        }
-        $left = $deadlineMs - $clock.ElapsedMilliseconds
-        if ($left -le 0 -or -not $proc.WaitForExit([int]$left)) { try { $proc.Kill($true) } catch { }; return 'timeout' }
-        if ($proc.ExitCode -ne 0) { return ('exit-code:' + [int]$proc.ExitCode) }
-        $found = @()
-        foreach ($line in ($text.ToString() -split "`r?`n")) {
-            $parsed = ConvertFrom-WshAssignment $line
-            if ($parsed) { $found += $parsed }
-        }
-        if ($found.Count -eq 0) { return 'no-lines' }
-        # wsh in this session needs WAVETERM_JWT; without it the exchange gave no access, so it is no success and nothing is set
-        if (-not ($found | Where-Object { $_.Name -ceq 'WAVETERM_JWT' -and $_.Value })) { return 'no-access' }
-        # every listed name is cleared first: a name that wsh did not print must not keep whatever was inherited
-        foreach ($n in $SwapVariables) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
-        foreach ($parsed in $found) { Set-Item -Path "env:$($parsed.Name)" -Value $parsed.Value }
-        $script:SwapNames = @($found | ForEach-Object { $_.Name })
-        return 'ok'
-    } catch {
-        return 'start-failed'
-    } finally {
-        if ($proc) { $proc.Dispose() }
-    }
-}
-
+# Wave starts this program directly with WAVE_TOKEN, WAVE_PIPE, WAVE_BLOCK, WAVE_TAB and WAVE_WORKSPACE set and with the folder of wave.exe (WAVE_BIN) on the PATH
+# (contract 1): there is no token exchange and no PATH step here. claude and every tool shell below it inherit the variables. A start without WAVE_TOKEN (this
+# script run by hand outside Wave) simply has no Wave access; the trust watcher below is not started then.
 # One line "<time> <session name> swap=<code>" (on success also the NAMES of the variables set, never a value) in a small log, capped at 200 lines by
 # rewriting. Only fixed codes and names that passed the parser go in. A log that cannot be written is ignored.
 function Write-SwapLog([string]$code, [string[]]$names, [string]$label = 'swap') {
@@ -530,30 +327,6 @@ function Write-SwapLog([string]$code, [string[]]$names, [string]$label = 'swap')
         }
     } catch { }
 }
-
-if (Test-Path -LiteralPath Env:WAVETERM_SWAPTOKEN) {
-    $swapCode = 'start-failed'
-    try { $swapCode = Invoke-WaveTokenSwap $SwapTimeoutSeconds } catch { }
-    Remove-Item Env:WAVETERM_SWAPTOKEN -ErrorAction SilentlyContinue
-    Write-SwapLog $swapCode $script:SwapNames
-    if ($swapCode -ne 'ok') {
-        # a failed exchange leaves nothing that looks like access: whatever was inherited is removed
-        foreach ($n in 'WAVETERM_JWT', 'WAVETERM_BLOCKID', 'WAVETERM_TABID', 'WAVETERM_WORKSPACEID') { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
-        [Console]::Error.WriteLine("Note: the Wave token could not be exchanged (swap=$swapCode), so this session starts without wsh access. Restarting the block gives a new token.")
-    }
-}
-# The hold comes after the token exchange, the token is only valid for 5 minutes and a release can come much later. It comes before the trust watcher, whose clock must
-# start when claude is about to start, before the account 2 copy, which must not be up to a give-up time old when claude reads it, and before the account record, which says a start happened.
-if ((Get-StartGate) -eq 'hold') {
-    Write-SwapLog 'held' @() 'start'
-    [Console]::Out.WriteLine("Held by the start gate: this session starts when the manager releases it, or by itself after $GateGiveUpSeconds seconds. Nothing has been lost.")
-    $heldAt = Get-Date; $released = $false
-    while (-not $released -and ((Get-Date) - $heldAt).TotalSeconds -lt $GateGiveUpSeconds) {
-        try { $released = Test-GateReleased $gateSince } catch { break }
-        if (-not $released) { Start-Sleep -Seconds 1 }
-    }
-    Write-SwapLog $(if ($released) { 'released' } else { 'gave-up' }) @() 'start'
-}
 # ---- account 2: the copy of account 1's CLAUDE.md and settings.json (planned above) ---------------------------------------------------------------------------
 # ONE line in the starter log per start that tried to copy: account2copy=<ok|partial|failed> set=<file>:<first 12 hex of its SHA-256 after the copy, or "failed">,...
 # so that a start can be shown to have copied (and what), not only to have found equal files. ok: every planned file was copied; failed: none was; partial: some
@@ -579,14 +352,14 @@ if ($account2Copy.Count -gt 0) {
 # ---- the "trust this folder" question ---------------------------------------------------------------------------------------------------------------------
 # Claude asks once per folder whether to trust it, and the default answer is "No, exit". A session opened in a background tile then sits on that question
 # (or ends) and nobody sees it (17 Oct 2026, the Ashfall session). The manager has his standing yes for his own project folders, so this block answers it
-# itself: a watcher reads this block's own screen through wsh (no focus, no keys typed into the window) and, when the question is up for a folder under
-# -TrustRoot, moves to "Yes, I trust this folder" and confirms. Anything else (another folder, no wsh access, the question never shows) is left alone; the
+# itself: a watcher reads this block's own screen through wave.exe (WAVE_BIN; no focus, no keys typed into the window) and, when the question is up for a folder under
+# -TrustRoot, moves to "Yes, I trust this folder" and confirms. Anything else (another folder, no WAVE_TOKEN, the question never shows) is left alone; the
 # watcher stops after -TrustWaitSeconds.
 # Only the last lines of the screen are read (the scrollback of a resumed session can quote the question), and only when the dialog itself is up: the
 # "Accessing workspace", "No, exit" and the folder (white space removed, a long path wraps) within those lines. Before Enter the dialog is read again and the pointer must be on
 # the Yes row. Not trusted by this: -TrustExclude (checkouts of other people's branches, the archive) and every folder in -TrustExcludeFile (outside clones).
 # Any error in this part leaves the session to start as before: it never stops the start.
-$wshExe = $null; $trustOk = $false
+$waveExe = $null; $trustOk = $false
 try {
     $cwdFinal = Get-FinalPath (Get-Location).Path
     foreach ($r in $TrustRoot) {
@@ -598,16 +371,19 @@ try {
         $excluded += @((Get-Content -LiteralPath $TrustExcludeFile -Raw | ConvertFrom-Json).repos | ForEach-Object { $_.path })
     }
     foreach ($x in $excluded) { if ($x) { $xf = Get-FinalPath $x; if ($cwdFinal -and $xf -and (Test-Under $cwdFinal $xf)) { $trustOk = $false } } }
-    if ($trustOk -and -not $DryRun -and $env:WAVETERM_BLOCKID -and $env:WAVETERM_JWT) {
-        $wshHome = if ($wshFull) { $wshFull } else { Resolve-WshFolder $WshRoot }
-        if ($wshHome) { $wshExe = Join-Path $wshHome 'wsh.exe' }
+    if ($trustOk -and -not $DryRun -and $env:WAVE_BLOCK -and $env:WAVE_TOKEN) {
+        $waveHome = Resolve-WaveFolder $env:WAVE_BIN
+        if ($waveHome) { $waveExe = Join-Path $waveHome 'wave.exe' }
     }
-    if ($trustOk -and $wshExe -and (Test-Path -LiteralPath $wshExe -PathType Leaf)) {
-        $null = Start-ThreadJob -ArgumentList $wshExe, $env:WAVETERM_BLOCKID, $cwdFinal, $TrustWaitSeconds -ScriptBlock {
-            param($wsh, $block, $folder, $wait)
+    if ($trustOk -and $waveExe -and (Test-Path -LiteralPath $waveExe -PathType Leaf)) {
+        $null = Start-ThreadJob -ArgumentList $waveExe, $env:WAVE_BLOCK, $cwdFinal, $TrustWaitSeconds -ScriptBlock {
+            param($wave, $block, $folder, $wait)
             $want = ($folder -replace '\s', '').ToLowerInvariant()
             function Read-Dialog {
-                $tail = @(& $wsh screen -b $block --last 25 2>$null)
+                # stdout is the JSON answer; stderr (the error object) is dropped
+                $json = (@(& $wave screen $block --last 25 2>$null) -join "`n")
+                $tail = @()
+                try { $tail = @(($json | ConvertFrom-Json -ErrorAction Stop).lines) } catch { }
                 $flat = (($tail -join '') -replace '\s', '').ToLowerInvariant()
                 $up = ($tail -match 'Accessing workspace').Count -gt 0 -and ($tail -match '^\W*(\d\.\s*)?No, exit\s*$').Count -gt 0 -and $flat.Contains($want)
                 $onYes = ($tail -match '^\s*[^\s\w]\s*(\d\.\s*)?Yes, I trust this folder\s*$').Count -gt 0
@@ -618,8 +394,8 @@ try {
                 Start-Sleep -Seconds 2
                 $d = Read-Dialog
                 if (-not $d.Up) { continue }
-                if (-not $d.OnYes) { $null = & $wsh send -b $block 'key:Down' 2>$null; Start-Sleep -Milliseconds 500; $d = Read-Dialog }
-                if ($d.Up -and $d.OnYes) { $null = & $wsh send -b $block 'key:Enter' 2>$null }
+                if (-not $d.OnYes) { $null = & $wave send $block 'key:Down' 2>$null; Start-Sleep -Milliseconds 500; $d = Read-Dialog }
+                if ($d.Up -and $d.OnYes) { $null = & $wave send $block 'key:Enter' 2>$null }
                 return
             }
         }

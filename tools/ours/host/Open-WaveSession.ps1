@@ -1,5 +1,5 @@
 # Wave version of MalfestioMaster\tools\Open-SessionTab.ps1: opens a personal Claude session in a NEW BACKGROUND TAB of
-# Wave and prints the tab and block ids as JSON. Must run inside a Wave block (wsh needs the block's token), or with -DryRun.
+# Wave and prints the tab and block ids as JSON. Must run inside a Wave block (wave.exe needs the block's token, WAVE_TOKEN), or with -DryRun.
 # The tab is not shown and nothing takes keyboard focus unless -Activate is given. The program is started directly
 # (no shell, no launcher), so a prompt containing ; & | or quotes reaches the starter unchanged.
 #
@@ -12,8 +12,6 @@
 # CHANGED 11 Oct 2026 (evening): a prompt of a restartable session now goes through a FILE (-PromptFile under %LOCALAPPDATA%\WaveFork\prompts), and any other
 # argument with a single quote is refused. The next real open must be preceded by a -DryRun (three live sessions were opened with the earlier version).
 # CHANGED 12 Oct 2026: -Stack <block> opens the session into an existing stack instead of a tab of its own (see the note at the param block).
-# -StartSession (the old launcher of the caller) is accepted and ignored: a plain launcher cannot be started again with the same id.
-# -NoRestart opens the old way (no restart, no meta).
 #
 #   .\Open-WaveSession.ps1 -Cwd C:\Projects\Personal\Tether -Name tether-notes -SessionId <guid> `
 #       -Model claude-sonnet-5-5 -Effort low -PermissionMode auto -TabColor '#2D7DD2' -Symbol star -Prompt "a; b"
@@ -30,8 +28,6 @@ param(
     [string]$Symbol,
     [switch]$Activate,
     [string[]]$Meta,
-    [string]$StartSession,
-    [switch]$NoRestart,
     [switch]$DryRun,
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
@@ -46,52 +42,42 @@ param(
     [string]$Stack
 )
 $ErrorActionPreference = 'Stop'
-# -Stack <block id or number>: NO new tab; the session becomes a member of the group (stack) of that block (wsh session start --stack). -Name, -TabColor and
-# -Symbol then style the block (strip label, colour, strip symbol), not a tab. Not with -Activate. Needs a wsh that has --stack (PR "session start --stack").
-if ($Stack -and $Stack -notmatch '^[A-Za-z0-9:-]{1,64}$') { throw "-Stack must be a block id or number: $Stack" }
-if ($Stack -and $Activate) { throw '-Stack cannot be combined with -Activate (there is no new tab to switch to)' }
+# -Stack <block id>: NO new tab; the session becomes a member of the group (stack) of that block (wave session start --stack). A full lower-case block id or the
+# keyword this; numbers are cut. -Name, -TabColor and -Symbol then style the block (strip label, colour, strip symbol), not a tab.
+# Contract 4.1: --activate with --stack is allowed (needs focus), so the old refusal of -Stack with -Activate is dropped.
+if ($Stack -and $Stack -cnotmatch '^(this|[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12})$') { throw "-Stack must be a full lower-case block id or this: $Stack" }
 . (Join-Path $PSScriptRoot 'Assert-ClaudeConfigDir.ps1')
 $Guid = '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$'
 if ($SessionId -and $SessionId -notmatch $Guid) { throw "SessionId must be a guid: $SessionId" }
-if (-not $NoRestart -and -not $SessionId) { $SessionId = [guid]::NewGuid().ToString() }
+if (-not $SessionId) { $SessionId = [guid]::NewGuid().ToString() }
 
 # The session that this block will start uses the config folder of THIS environment. There is no default: an unset or .claude/.claude-work folder is refused (exit 2).
-$ResolvedConfig = $null
-if (-not $NoRestart) { $ResolvedConfig = Resolve-AllowedConfigDir $ConfigDir $ThrowawayConfig.IsPresent }
-if (-not $NoRestart -and -not $ResolvedConfig) {
+$ResolvedConfig = Resolve-AllowedConfigDir $ConfigDir $ThrowawayConfig.IsPresent
+if (-not $ResolvedConfig) {
     [Console]::Error.WriteLine("Refusing: CLAUDE_CONFIG_DIR '$ConfigDir' is empty, is .claude or .claude-work, or is not under .claude-personal (use -ThrowawayConfig for a throwaway folder).")
     exit 2
 }
 if (-not $PSBoundParameters.ContainsKey('PluginDir')) { $PluginDir = Get-UsageModDir $ResolvedConfig }
 
 # the starter: a copy outside any working folder, because Wave starts it again at every start and a working folder can be on another branch
-$starter = $null
-if (-not $NoRestart) {
-    if (-not (Test-Path -LiteralPath $StarterSource)) { throw "the resumable starter was not found: $StarterSource" }
-    $text = Get-Content -LiteralPath $StarterSource -Raw
-    if ($text -notmatch 'Resolve-AllowedConfigDir') { throw "the starter at $StarterSource has no config folder rule (an old version with a default of .claude): use the starter with the rule" }
-    if ($Prompt -and $text -notmatch 'PromptFile') { throw "the starter at $StarterSource cannot read a prompt from a file (an old version): a prompt with a single quote would be cut by Wave's command quoting" }
-    if ($text -notmatch 'WAVETERM_WSHBINDIR') { throw "the starter at $StarterSource does not put wsh on the PATH (an old version): check out Master or the starter fix first" }
-    $starter = Join-Path $StarterDir 'Start-ResumableSession.ps1'
-    $sameCopy = (Test-Path -LiteralPath $starter) -and ((Get-FileHash -LiteralPath $starter).Hash -eq (Get-FileHash -LiteralPath $StarterSource).Hash)
-    if (-not $sameCopy -and -not $DryRun) {
-        $null = New-Item -ItemType Directory -Force -Path $StarterDir
-        Copy-Item -LiteralPath $StarterSource -Destination $starter -Force
-    }
+if (-not (Test-Path -LiteralPath $StarterSource)) { throw "the resumable starter was not found: $StarterSource" }
+$text = Get-Content -LiteralPath $StarterSource -Raw
+if ($text -notmatch 'Resolve-AllowedConfigDir') { throw "the starter at $StarterSource has no config folder rule (an old version with a default of .claude): use the starter with the rule" }
+if ($Prompt -and $text -notmatch 'PromptFile') { throw "the starter at $StarterSource cannot read a prompt from a file (an old version): a prompt with a single quote would be cut by Wave's command quoting" }
+if ($text -match 'WAVETERM_' -or $text -notmatch 'WAVE_TOKEN') { throw "the starter at $StarterSource still uses the old WAVETERM_ variables or has no WAVE_TOKEN gate (an old version): check out Master or the starter fix first" }
+$starter = Join-Path $StarterDir 'Start-ResumableSession.ps1'
+$sameCopy = (Test-Path -LiteralPath $starter) -and ((Get-FileHash -LiteralPath $starter).Hash -eq (Get-FileHash -LiteralPath $StarterSource).Hash)
+if (-not $sameCopy -and -not $DryRun) {
+    $null = New-Item -ItemType Directory -Force -Path $StarterDir
+    Copy-Item -LiteralPath $StarterSource -Destination $starter -Force
 }
 
-$argv = if ($NoRestart) {
-    if (-not $StartSession) { throw '-StartSession is needed with -NoRestart (the old way)' }
-    @('pwsh', '-NoLogo', '-File', $StartSession, '-Name', $Name)
-} else {
-    @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($PluginDir) { @('-PluginDir', $PluginDir) } else { @() }) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
-}
-if ($NoRestart -and $SessionId) { $argv += '-SessionId', $SessionId }
-if (-not $NoRestart -and $ToolRowsDir) {
+$argv = @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($PluginDir) { @('-PluginDir', $PluginDir) } else { @() }) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
+if ($ToolRowsDir) {
     if (Test-Path -LiteralPath $ToolRowsDir -PathType Container) { $argv += '-ToolRowsDir', $ToolRowsDir }
     else { [Console]::Error.WriteLine("Note: the tool-rows folder '$ToolRowsDir' does not exist, so tool-rows is not loaded in this session (it still opens).") }
 }
-if (-not $NoRestart -and $ClickRows) { $argv += '-ClickRows' }
+if ($ClickRows) { $argv += '-ClickRows' }
 if ($Model) { $argv += '-Model', $Model }
 if ($Effort) { $argv += '-Effort', $Effort }
 if ($SkipPermissions) { $argv += '-SkipPermissions' }
@@ -99,12 +85,12 @@ elseif ($PermissionMode) { $argv += '-PermissionMode', $PermissionMode }
 # The prompt of a restartable session goes through a FILE: Wave joins a tile's command with Unix-style quoting (a single quote becomes '"'"'), which PowerShell
 # reads as several arguments, so a prompt with a single quote was cut and its pieces bound to -Model and -Effort (claude exit 1, no transcript). The file is
 # under %LOCALAPPDATA%\WaveFork\prompts (the profile's own folder, not readable by other users), named by the session id, written once and never deleted by the
-# starter. The old way (-NoRestart) still passes -Prompt on the command line.
+# starter.
 $promptFile = $null
-if ($Prompt -and -not $NoRestart) {
+if ($Prompt) {
     $promptFile = Join-Path $PromptDir ($SessionId + '.txt')
     $argv += '-PromptFile', $promptFile, '-PromptRoot', $PromptDir
-} elseif ($Prompt) { $argv += '-Prompt', $Prompt }
+}
 
 # Nothing else on the stored command line may hold a single quote (a name, a folder, a model): Wave's quoting would split it. Refused here, before anything is made.
 foreach ($a in $argv) {
@@ -112,12 +98,10 @@ foreach ($a in $argv) {
 }
 
 $allMeta = @()
-if (-not $NoRestart) {
-    $allMeta += "session:id=$SessionId", "session:name=$Name"
-    if ($Model) { $allMeta += "session:model=$Model" }
-    if ($Effort) { $allMeta += "session:effort=$Effort" }
-    if ($PermissionMode -and -not $SkipPermissions) { $allMeta += "session:permissionmode=$PermissionMode" }
-}
+$allMeta += "session:id=$SessionId", "session:name=$Name"
+if ($Model) { $allMeta += "session:model=$Model" }
+if ($Effort) { $allMeta += "session:effort=$Effort" }
+if ($PermissionMode -and -not $SkipPermissions) { $allMeta += "session:permissionmode=$PermissionMode" }
 foreach ($m in $Meta) { $allMeta += $m }
 
 # The arguments travel in a JSON file, not on a command line, so no quoting layer can split or alter them.
@@ -138,16 +122,16 @@ if ($Name -and $LookByName.ContainsKey($Name.ToLowerInvariant())) {
     if (-not $TabColor) { $TabColor = $look[0] }
     if (-not $Symbol) { $Symbol = $look[1] }
 }
-$wshArgs = @('session', 'start', '--name', $Name, '--cwd', $Cwd, '--args-file', '<file>')
-if ($TabColor) { $wshArgs += '--color', $TabColor }
-if ($Symbol) { $wshArgs += '--symbol', $Symbol }
-if ($Activate) { $wshArgs += '--activate' }
-if ($Stack) { $wshArgs += '--stack', $Stack }
-if (-not $NoRestart) { $wshArgs += '--restart' }
-foreach ($m in $allMeta) { $wshArgs += '--meta', $m }
+$waveArgs = @('session', 'start', '--name', $Name, '--cwd', $Cwd, '--args-file', '<file>')
+if ($TabColor) { $waveArgs += '--color', $TabColor }
+if ($Symbol) { $waveArgs += '--symbol', $Symbol }
+if ($Activate) { $waveArgs += '--activate' }
+if ($Stack) { $waveArgs += '--stack', $Stack }
+$waveArgs += '--restart'
+foreach ($m in $allMeta) { $waveArgs += '--meta', $m }
 
 if ($DryRun) {
-    [pscustomobject]@{ wshargs = $wshArgs; argv = $argv; starter = $starter; sessionid = $SessionId; promptfile = $promptFile } | ConvertTo-Json -Depth 4
+    [pscustomobject]@{ waveargs = $waveArgs; argv = $argv; starter = $starter; sessionid = $SessionId; promptfile = $promptFile } | ConvertTo-Json -Depth 4
     return
 }
 
@@ -158,9 +142,25 @@ if ($promptFile) {
 $argsFile = Join-Path ([IO.Path]::GetTempPath()) ("wave-session-" + [guid]::NewGuid().ToString('N') + '.json')
 try {
     ConvertTo-Json -InputObject @($argv) -Compress | Set-Content -LiteralPath $argsFile -Encoding utf8
-    $wshArgs[$wshArgs.IndexOf('<file>')] = $argsFile
+    $waveArgs[$waveArgs.IndexOf('<file>')] = $argsFile
     if ($SessionId) { Write-Host "session id: $SessionId" }
-    & wsh @wshArgs
-    if ($LASTEXITCODE -ne 0) { throw "wsh session start failed ($LASTEXITCODE)" }
+    if (-not $env:WAVE_TOKEN) { [Console]::Error.WriteLine('Refusing: WAVE_TOKEN is not set (run this inside a Wave block).'); exit 2 }
+    $errFile = Join-Path ([IO.Path]::GetTempPath()) ("wave-session-err-" + [guid]::NewGuid().ToString('N') + '.txt')
+    try {
+        $out = & wave @waveArgs 2>$errFile
+        $code = $LASTEXITCODE
+        $errText = if (Test-Path -LiteralPath $errFile) { (Get-Content -LiteralPath $errFile -Raw) } else { '' }
+    } finally { Remove-Item -LiteralPath $errFile -ErrorAction SilentlyContinue }
+    $answer = $null
+    try { $answer = ($out -join "`n") | ConvertFrom-Json -ErrorAction Stop } catch { }
+    if ($code -eq 7 -and $answer) {
+        # created, then a later step failed: with --restart the block would start again at every launch, so the leftover is removed
+        if ($Stack -and $answer.blockid) { & wave block delete $answer.blockid --force | Out-Null }
+        elseif ($answer.tabid) { & wave session close $answer.tabid --force | Out-Null }
+        throw "wave session start partly failed (7), the leftover was closed (cleanup exit $LASTEXITCODE): $errText"
+    }
+    if ($code -ne 0) { throw "wave session start failed ($code): $errText" }
+    if (-not $answer -or $answer.status -ne 'ok' -or -not $answer.blockid) { throw "wave session start gave no usable answer: $($out -join ' ')" }
+    $answer | ConvertTo-Json -Compress
 }
 finally { Remove-Item -LiteralPath $argsFile -ErrorAction SilentlyContinue }

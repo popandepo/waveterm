@@ -1,11 +1,11 @@
-# Self test of Open-WaveSession.ps1 with -DryRun: nothing is started, no wsh is called, nothing is copied.
+# Self test of Open-WaveSession.ps1 with -DryRun: nothing is started, no wave.exe is called, nothing is copied.
 $ErrorActionPreference = 'Stop'
 $script = Join-Path $PSScriptRoot 'Open-WaveSession.ps1'
 $src = 'C:\Projects\Personal\wave\waveterm\tools\ours\Start-ResumableSession.ps1'
 $fail = 0
 function Check($label, $ok, $detail) { if ($ok) { "GREEN $label" } else { $script:fail++; "RED   $label : $detail" } }
 $cwd = $env:TEMP
-$st = Join-Path $env:TEMP ('new-starter-' + [guid]::NewGuid().ToString('N') + '.ps1'); Set-Content $st '# fake starter with the markers: WAVETERM_WSHBINDIR Resolve-AllowedConfigDir PromptFile'
+$st = Join-Path $env:TEMP ('new-starter-' + [guid]::NewGuid().ToString('N') + '.ps1'); Set-Content $st '# fake starter with the markers: WAVE_TOKEN Resolve-AllowedConfigDir PromptFile'
 # a made-up profile: nothing in this test names or opens a folder of the real profile
 $realProfile = $env:USERPROFILE
 $fakeProfile = Join-Path $env:TEMP ('openwave-test-profile-' + [guid]::NewGuid().ToString('N'))
@@ -16,9 +16,14 @@ $env:CLAUDE_CONFIG_DIR = Join-Path $env:USERPROFILE '.claude-personal'
 $id = '11111111-2222-3333-4444-555555555555'
 
 $j = & $script -Cwd $cwd -Name tether-notes -SessionId $id -Model claude-sonnet-5-5 -Effort low -PermissionMode auto -Prompt 'a; b' -TabColor '#2D7DD2' -StarterSource $st -DryRun | ConvertFrom-Json
-$wsh = @($j.wshargs); $argv = @($j.argv)
-Check 'a session is opened with --restart' ($wsh -contains '--restart') ($wsh -join ' ')
-$metaValues = @(); for ($i = 0; $i -lt $wsh.Count - 1; $i++) { if ($wsh[$i] -eq '--meta') { $metaValues += $wsh[$i + 1] } }
+$waveArgs = @($j.waveargs)
+$argv = @($j.argv)
+# The real starter of this tree, not a fake: the marker check in the opener is text matching only, so this at least proves the two files agree.
+$realThrew = $false
+try { $null = & $script -Cwd $cwd -Name tether-notes -SessionId $id -Prompt 'a' -DryRun } catch { $realThrew = $true }
+Check 'the real starter of this tree passes the marker check of the opener' (-not $realThrew) ''
+Check 'a session is opened with --restart' ($waveArgs -contains '--restart') ($waveArgs -join ' ')
+$metaValues = @(); for ($i = 0; $i -lt $waveArgs.Count - 1; $i++) { if ($waveArgs[$i] -eq '--meta') { $metaValues += $waveArgs[$i + 1] } }
 foreach ($want in "session:id=$id", 'session:name=tether-notes', 'session:model=claude-sonnet-5-5', 'session:effort=low', 'session:permissionmode=auto') {
     Check "meta $want" ($metaValues -contains $want) ($metaValues -join ' | ')
 }
@@ -32,23 +37,21 @@ Check 'no inline code form that the restart check refuses' (-not ($argv -contain
 
 $k = & $script -Cwd $cwd -Name n2 -StarterSource $st -DryRun | ConvertFrom-Json
 Check 'without a session id a new guid is made and used' ($k.sessionid -match '^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$' -and (@($k.argv) -contains $k.sessionid)) ($k | ConvertTo-Json -Compress)
-$m = @($k.wshargs); $mv = @(); for ($i = 0; $i -lt $m.Count - 1; $i++) { if ($m[$i] -eq '--meta') { $mv += $m[$i + 1] } }
+$m = @($k.waveargs); $mv = @(); for ($i = 0; $i -lt $m.Count - 1; $i++) { if ($m[$i] -eq '--meta') { $mv += $m[$i + 1] } }
 Check 'only the given facts become meta (name and id here)' (($mv -contains "session:id=$($k.sessionid)") -and ($mv -contains 'session:name=n2') -and $mv.Count -eq 2) ($mv -join ' | ')
 
 $s = & $script -Cwd $cwd -Name n3 -SessionId $id -SkipPermissions -PermissionMode auto -StarterSource $st -DryRun | ConvertFrom-Json
-Check 'skip-permissions is passed on and no permissionmode meta is written for it' ((@($s.argv) -contains '-SkipPermissions') -and (-not (@($s.wshargs) -contains 'session:permissionmode=auto'))) (($s | ConvertTo-Json -Compress))
+Check 'skip-permissions is passed on and no permissionmode meta is written for it' ((@($s.argv) -contains '-SkipPermissions') -and (-not (@($s.waveargs) -contains 'session:permissionmode=auto'))) (($s | ConvertTo-Json -Compress))
 
-$old = & $script -Cwd $cwd -Name n4 -NoRestart -StartSession 'C:\x\Start-Session.ps1' -StarterSource $st -DryRun | ConvertFrom-Json
-Check '-NoRestart is the old way: no restart, no meta, the given launcher' ((-not (@($old.wshargs) -contains '--restart')) -and (-not (@($old.wshargs) -contains '--meta')) -and (@($old.argv) -contains 'C:\x\Start-Session.ps1')) ($old | ConvertTo-Json -Compress)
 
 $threw = $false; try { & $script -Cwd $cwd -Name n5 -SessionId 'nope' -StarterSource $st -DryRun | Out-Null } catch { $threw = $true }
 Check 'a session id that is not a guid is refused' $threw ''
 $threw = $false; try { & $script -Cwd $cwd -Name n6 -StarterSource 'C:\nonexistent\x.ps1' -DryRun | Out-Null } catch { $threw = $true }
 Check 'a missing starter stops it' $threw ''
-$old2 = Join-Path $env:TEMP ('old-starter-' + [guid]::NewGuid().ToString('N') + '.ps1'); Set-Content $old2 '# an old starter without the wsh path'
+$old2 = Join-Path $env:TEMP ('old-starter-' + [guid]::NewGuid().ToString('N') + '.ps1'); Set-Content $old2 '# an old starter with WAVETERM_JWT and no gate'
 $threw = $false; try { & $script -Cwd $cwd -Name n7 -StarterSource $old2 -DryRun | Out-Null } catch { $threw = $true }
 Remove-Item $old2 -ErrorAction SilentlyContinue
-Check 'an old starter (no wsh on the PATH) stops it' $threw ''
+Check 'an old starter (old WAVETERM_ names, no WAVE_TOKEN) stops it' $threw ''
 # the config folder rule: refused with exit code 2, and handed to the starter
 $cfg = (@($j.argv) -join ' ')
 Check 'the config folder of this environment is handed to the starter' ($cfg -match [regex]::Escape('-ConfigDir ' + $env:CLAUDE_CONFIG_DIR)) $cfg

@@ -44,6 +44,7 @@ type CommandOptsType struct {
 	ShellOpts   []string                  `json:"shellOpts,omitempty"`
 	SwapToken   *shellutil.TokenSwapEntry `json:"swapToken,omitempty"`
 	ForceJwt    bool                      `json:"forcejwt,omitempty"`
+	Direct      []string                  `json:"direct,omitempty"` // ours: program and arguments started as they are by a local connection, no shell in between (see ours_directexec.go)
 }
 
 type ShellProc struct {
@@ -623,6 +624,15 @@ func StartLocalShellProc(logCtx context.Context, termSize waveobj.TermSize, cmdS
 		if shellType == shellutil.ShellType_zsh {
 			shellutil.UpdateCmdEnv(ecmd, map[string]string{"ZDOTDIR": shellutil.GetLocalZshZDotDir()})
 		}
+	} else if len(cmdOpts.Direct) > 0 {
+		isShell = false
+		ecmd = directCommand(cmdOpts.Direct)
+		// exec.Command leaves a failed lookup in Err: a program that is not on the PATH, or a name that would only be found in the current
+		// folder (exec.ErrDot, a claude.exe planted in a repo). Neither is started.
+		if ecmd.Err != nil {
+			return nil, fmt.Errorf("cannot start %q: %w", cmdOpts.Direct[0], ecmd.Err)
+		}
+		ecmd.Env = os.Environ()
 	} else {
 		isShell = false
 		shellOpts = append(shellOpts, "-c", cmdStr)

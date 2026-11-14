@@ -114,3 +114,5 @@ setconfig-command
 telemetry-update-service
 record-tevent
 app-menu-items
+cmd-direct-list
+local-direct-exec

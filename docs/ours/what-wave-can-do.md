@@ -49,6 +49,8 @@ is not covered is listed at the end.
 | New **tab** | none in `wsh`. Backend service `workspace.CreateTab(workspaceId, name, activate)` (`frontend/app/store/services.ts`, `pkg/service/workspaceservice/workspaceservice.go`) | READ. Not an RPC command that `wsh` can send; used by the front end only |
 | New window / workspace | none in `wsh` (`wsh workspace` has `list` only) | RAN (`workspace list`), READ for absence |
 
+`wsh run -- cmd args` and `wsh session start -- cmd args` (cmd:shell false) now run `cmd` itself with no shell in between: no cmdlets, functions, aliases or `.ps1` files by bare name (name `pwsh -File x.ps1`), and a name that is not on the PATH, or only in the current folder, fails to start with an error naming it. `wsh run -c "line"` still goes through the shell.
+
 `wsh run` and `wsh term` target the tab of the calling block (`WAVETERM_TABID`). A block cannot be created
 in another tab from `wsh` as shipped. READ (`createblock` RPC takes a `TabId`, but the `run`/`term` commands
 fill it from the environment).

@@ -46,7 +46,12 @@ func putConPTYBesideTheTestBinary(t *testing.T) {
 		if err != nil {
 			t.Skipf("the bundled ConPTY is not in third_party/conpty/x64: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(filepath.Dir(exe), name), data, 0o755); err != nil {
+		target := filepath.Join(filepath.Dir(exe), name)
+		// the first test that starts a terminal loads conpty.dll, after which it cannot be written again; a copy that is already there is left alone
+		if have, err := os.ReadFile(target); err == nil && bytes.Equal(have, data) {
+			continue
+		}
+		if err := os.WriteFile(target, data, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -109,17 +114,31 @@ func TestStartLocalShellProcRunsADirectListWithoutAShell(t *testing.T) {
 	proc.Close()
 }
 
-// A program that is not on the PATH is not started, and the error names it (a block that fails says which program it could not find).
-func TestStartLocalShellProcRefusesAProgramThatIsNotFound(t *testing.T) {
-	opts := startOpts(t, []string{"no-such-program-for-wave-test", "-x"})
-	_, err := StartLocalShellProc(context.Background(), waveobj.TermSize{Rows: 24, Cols: 80}, "ignored", opts, "local")
-	if err == nil || !strings.Contains(err.Error(), "no-such-program-for-wave-test") {
-		t.Fatalf("expected an error naming the program, got %v", err)
+// The refusal of StartLocalShellProc itself, as opposed to a failure further on (the pseudo terminal, the process start): its error begins
+// "cannot start" and names the program. With the check removed the start fails later with another message, so both refusal tests look for this.
+func requireRefusedBeforeTheStart(t *testing.T, err error, program string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected %q to be refused, but it was started", program)
+	}
+	if !strings.HasPrefix(err.Error(), "cannot start "+strconv.Quote(program)) {
+		t.Fatalf("the error is not the refusal of StartLocalShellProc for %q: %v", program, err)
 	}
 }
 
-// A bare name that exists only in the current folder is not run (exec.ErrDot): a claude.cmd in a repo must not stand in for claude.
+// A program that is not on the PATH is not started, and the error names it (a block that fails says which program it could not find).
+func TestStartLocalShellProcRefusesAProgramThatIsNotFound(t *testing.T) {
+	putConPTYBesideTheTestBinary(t)
+	opts := startOpts(t, []string{"no-such-program-for-wave-test", "-x"})
+	_, err := StartLocalShellProc(context.Background(), waveobj.TermSize{Rows: 24, Cols: 80}, "ignored", opts, "local")
+	requireRefusedBeforeTheStart(t, err, "no-such-program-for-wave-test")
+}
+
+// A bare name that is not on the PATH but sits in the block's own folder is not run: a claude.cmd in a repo must not stand in for claude. The
+// vendored pty turns a bare name into a path inside the block's cwd, so the folder is given as the block's Cwd, as a block would carry it (the
+// process's own current folder is changed as well, for the exec.ErrDot case).
 func TestStartLocalShellProcRefusesAProgramFoundOnlyInTheCurrentFolder(t *testing.T) {
+	putConPTYBesideTheTestBinary(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran.txt")
 	planted := "planted-wave-test-program"
@@ -129,14 +148,12 @@ func TestStartLocalShellProcRefusesAProgramFoundOnlyInTheCurrentFolder(t *testin
 	}
 	t.Chdir(dir)
 	opts := startOpts(t, []string{planted})
+	opts.Cwd = dir
 	proc, err := StartLocalShellProc(context.Background(), waveobj.TermSize{Rows: 24, Cols: 80}, "ignored", opts, "local")
 	if err == nil {
 		proc.Close()
-		t.Fatalf("the program found only in the current folder was started")
 	}
-	if !strings.Contains(err.Error(), planted) {
-		t.Fatalf("the error does not name the program: %v", err)
-	}
+	requireRefusedBeforeTheStart(t, err, planted)
 	time.Sleep(300 * time.Millisecond)
 	if _, statErr := os.Stat(marker); statErr == nil {
 		t.Fatalf("the planted program ran")

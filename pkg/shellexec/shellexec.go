@@ -44,6 +44,7 @@ type CommandOptsType struct {
 	ShellOpts   []string                  `json:"shellOpts,omitempty"`
 	SwapToken   *shellutil.TokenSwapEntry `json:"swapToken,omitempty"`
 	ForceJwt    bool                      `json:"forcejwt,omitempty"`
+	Direct      []string                  `json:"direct,omitempty"` // ours: program and arguments started as they are by a local connection, no shell in between (see ours_directexec.go)
 }
 
 type ShellProc struct {
@@ -623,6 +624,10 @@ func StartLocalShellProc(logCtx context.Context, termSize waveobj.TermSize, cmdS
 		if shellType == shellutil.ShellType_zsh {
 			shellutil.UpdateCmdEnv(ecmd, map[string]string{"ZDOTDIR": shellutil.GetLocalZshZDotDir()})
 		}
+	} else if len(cmdOpts.Direct) > 0 {
+		isShell = false
+		ecmd = directCommand(cmdOpts.Direct)
+		ecmd.Env = os.Environ()
 	} else {
 		isShell = false
 		shellOpts = append(shellOpts, "-c", cmdStr)

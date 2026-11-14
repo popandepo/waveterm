@@ -75,6 +75,8 @@ $seams = @(
     @('wsh-tab-cmd', 'cmd/wsh/cmd/wshcmd-tab.go', 'var tabCommand = &cobra.Command{', 'existing tab command group we extend'),
     @('create-block-focused', 'pkg/wshrpc/wshrpctypes.go', 'Focused bool `json:"focused,omitempty"`', 'wsh --no-focus sets this field on create-block requests'),
     @('controller-run-decision', 'pkg/blockcontroller/shellcontroller.go', 'if shouldRunCommand(runOnce, runOnStart, curStatus.ShellProcStatus, force) {', 'wsh session start --restart depends on the controller starting runonstart blocks at init'),
+    @('cmd-direct-list', 'pkg/blockcontroller/shellcontroller.go', 'cmdOpts.Direct = append([]string{cmdStr}, cmdArgs...)', 'a cmd block with cmd:shell false hands its program and arguments to a local connection as a list, so no shell process sits in front of the session starter'),
+    @('local-direct-exec', 'pkg/shellexec/shellexec.go', 'ecmd = directCommand(cmdOpts.Direct)', 'StartLocalShellProc starts that list as it is instead of shell -c <line>'),
     @('create-block-target', 'pkg/wshrpc/wshrpctypes.go', 'TargetAction string `json:"targetaction,omitempty"`', 'wsh slot places blocks with splitright/splitleft/splitup/splitdown/replace'),
     @('blocks-list-rpc', 'pkg/wshrpc/wshrpctypes.go', 'BlocksListCommand(ctx context.Context, data BlocksListRequest) ([]BlocksListEntry, error)', 'wsh slot finds the block of a slot by its meta'),
     @('stack-dnd-type-shared', 'frontend/layout/lib/TileLayout.tsx', 'import { tileItemType } from "./dndtypes";', 'tabs of a stack are drag sources of the same type as tile headers'),

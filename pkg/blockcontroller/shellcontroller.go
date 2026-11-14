@@ -736,6 +736,8 @@ func createCmdStrAndOpts(blockId string, blockMeta waveobj.MetaMapType, connName
 			return "", nil, fmt.Errorf("cmd should not have spaces if cmd:shell is false (use cmd:args)")
 		}
 		cmdArgs := blockMeta.GetStringList(waveobj.MetaKey_CmdArgs)
+		// ours: a local connection starts this program and these arguments as they are (shellexec.StartLocalShellProc); the quoted line below is for remote and WSL connections
+		cmdOpts.Direct = append([]string{cmdStr}, cmdArgs...)
 		// shell escape the args
 		for _, arg := range cmdArgs {
 			cmdStr = cmdStr + " " + utilfn.ShellQuote(arg, false, -1)

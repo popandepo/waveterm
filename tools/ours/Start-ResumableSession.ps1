@@ -244,8 +244,8 @@ if ($Prompt -and $Prompt.TrimStart().StartsWith('-')) {
 }
 $feedItems = ''
 if ($Items) {
-    if ($Items -notmatch '^[\s,]*([0-9]{8}-[A-Za-z]-[0-9a-fA-F]{8}[\s,]*)+$') {
-        [Console]::Error.WriteLine('Refusing to start Claude: -Items holds something that is not an Atlas reference (a day, a node letter and 8 hex digits, like 20261115-M-6804a3f2).')
+    if ($Items -notmatch '^[\s,]*([0-9]{8}-[A-Za-z]-[0-9a-fA-F]{8}([\s,]+|$))+$' -or [regex]::Matches($Items, '[0-9]{8}-[A-Za-z]-[0-9a-fA-F]{8}').Count -gt 10) {
+        [Console]::Error.WriteLine('Refusing to start Claude: -Items holds something that is not a list of at most 10 Atlas references separated by a space or comma (a day, a node letter and 8 hex digits, like 20261115-M-6804a3f2).')
         exit 2
     }
     $feedItems = ($Items -replace '[\s,]+', ' ').Trim()

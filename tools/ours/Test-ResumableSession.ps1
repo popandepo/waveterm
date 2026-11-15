@@ -70,7 +70,7 @@ try {
     $other = & $script -SessionId '99999999-2222-3333-4444-555555555555' -ConfigDir $cfg -DryRun
     Check 'another id is not mistaken for it' ($other[0] -match '--session-id 99999999') $other[0]
     $handed = & $script -SessionId $id -ConfigDir $cfg -Items '20261115-M-6804a3f2, 20261101-C-1f64d43a' -DryRun
-    $bad = & $script -SessionId $id -ConfigDir $cfg -Items 'not-a-ref' -DryRun 2>$null
+    $bad = & $script -SessionId $id -ConfigDir $cfg -Items '20261115-M-6804a3f220261101-C-1f64d43a' -DryRun 2>$null
     Check 'items handed at launch are kept as references, and anything else refuses the start' (($handed -join ' | ') -match 'items=20261115-M-6804a3f2 20261101-C-1f64d43a' -and $LASTEXITCODE -eq 2 -and -not $bad) ($handed -join ' | ')
     # the manager session alone compacts at 300k (R-20261016-007)
     $mgr = & $script -SessionId $managerTestId -ConfigDir $cfg -DryRun

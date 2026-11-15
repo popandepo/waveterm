@@ -13,6 +13,8 @@ param(
     [string]$PermissionMode,
     [switch]$SkipPermissions,
     [string]$Prompt,
+    # Atlas references (like 20261115-M-6804a3f2), separated by spaces or commas: items handed to this session at launch. The context feed reads them from TETHER_FEED_ITEMS at the chat start and feeds them in full, again on a resume.
+    [string]$Items = '',
     [string]$PromptFile,
     [string]$PromptRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\prompts' } else { '' }),
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
@@ -240,6 +242,14 @@ if ($Prompt -and $Prompt.TrimStart().StartsWith('-')) {
     [Console]::Error.WriteLine('Refusing to start Claude: the prompt starts with a dash and would be read as an option. Start it with a word.')
     exit 2
 }
+$feedItems = ''
+if ($Items) {
+    if ($Items -notmatch '^[\s,]*([0-9]{8}-[A-Za-z]-[0-9a-fA-F]{8}[\s,]*)+$') {
+        [Console]::Error.WriteLine('Refusing to start Claude: -Items holds something that is not an Atlas reference (a day, a node letter and 8 hex digits, like 20261115-M-6804a3f2).')
+        exit 2
+    }
+    $feedItems = ($Items -replace '[\s,]+', ' ').Trim()
+}
 if (-not $DryRun -and $PSVersionTable.PSVersion.Major -lt 7) {
     [Console]::Error.WriteLine('Refusing to start Claude under Windows PowerShell: a prompt with quotes or backslashes does not arrive as one argument there. Run this with pwsh (PowerShell 7).')
     exit 2
@@ -339,10 +349,10 @@ function Get-Account2CopyPlan {
     return $plan
 }
 $account2Copy = @(Get-Account2CopyPlan)
-if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; "gate=$(Get-StartGate)"; return }
+if ($DryRun) { (Get-ClaudeArgs) -join ' '; "config=$ConfigDir"; "status=$statusSession tab=$Name"; "compact=$compactWindow"; "copy=$(($account2Copy | ForEach-Object { $_.Name }) -join ',')"; "items=$feedItems"; "gate=$(Get-StartGate)"; return }
 
 Get-ChildItem env: |
-    Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
+    Where-Object { $_.Name -like 'CLAUDE*' -or $_.Name -in 'STATUS_SESSION', 'STATUS_TAB', 'TETHER_FEED_ITEMS', 'NO_COLOR', 'FORCE_COLOR', 'GIT_EDITOR',
         'GIT_ASKPASS', 'GIT_TERMINAL_PROMPT', 'NoDefaultCurrentDirectoryInExePath' } |
     ForEach-Object { Remove-Item "env:$($_.Name)" -ErrorAction SilentlyContinue }
 # The folder that was searched for the transcript is the folder Claude must use, or the next start would look elsewhere.
@@ -352,6 +362,7 @@ if ($ClickRows) { $env:CLAUDE_CODE_NO_FLICKER = '1'; $env:CLAUDE_CODE_ALT_SCREEN
 if ($compactWindow) { $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = $compactWindow }
 # The status page's hook writes nothing unless STATUS_SESSION is set; a key inherited from the session that opened this block would be the wrong one.
 if ($Name) { $env:STATUS_SESSION = $statusSession; $env:STATUS_TAB = $Name }
+if ($feedItems) { $env:TETHER_FEED_ITEMS = $feedItems }
 if ($Name) { try { $Host.UI.RawUI.WindowTitle = $Name } catch { } }
 
 # Wave puts the folder of wsh on the PATH of the shells it starts (wavepwsh.ps1), not of a program that it starts directly, as this one is. A Claude session

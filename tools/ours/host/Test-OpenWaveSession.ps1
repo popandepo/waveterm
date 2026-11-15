@@ -15,7 +15,7 @@ $env:USERPROFILE = $fakeProfile
 $env:CLAUDE_CONFIG_DIR = Join-Path $env:USERPROFILE '.claude-personal'
 $id = '11111111-2222-3333-4444-555555555555'
 
-$j = & $script -Cwd $cwd -Name tether-notes -SessionId $id -Model claude-sonnet-5-5 -Effort low -PermissionMode auto -Prompt 'a; b' -TabColor '#2D7DD2' -StarterSource $st -DryRun | ConvertFrom-Json
+$j = & $script -Cwd $cwd -Name tether-notes -SessionId $id -Model claude-sonnet-5-5 -Effort low -PermissionMode auto -Prompt 'a; b' -Items '20261115-M-6804a3f2 20261101-C-1f64d43a' -TabColor '#2D7DD2' -StarterSource $st -DryRun | ConvertFrom-Json
 $wsh = @($j.wshargs); $argv = @($j.argv)
 Check 'a session is opened with --restart' ($wsh -contains '--restart') ($wsh -join ' ')
 $metaValues = @(); for ($i = 0; $i -lt $wsh.Count - 1; $i++) { if ($wsh[$i] -eq '--meta') { $metaValues += $wsh[$i + 1] } }
@@ -28,6 +28,7 @@ Check 'the command has -SessionId with the id and never --session-id' (($argv -j
 # since 11 Oct the prompt of a restartable session goes through a file (Wave's command quoting cut it); the command line names the file, never the text
 $pf = $argv[[array]::IndexOf($argv, '-PromptFile') + 1]
 Check 'the prompt travels through a file named on the command line, not as text' (($argv -contains '-PromptFile') -and -not ($argv -contains 'a; b') -and $pf -like '*.txt') ($argv -join ' | ')
+Check 'the items travel in the command as one comma-joined argument, so a restart hands them again' ($argv[[array]::IndexOf($argv, '-Items') + 1] -eq '20261115-M-6804a3f2,20261101-C-1f64d43a') ($argv -join ' | ')
 Check 'no inline code form that the restart check refuses' (-not ($argv -contains '-Command') -and -not ($argv -contains '-c')) ($argv -join ' ')
 
 $k = & $script -Cwd $cwd -Name n2 -StarterSource $st -DryRun | ConvertFrom-Json

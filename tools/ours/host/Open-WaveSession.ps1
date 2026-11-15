@@ -26,6 +26,8 @@ param(
     [string]$PermissionMode,
     [switch]$SkipPermissions,
     [string]$Prompt,
+    # Atlas references handed to the session at launch (the context feed feeds them in full at its chat start); they stay in the command, so a restart or resume hands them again.
+    [string]$Items,
     [string]$TabColor,
     [string]$Symbol,
     [switch]$Activate,
@@ -94,6 +96,7 @@ if (-not $NoRestart -and $ToolRowsDir) {
 if (-not $NoRestart -and $ClickRows) { $argv += '-ClickRows' }
 if ($Model) { $argv += '-Model', $Model }
 if ($Effort) { $argv += '-Effort', $Effort }
+if ($Items) { $argv += '-Items', (($Items.Trim() -replace '[\s,]+', ',')) }
 if ($SkipPermissions) { $argv += '-SkipPermissions' }
 elseif ($PermissionMode) { $argv += '-PermissionMode', $PermissionMode }
 # The prompt of a restartable session goes through a FILE: Wave joins a tile's command with Unix-style quoting (a single quote becomes '"'"'), which PowerShell

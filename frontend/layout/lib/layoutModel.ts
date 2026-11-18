@@ -484,9 +484,12 @@ export class LayoutModel {
             }
         });
 
+        // an insert can be queued after the batch being processed was read, so the saved queue is asked too
+        const queued = this.getter(this.waveObjectAtom)?.pendingbackendactions ?? [];
+        const arriving = insertedBlockIds(queued.filter((a) => !this.processedActionIds.has(a.actionid)));
         for (const blockId of tab.blockids || []) {
             // a block moved here from another tab is listed by this tab before its leaf is inserted; deleting it would stop its process
-            if (!layoutBlockIds.has(blockId) && !this.blockIdsInsertedLater.has(blockId)) {
+            if (!layoutBlockIds.has(blockId) && !this.blockIdsInsertedLater.has(blockId) && !arriving.has(blockId)) {
                 console.log("Cleaning up orphaned block:", blockId);
                 if (this.onNodeDelete) {
                     await this.onNodeDelete({ blockId });
@@ -646,9 +649,18 @@ export class LayoutModel {
             case LayoutTreeActionType.StackInsert: {
                 const target = this?.getNodeByBlockId(action.targetblockid);
                 if (!target) {
+                    // not dropped: a block that was moved here is listed by this tab, and a listed block without a leaf is deleted by the clean-up
                     console.error(
-                        "Cannot apply eventbus layout action StackInsert, target not found",
+                        "Cannot apply eventbus layout action StackInsert, target not found; inserting the block on its own",
                         action.targetblockid
+                    );
+                    this.treeReducer(
+                        {
+                            type: LayoutTreeActionType.InsertNode,
+                            node: newLayoutNode(undefined, undefined, undefined, { blockId: action.blockid }),
+                            focused: action.focused,
+                        } as LayoutTreeInsertNodeAction,
+                        false
                     );
                     break;
                 }

@@ -38,6 +38,14 @@ func MoveBlocksToTab(ctx context.Context, fromTabId string, toTabId string, bloc
 		return fmt.Errorf("queuing the insert in the target tab: %w", err)
 	}
 	if err := moveBlockMembership(ctx, fromTabId, toTabId, blockIds); err != nil {
+		// the inserts are already queued: take the leaves back out so the block is not shown in two tabs
+		undo := make([]waveobj.LayoutActionData, len(blockIds))
+		for i, blockId := range blockIds {
+			undo[i] = waveobj.LayoutActionData{ActionType: LayoutActionDataType_Detach, BlockId: blockId}
+		}
+		if undoErr := QueueLayoutActionForTab(ctx, toTabId, undo...); undoErr != nil {
+			return fmt.Errorf("%w (and the queued inserts could not be taken back: %v)", err, undoErr)
+		}
 		return err
 	}
 	if err := QueueLayoutActionForTab(ctx, fromTabId, removals...); err != nil {

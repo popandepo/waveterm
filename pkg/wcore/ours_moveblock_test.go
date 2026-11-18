@@ -197,3 +197,33 @@ func TestAMoveThatCannotBeDoneChangesNothing(t *testing.T) {
 		t.Fatalf("refused moves must queue nothing")
 	}
 }
+
+func TestAMoveThatFailsAfterTheInsertWasQueuedTakesTheInsertBack(t *testing.T) {
+	ctx := initMoveTestStore(t)
+	f := insertMoveFixture(t, ctx, 1, 1)
+	ghost := uuid.NewString()
+	tabA, _ := wstore.DBMustGet[*waveobj.Tab](ctx, f.tabA)
+	tabA.BlockIds = append(tabA.BlockIds, ghost)
+	if err := wstore.DBUpdate(ctx, tabA); err != nil {
+		t.Fatal(err)
+	}
+
+	err := MoveBlocksToTab(ctx, f.tabA, f.tabB, []string{f.blocksA[0], ghost}, f.blocksB[0], false)
+	if err == nil {
+		t.Fatalf("a block without a row cannot be moved")
+	}
+	dst := pendingActions(t, ctx, f.tabB)
+	detached := map[string]bool{}
+	for _, a := range dst {
+		if a.ActionType == LayoutActionDataType_Detach {
+			detached[a.BlockId] = true
+		}
+	}
+	if !detached[f.blocksA[0]] || !detached[ghost] {
+		t.Fatalf("every queued insert must be followed by a detach in the target tab, got %+v", dst)
+	}
+	tabAAfter, _ := wstore.DBMustGet[*waveobj.Tab](ctx, f.tabA)
+	if len(tabAAfter.BlockIds) != 2 {
+		t.Fatalf("the failed transaction must leave tab A alone: %v", tabAAfter.BlockIds)
+	}
+}

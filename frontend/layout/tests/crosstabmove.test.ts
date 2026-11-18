@@ -133,3 +133,31 @@ describe("a block that arrives from another tab", () => {
         assert.deepEqual(model.onNodeDelete.mock.calls, [[{ blockId: "stray" }]]);
     });
 });
+
+describe("a block that arrives from another tab, more cases", () => {
+    test("an insert that was queued after the batch was read still protects the block from the clean-up", async () => {
+        const target = leaf("target");
+        const model = modelWith(
+            newLayoutNode(undefined, undefined, [target]),
+            ["target", "arriving"],
+            [{ actiontype: "stackinsert", blockid: "arriving", targetblockid: "target", actionid: "late" }]
+        );
+        await model.cleanupOrphanedBlocks();
+        assert.equal(model.onNodeDelete.mock.calls.length, 0);
+    });
+
+    test("an insert whose target is gone puts the block into the tree on its own instead of leaving it to be deleted", async () => {
+        const other = leaf("other");
+        const model = modelWith(
+            newLayoutNode(undefined, undefined, [other]),
+            ["other", "arriving"],
+            [
+                { actiontype: "stackinsert", blockid: "arriving", targetblockid: "closed-meanwhile", actionid: "i1" },
+                { actiontype: "cleanuporphaned", actionid: "c1" },
+            ]
+        );
+        await model.processPendingBackendActions();
+        assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["arriving", "other"]);
+        assert.equal(model.onNodeDelete.mock.calls.length, 0);
+    });
+});

@@ -10,9 +10,9 @@ import { Atom, atom, Getter, PrimitiveAtom, Setter } from "jotai";
 import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
-import { getLayoutStateAtomFromTab } from "./layoutAtom";
-import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
 import { treeActionForBackendAction } from "./backendaction";
+import { discardEphemeralBlock, DiscardLedger, replaceEphemeral } from "./ephemeralreplace";
+import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -24,16 +24,17 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
-    placeholderTargetId,
-    reorderStackMember,
     magnifyNodeToggle,
     moveIntoStack,
     moveNode,
+    placeholderTargetId,
+    reorderStackMember,
     replaceNode,
     resizeNode,
     splitHorizontal,
     splitVertical,
     stackNodes,
+    swapAction,
     swapNode,
     turnIntoStack,
     turnStackOff,
@@ -685,6 +686,29 @@ export class LayoutModel {
                 );
                 break;
             }
+            case LayoutTreeActionType.Swap: {
+                const first = this?.getNodeByBlockId(action.blockid);
+                const second = this?.getNodeByBlockId(action.targetblockid);
+                if (!first || !second) {
+                    console.error(
+                        "Cannot apply eventbus layout action Swap, block not found",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                const swap = swapAction(this.treeState.rootNode, first.id, second.id);
+                if (swap == null) {
+                    console.error(
+                        "Cannot apply eventbus layout action Swap, nothing to swap",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(swap, false);
+                break;
+            }
             case "cleanuporphaned": {
                 await this.cleanupOrphanedBlocks();
                 break;
@@ -1011,9 +1035,8 @@ export class LayoutModel {
             return resizeAction?.resizeOperations.find((op) => op.nodeId === node.id)?.size ?? node.size;
         }
 
-        const additionalProps: LayoutNodeAdditionalProps = node.id in additionalPropsMap
-            ? additionalPropsMap[node.id]
-            : { treeKey: "0" };
+        const additionalProps: LayoutNodeAdditionalProps =
+            node.id in additionalPropsMap ? additionalPropsMap[node.id] : { treeKey: "0" };
 
         const nodeRect: Dimensions = node.id === this.treeState.rootNode.id ? boundingRect : additionalProps.rect;
         const nodeIsRow = node.flexDirection === FlexDirection.Row;

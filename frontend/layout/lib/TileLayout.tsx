@@ -1,8 +1,8 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { fireAndForget } from "@/util/util";
 import { getSettingsKeyAtom } from "@/app/store/global";
+import { fireAndForget } from "@/util/util";
 import clsx from "clsx";
 import { toPng } from "html-to-image";
 import { Atom, useAtomValue, useSetAtom } from "jotai";
@@ -20,14 +20,15 @@ import React, {
 import { DropTargetMonitor, XYCoord, useDrag, useDragLayer, useDrop } from "react-dnd";
 import { debounce, throttle } from "throttle-debounce";
 import { useDevicePixelRatio } from "use-device-pixel-ratio";
-import { LayoutModel } from "./layoutModel";
-import { StripTabRect, stripsToShow } from "./stackgeometry";
-import { applyStripHover } from "./stripdrop";
-import { useNodeModel, useTileLayout } from "./layoutModelHooks";
-import "./stackstrip.scss";
 import { tileItemType } from "./dndtypes";
+import { LayoutModel } from "./layoutModel";
+import { useNodeModel, useTileLayout } from "./layoutModelHooks";
 import { closeStripTab } from "./stackclose";
+import { StripTabRect, stripsToShow } from "./stackgeometry";
+import "./stackstrip.scss";
 import { StackStrips } from "./stacktabstrip";
+import { applyStripHover } from "./stripdrop";
+import { SwapModifierTracker, makeSwapModifierTracker } from "./swapmodifier";
 import "./tilelayout.scss";
 import {
     LayoutNode,
@@ -39,8 +40,6 @@ import {
     TileLayoutContents,
 } from "./types";
 import { determineDropDirection, setTransform } from "./utils";
-
-
 
 export interface TileLayoutProps {
     /**
@@ -63,8 +62,18 @@ export interface TileLayoutProps {
 const DragPreviewWidth = 300;
 const DragPreviewHeight = 300;
 
+let SwapTracker: SwapModifierTracker = null;
+
 function TileLayoutComponent({ tabAtom, contents, getCursorPoint }: TileLayoutProps) {
     const layoutModel = useTileLayout(tabAtom, contents);
+
+    useEffect(() => {
+        SwapTracker = makeSwapModifierTracker(window);
+        return () => {
+            SwapTracker?.dispose();
+            SwapTracker = null;
+        };
+    }, []);
     const overlayTransform = useAtomValue(layoutModel.overlayTransform);
     const setActiveDrag = useSetAtom(layoutModel.activeDrag);
     const setReady = useSetAtom(layoutModel.ready);
@@ -195,8 +204,11 @@ function NodeBackdrops({ layoutModel }: { layoutModel: LayoutModel }) {
                         // an ephemeral block is closed through the same question as any block (a missing question closes nothing)
                         if (ephemeralNode?.id != null) {
                             fireAndForget(() =>
-                                closeStripTab(layoutModel.closeBlockAfterConfirm, ephemeralNode.data?.blockId, ephemeralNode.id, (id) =>
-                                    layoutModel.closeNode(id)
+                                closeStripTab(
+                                    layoutModel.closeBlockAfterConfirm,
+                                    ephemeralNode.data?.blockId,
+                                    ephemeralNode.id,
+                                    (id) => layoutModel.closeNode(id)
                                 )
                             );
                         }
@@ -403,14 +415,19 @@ const OverlayStrip = memo(({ layoutModel, stackId, props }: OverlayStripProps) =
                 const dragItem = monitor.getItem<LayoutNode>();
                 const pointer = monitor.getClientOffset();
                 const strip = document.querySelector(`.stack-strip[data-stackid="${stackId}"]`);
-                const tabs: StripTabRect[] = Array.from(strip?.querySelectorAll<HTMLElement>(".stack-tab") ?? []).map((el) => {
-                    const r = el.getBoundingClientRect();
-                    return { nodeId: el.dataset.nodeid, left: r.left, right: r.right };
-                });
+                const tabs: StripTabRect[] = Array.from(strip?.querySelectorAll<HTMLElement>(".stack-tab") ?? []).map(
+                    (el) => {
+                        const r = el.getBoundingClientRect();
+                        return { nodeId: el.dataset.nodeid, left: r.left, right: r.right };
+                    }
+                );
                 applyStripHover(
                     {
                         setPending: (action) =>
-                            layoutModel.treeReducer({ type: LayoutTreeActionType.SetPendingAction, action } as LayoutTreeSetPendingAction),
+                            layoutModel.treeReducer({
+                                type: LayoutTreeActionType.SetPendingAction,
+                                action,
+                            } as LayoutTreeSetPendingAction),
                         clearPending: () => layoutModel.treeReducer({ type: LayoutTreeActionType.ClearPendingAction }),
                         setTarget: (target) => layoutModel.setStripDropTarget(target),
                     },
@@ -483,6 +500,7 @@ const OverlayNode = memo(({ node, layoutModel }: OverlayNodeProps) => {
                             nodeId: node.id,
                             nodeToMoveId: dragItem.id,
                             direction: determineDropDirection(additionalProps.rect, offset),
+                            swap: SwapTracker?.held() ?? false,
                         } as LayoutTreeComputeMoveNodeAction);
                     } else {
                         layoutModel.treeReducer({

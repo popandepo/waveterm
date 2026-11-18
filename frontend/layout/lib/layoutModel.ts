@@ -10,9 +10,10 @@ import { Atom, atom, Getter, PrimitiveAtom, Setter } from "jotai";
 import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
-import { treeActionForBackendAction } from "./backendaction";
-import { discardEphemeralBlock, DiscardLedger, replaceEphemeral } from "./ephemeralreplace";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
+import type { SwapModifierTracker } from "./swapmodifier";
+import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
+import { treeActionForBackendAction } from "./backendaction";
 import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -24,17 +25,17 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
+    placeholderTargetId,
+    swapAction,
+    reorderStackMember,
     magnifyNodeToggle,
     moveIntoStack,
     moveNode,
-    placeholderTargetId,
-    reorderStackMember,
     replaceNode,
     resizeNode,
     splitHorizontal,
     splitVertical,
     stackNodes,
-    swapAction,
     swapNode,
     turnIntoStack,
     turnStackOff,
@@ -173,6 +174,9 @@ export class LayoutModel {
      * Callback that is invoked when a node is closed.
      */
     onNodeDelete?: (data: TabLayoutData) => Promise<void>;
+
+    /** Reads the swap modifier during a drag; set by the TileLayout that shows this model. */
+    swapModifier?: SwapModifierTracker;
     /**
      * The size of the gap between nodes in CSS pixels.
      */
@@ -1035,8 +1039,9 @@ export class LayoutModel {
             return resizeAction?.resizeOperations.find((op) => op.nodeId === node.id)?.size ?? node.size;
         }
 
-        const additionalProps: LayoutNodeAdditionalProps =
-            node.id in additionalPropsMap ? additionalPropsMap[node.id] : { treeKey: "0" };
+        const additionalProps: LayoutNodeAdditionalProps = node.id in additionalPropsMap
+            ? additionalPropsMap[node.id]
+            : { treeKey: "0" };
 
         const nodeRect: Dimensions = node.id === this.treeState.rootNode.id ? boundingRect : additionalProps.rect;
         const nodeIsRow = node.flexDirection === FlexDirection.Row;

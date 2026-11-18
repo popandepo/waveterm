@@ -12,7 +12,7 @@ import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
 import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
-import { treeActionForBackendAction } from "./backendaction";
+import { insertedBlockIds, treeActionForBackendAction } from "./backendaction";
 import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -441,6 +441,8 @@ export class LayoutModel {
         }
     }
 
+    blockIdsInsertedLater: Set<string> = new Set();
+
     private async processPendingBackendActions() {
         const waveObj = this.getter(this.waveObjectAtom);
         const actions = waveObj?.pendingbackendactions;
@@ -448,7 +450,8 @@ export class LayoutModel {
 
         this.treeState.pendingBackendActions = undefined;
 
-        for (const action of actions) {
+        for (let i = 0; i < actions.length; i++) {
+            const action = actions[i];
             if (!action.actionid) {
                 console.warn("Dropping layout action without actionid:", action);
                 continue;
@@ -457,8 +460,10 @@ export class LayoutModel {
                 continue;
             }
             this.processedActionIds.add(action.actionid);
+            this.blockIdsInsertedLater = insertedBlockIds(actions.slice(i + 1));
             await this.handleBackendAction(action);
         }
+        this.blockIdsInsertedLater = new Set();
 
         this.updateTree();
         this.setter(this.localTreeStateAtom, { ...this.treeState });
@@ -479,8 +484,12 @@ export class LayoutModel {
             }
         });
 
+        // an insert can be queued after the batch being processed was read, so the saved queue is asked too
+        const queued = this.getter(this.waveObjectAtom)?.pendingbackendactions ?? [];
+        const arriving = insertedBlockIds(queued.filter((a) => !this.processedActionIds.has(a.actionid)));
         for (const blockId of tab.blockids || []) {
-            if (!layoutBlockIds.has(blockId)) {
+            // a block moved here from another tab is listed by this tab before its leaf is inserted; deleting it would stop its process
+            if (!layoutBlockIds.has(blockId) && !this.blockIdsInsertedLater.has(blockId) && !arriving.has(blockId)) {
                 console.log("Cleaning up orphaned block:", blockId);
                 if (this.onNodeDelete) {
                     await this.onNodeDelete({ blockId });
@@ -640,9 +649,18 @@ export class LayoutModel {
             case LayoutTreeActionType.StackInsert: {
                 const target = this?.getNodeByBlockId(action.targetblockid);
                 if (!target) {
+                    // not dropped: a block that was moved here is listed by this tab, and a listed block without a leaf is deleted by the clean-up
                     console.error(
-                        "Cannot apply eventbus layout action StackInsert, target not found",
+                        "Cannot apply eventbus layout action StackInsert, target not found; inserting the block on its own",
                         action.targetblockid
+                    );
+                    this.treeReducer(
+                        {
+                            type: LayoutTreeActionType.InsertNode,
+                            node: newLayoutNode(undefined, undefined, undefined, { blockId: action.blockid }),
+                            focused: action.focused,
+                        } as LayoutTreeInsertNodeAction,
+                        false
                     );
                     break;
                 }
@@ -681,6 +699,22 @@ export class LayoutModel {
                 }
                 this.treeReducer(
                     { type: LayoutTreeActionType.Activate, nodeId: node.id } as LayoutTreeActivateAction,
+                    false
+                );
+                break;
+            }
+            case "detach": {
+                const leaf = this?.getNodeByBlockId(action.blockid);
+                if (!leaf) {
+                    console.error(
+                        "Cannot apply eventbus layout action Detach, could not find leaf for",
+                        action.blockid
+                    );
+                    break;
+                }
+                // not closeNode: the block moved to another tab and must not be deleted
+                this.treeReducer(
+                    { type: LayoutTreeActionType.DeleteNode, nodeId: leaf.id } as LayoutTreeDeleteNodeAction,
                     false
                 );
                 break;

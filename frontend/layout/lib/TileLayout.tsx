@@ -24,6 +24,7 @@ import { LayoutModel } from "./layoutModel";
 import { StripTabRect, stripsToShow } from "./stackgeometry";
 import { applyStripHover } from "./stripdrop";
 import { useNodeModel, useTileLayout } from "./layoutModelHooks";
+import { makeSwapModifierTracker } from "./swapmodifier";
 import "./stackstrip.scss";
 import { tileItemType } from "./dndtypes";
 import { closeStripTab } from "./stackclose";
@@ -65,6 +66,16 @@ const DragPreviewHeight = 300;
 
 function TileLayoutComponent({ tabAtom, contents, getCursorPoint }: TileLayoutProps) {
     const layoutModel = useTileLayout(tabAtom, contents);
+    useEffect(() => {
+        const tracker = makeSwapModifierTracker(window);
+        layoutModel.swapModifier = tracker;
+        return () => {
+            tracker.dispose();
+            if (layoutModel.swapModifier === tracker) {
+                layoutModel.swapModifier = undefined;
+            }
+        };
+    }, [layoutModel]);
     const overlayTransform = useAtomValue(layoutModel.overlayTransform);
     const setActiveDrag = useSetAtom(layoutModel.activeDrag);
     const setReady = useSetAtom(layoutModel.ready);
@@ -483,6 +494,7 @@ const OverlayNode = memo(({ node, layoutModel }: OverlayNodeProps) => {
                             nodeId: node.id,
                             nodeToMoveId: dragItem.id,
                             direction: determineDropDirection(additionalProps.rect, offset),
+                            swap: layoutModel.swapModifier?.held() ?? false,
                         } as LayoutTreeComputeMoveNodeAction);
                     } else {
                         layoutModel.treeReducer({

@@ -522,6 +522,12 @@ export class RpcApiType {
         return client.wshRpcCall("gettab", data, opts);
     }
 
+    // command "gettablayout" [call]
+    GetTabLayoutCommand(client: WshClient, data: CommandGetTabLayoutData, opts?: RpcOpts): Promise<TabLayoutData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettablayout", data, opts);
+        return client.wshRpcCall("gettablayout", data, opts);
+    }
+
     // command "gettempdir" [call]
     GetTempDirCommand(client: WshClient, data: CommandGetTempDirData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettempdir", data, opts);

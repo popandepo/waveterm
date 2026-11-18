@@ -325,8 +325,9 @@ left out) and adds the chosen block type to the stack as a new tab, so a stack c
 ## 19. Drop on the middle makes a stack (step B)
 
 Dragging a tile over the middle of another tile now outlines the target and, on drop, puts the dragged tile into the
-target's stack, or makes a stack of the two; dropping on a member means its stack. The upstream swap action and its
-code are unchanged but no longer reachable from the mouse (the owner never uses swap). Edge zones still move tiles
+target's stack, or makes a stack of the two; dropping on a member means its stack. Holding Alt while dropping on the
+middle swaps the two tiles instead (section 41; the swap was unreachable from the mouse before, which was wrong: he
+does want it). Edge zones still move tiles
 as before. Leaving a stack: drag the active member's header to an edge zone (the move takes it out), or "Take out of
 stack" in its menu.
 - **RAN:** vitest (centre = stack action, member target = its stack, root refused, edge zones still move).
@@ -1002,3 +1003,12 @@ How: emain looks up the block's rectangle in the tab's page (`.block[data-blocki
 - **RAN (trial Wave on its own profile, 25 Oct 2026, build 4b7c4197, he was idle):** the block of a never-shown tab, 974x1161, title bar and the program's text visible; `Test-BackgroundCapture.ps1 -Live` GREEN (foreground, caret, all visible windows and the active tab unchanged; result not blank). `npx vitest run emain/emain-blockshot.test.ts` 19 passed; `go test ./cmd/wsh/cmd -run BlockShot` ok; `npx tsc --noEmit` the baseline 17 errors.
 - **Found only by the live run, each fixed with a test:** the command had no RPC client set up; a parked view gives an empty picture; the first rectangle was the strip tab's; blocks of a never-shown tab are at the layout minimum.
 - **NOT run:** whether the move behind the active view is invisible to the owner (the check compares only before and after; a pixel check of the trial window by PrintWindow does not work, it returns only the Electron window frame, and a screen copy needs the trial window uncovered, which is not done while he is at the PC); a stacked block that is not the front member (expected: an error); a block in a tab of a window that is minimised; a second capture at the same moment from two callers on real Wave (the lock is tested with fakes); mutation checks; the live Wave 82eec4b4 (this needs a new build there).
+
+## 41. Swap two tiles
+
+Two tiles change places and sizes, with no process restarted. Mouse: hold Alt while dropping a tile on the middle of another (without Alt the middle still stacks; the edge zones still move). The outline is drawn over the tile under the pointer. CLI: `wsh stack swap --a <block> --b <block>`, same tab only. A block that is a member of a group means its whole group; two members of one group cannot be swapped (refused by the server, left alone by the page). Like every layout change from the CLI it is queued and not confirmed, and it never takes keyboard focus.
+
+- **How:** `swapAction` (layoutTree.ts) builds the action for the drop and for the queued `swap` the server sends; `swapNode` is the upstream reducer, unchanged. The Alt state comes from native `dragover` events (`swapmodifier.ts`), because the drag library's hover callback has no event.
+- **Read-back:** `wsh tab layout [--tab <tabid>]` prints the SAVED layout of a tab as JSON: `tiles` in layout order (a group is one tile with `blockids` in order and `active`), and `pendingactions`, the number of queued changes the page has not applied yet (above 0 the tiles are not final). Read-only (RPC `GetTabLayoutCommand`), never touches focus or the shown tab. The page saves about 100 ms after a change; a tab that was never shown has no tiles.
+- **Tests:** page (`swap.test.ts`, `swapmodifier.test.ts`, `swapaction.model.test.ts`), Go (`ours_swap_test.go`, `ours_tablayout_test.go`, `wshcmd-stack_test.go`, `wshcmd-tablayout_test.go`).
+- **Live checkpoint:** not run (needs a Wave window); see the PR.

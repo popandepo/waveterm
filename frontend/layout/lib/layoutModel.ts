@@ -10,9 +10,9 @@ import { Atom, atom, Getter, PrimitiveAtom, Setter } from "jotai";
 import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
+import { insertedBlockIds, treeActionForBackendAction } from "./backendaction";
+import { discardEphemeralBlock, DiscardLedger, replaceEphemeral } from "./ephemeralreplace";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
-import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
-import { treeActionForBackendAction } from "./backendaction";
 import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -24,11 +24,11 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
-    placeholderTargetId,
-    reorderStackMember,
     magnifyNodeToggle,
     moveIntoStack,
     moveNode,
+    placeholderTargetId,
+    reorderStackMember,
     replaceNode,
     resizeNode,
     splitHorizontal,
@@ -441,6 +441,8 @@ export class LayoutModel {
         }
     }
 
+    private blockIdsInsertedLater: Set<string> = new Set();
+
     private async processPendingBackendActions() {
         const waveObj = this.getter(this.waveObjectAtom);
         const actions = waveObj?.pendingbackendactions;
@@ -448,7 +450,8 @@ export class LayoutModel {
 
         this.treeState.pendingBackendActions = undefined;
 
-        for (const action of actions) {
+        for (let i = 0; i < actions.length; i++) {
+            const action = actions[i];
             if (!action.actionid) {
                 console.warn("Dropping layout action without actionid:", action);
                 continue;
@@ -457,8 +460,10 @@ export class LayoutModel {
                 continue;
             }
             this.processedActionIds.add(action.actionid);
+            this.blockIdsInsertedLater = insertedBlockIds(actions.slice(i + 1));
             await this.handleBackendAction(action);
         }
+        this.blockIdsInsertedLater = new Set();
 
         this.updateTree();
         this.setter(this.localTreeStateAtom, { ...this.treeState });
@@ -480,7 +485,8 @@ export class LayoutModel {
         });
 
         for (const blockId of tab.blockids || []) {
-            if (!layoutBlockIds.has(blockId)) {
+            // a block moved here from another tab is listed by this tab before its leaf is inserted; deleting it would stop its process
+            if (!layoutBlockIds.has(blockId) && !this.blockIdsInsertedLater.has(blockId)) {
                 console.log("Cleaning up orphaned block:", blockId);
                 if (this.onNodeDelete) {
                     await this.onNodeDelete({ blockId });
@@ -681,6 +687,22 @@ export class LayoutModel {
                 }
                 this.treeReducer(
                     { type: LayoutTreeActionType.Activate, nodeId: node.id } as LayoutTreeActivateAction,
+                    false
+                );
+                break;
+            }
+            case "detach": {
+                const leaf = this?.getNodeByBlockId(action.blockid);
+                if (!leaf) {
+                    console.error(
+                        "Cannot apply eventbus layout action Detach, could not find leaf for",
+                        action.blockid
+                    );
+                    break;
+                }
+                // not closeNode: the block moved to another tab and must not be deleted
+                this.treeReducer(
+                    { type: LayoutTreeActionType.DeleteNode, nodeId: leaf.id } as LayoutTreeDeleteNodeAction,
                     false
                 );
                 break;
@@ -1011,9 +1033,8 @@ export class LayoutModel {
             return resizeAction?.resizeOperations.find((op) => op.nodeId === node.id)?.size ?? node.size;
         }
 
-        const additionalProps: LayoutNodeAdditionalProps = node.id in additionalPropsMap
-            ? additionalPropsMap[node.id]
-            : { treeKey: "0" };
+        const additionalProps: LayoutNodeAdditionalProps =
+            node.id in additionalPropsMap ? additionalPropsMap[node.id] : { treeKey: "0" };
 
         const nodeRect: Dimensions = node.id === this.treeState.rootNode.id ? boundingRect : additionalProps.rect;
         const nodeIsRow = node.flexDirection === FlexDirection.Row;

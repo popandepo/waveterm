@@ -346,7 +346,7 @@ confirmed; keyboard focus moves only with `--focus`.
 - **Not handled, for the window check:** audio or video in a web block of a hidden tab keeps playing.
 
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
-window" across tabs is not supported yet and the help says so); naming two members of the same group is an error
+window" as a tab is not supported and the help says so; a block of another tab of the same workspace as `--to` IS supported, see section 40); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
 
 ## 20a. `wsh deleteblock` refuses a block with a running program unless `--force`
@@ -739,7 +739,7 @@ function is used only in `BlockMask`, assigned only to `style.borderColor`; the 
 
 `wsh createblock|term|run|web open --tab <ref>` creates the block in another tab than the calling block's: `<ref>` is a full tab id (with or without `tab:`), `tab:<n>` (the n-th tab of the caller's workspace) or `tab` (the caller's own); an id prefix and every other form is refused, and a `--tab` that is
 given but empty is refused (it is never taken as absent). The reference is then resolved by the same resolver as `wsh tab switch`. Without `--tab` nothing changes (the tab of the calling block, `WAVETERM_TABID`). With `--tab` the command also works from a place that has no tab of its own.
-`--stack` and `--replace` need their target block to be in that tab: the command looks the target's tab up and refuses with a message that names both tabs (it does not send the request), and the SERVER makes the same check when it handles the request, for stack and for replace (`createTargetNeedsSameTab`), so a target that moved after the command looked is still caught. Tiles cannot be moved between tabs today; a future move between tabs must keep that check in the server.
+`--stack` and `--replace` need their target block to be in that tab: the command looks the target's tab up and refuses with a message that names both tabs (it does not send the request), and the SERVER makes the same check when it handles the request, for stack and for replace (`createTargetNeedsSameTab`), so a target that moved after the command looked is still caught. A move between tabs (`wsh stack move`, section 40) does not create a block, so these checks do not apply to it; it has its own (same workspace, target in the target tab, every block in the source tab).
 - **RAN:** Go tests: the choice (no flag uses the environment, a blank flag is not given, the flag wins, the flag works without an environment, an unknown tab is refused and says `--tab`); the target check
   (same tab, other tab, no target, unknown block); the four commands have the flag, default empty, use only the shared choice and check the target after applying it; red when the flag choice, the target
   check and one command's flag are removed.
@@ -1002,3 +1002,12 @@ How: emain looks up the block's rectangle in the tab's page (`.block[data-blocki
 - **RAN (trial Wave on its own profile, 25 Oct 2026, build 4b7c4197, he was idle):** the block of a never-shown tab, 974x1161, title bar and the program's text visible; `Test-BackgroundCapture.ps1 -Live` GREEN (foreground, caret, all visible windows and the active tab unchanged; result not blank). `npx vitest run emain/emain-blockshot.test.ts` 19 passed; `go test ./cmd/wsh/cmd -run BlockShot` ok; `npx tsc --noEmit` the baseline 17 errors.
 - **Found only by the live run, each fixed with a test:** the command had no RPC client set up; a parked view gives an empty picture; the first rectangle was the strip tab's; blocks of a never-shown tab are at the layout minimum.
 - **NOT run:** whether the move behind the active view is invisible to the owner (the check compares only before and after; a pixel check of the trial window by PrintWindow does not work, it returns only the Electron window frame, and a screen copy needs the trial window uncovered, which is not done while he is at the PC); a stacked block that is not the front member (expected: an error); a block in a tab of a window that is minimised; a second capture at the same moment from two callers on real Wave (the lock is tested with fakes); mutation checks; the live Wave 82eec4b4 (this needs a new build there).
+
+## 40. Move blocks between tabs
+
+`wsh stack move --from <block> --to <block>` works when the two blocks are in different tabs of the same workspace. The block, or every member of its group in order, joins the group at TO in the tab of TO. Only the tab lists, the block parent and the layouts change: the block row and its controller stay, so a running process is not restarted. A tab as TO is refused; name a block of that tab.
+
+- **How:** the server (`wcore.MoveBlocksToTab`) checks everything first (different tabs, same workspace, target in the target tab, every block in the source tab), queues a `stackinsert` per block for the target tab, moves the membership in one transaction, then queues a `detach` per block for the source tab. `detach` removes the leaf WITHOUT closing the block (a `delete` would stop the process). The page of the target tab does not clean up a block that a later queued insert is about to place (the clean-up deletes a listed block that has no leaf).
+- **Not confirmed:** like every layout change the move is queued; a tab that is not shown applies its part when it is shown.
+- **Tests:** Go (`ours_moveblock_test.go`, `ours_crosstabmove_test.go`: membership, queued actions, refusals change nothing), page (`crosstabmove.test.ts`: detach never calls onNodeDelete, the clean-up skips an arriving block and still removes a real orphan).
+- **Live checkpoint:** see the PR.

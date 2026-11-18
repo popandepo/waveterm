@@ -11,6 +11,23 @@ import {
     LayoutTreeSplitVerticalAction,
 } from "./types";
 
+// The blocks that queued actions are still going to put into the layout. A block moved here from another tab is listed by this tab
+// before its leaf exists, so the clean-up of orphaned blocks must not delete it.
+export function insertedBlockIds(actions: LayoutActionData[]): Set<string> {
+    const ids = new Set<string>();
+    for (const action of actions) {
+        if (
+            action.blockid &&
+            (action.actiontype === LayoutTreeActionType.StackInsert ||
+                action.actiontype === LayoutTreeActionType.InsertNode ||
+                action.actiontype === LayoutTreeActionType.InsertNodeAtIndex)
+        ) {
+            ids.add(action.blockid);
+        }
+    }
+    return ids;
+}
+
 export type BackendActionResult = { action?: LayoutTreeAction; error?: string };
 
 // The tree action for a layout action that the server queued (a block was created): a plain insert or a split. The new tile's weight (nodesize, from wsh
@@ -32,10 +49,13 @@ export function treeActionForBackendAction(
         }
         case LayoutTreeActionType.SplitHorizontal:
         case LayoutTreeActionType.SplitVertical: {
-            const name = action.actiontype === LayoutTreeActionType.SplitHorizontal ? "SplitHorizontal" : "SplitVertical";
+            const name =
+                action.actiontype === LayoutTreeActionType.SplitHorizontal ? "SplitHorizontal" : "SplitVertical";
             const targetNode = nodeByBlockId(action.targetblockid);
             if (!targetNode) {
-                return { error: `Cannot apply eventbus layout action ${name}, could not find target node with blockId ${action.targetblockid}` };
+                return {
+                    error: `Cannot apply eventbus layout action ${name}, could not find target node with blockId ${action.targetblockid}`,
+                };
             }
             if (action.position != "before" && action.position != "after") {
                 return { error: `Cannot apply eventbus layout action ${name}, invalid position ${action.position}` };

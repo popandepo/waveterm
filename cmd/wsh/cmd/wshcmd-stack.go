@@ -188,8 +188,9 @@ var stackMoveCmd = &cobra.Command{
 	Short: "Move everything from FROM into the group at TO",
 	Long: `FROM is a block, or any member of a group (then the whole group moves, in its order). TO is a block or a
 group (or a member of one). Everything from FROM ends up as members of the group at TO, appended at the end; if TO is
-a plain block the two become a new group. Both must be in the same tab (a tab as target is not supported
-yet: it is refused with a message). The change is queued for the page of that tab
+a plain block the two become a new group. The two may be in different tabs of the same workspace: the blocks (and
+their running processes) move to the tab of TO, and the leaf in the old tab is removed without closing the block.
+A tab as target is not supported: name a block of that tab. The change is queued for the pages of the tabs
 and is not confirmed. Keyboard focus moves only with --focus.`,
 	Args:    cobra.NoArgs,
 	RunE:    stackMoveRun,

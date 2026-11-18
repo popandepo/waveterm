@@ -16,7 +16,7 @@ import (
 
 // planStackBlock checks a stack request and turns it into the layout action that is queued for the tab. Nothing
 // is changed here, so every refusal leaves the layout as it was. The two blocks of a "stack" request must be in
-// the same tab: moving a block between tabs is a different job.
+// the same tab; a "move" between tabs is handled before this by moveAcrossTabs.
 func planStackBlock(
 	data wshrpc.CommandStackBlockData,
 	findTab func(blockId string) (string, error),
@@ -137,6 +137,43 @@ func stackIdOf(node any, blockId string) string {
 	return ""
 }
 
+// stackMembersOf returns the block ids of the stack that holds blockId, in order, or just blockId when it is not in one.
+func stackMembersOf(node any, blockId string) []string {
+	stackId := stackIdOf(node, blockId)
+	if stackId == "" {
+		return []string{blockId}
+	}
+	var members []string
+	var walk func(n any)
+	walk = func(n any) {
+		m, ok := n.(map[string]any)
+		if !ok {
+			return
+		}
+		children, _ := m["children"].([]any)
+		if m["id"] == stackId {
+			for _, c := range children {
+				if cm, ok := c.(map[string]any); ok {
+					if data, ok := cm["data"].(map[string]any); ok {
+						if id, ok := data["blockId"].(string); ok {
+							members = append(members, id)
+						}
+					}
+				}
+			}
+			return
+		}
+		for _, c := range children {
+			walk(c)
+		}
+	}
+	walk(node)
+	if len(members) == 0 {
+		return []string{blockId}
+	}
+	return members
+}
+
 func blockInStack(node any, blockId string) bool {
 	return stackIdOf(node, blockId) != ""
 }
@@ -153,8 +190,34 @@ func planCreateInStack(newBlockId string, targetBlockId string, focused bool) (*
 	}, nil
 }
 
+// moveAcrossTabs handles a stack move whose two blocks are in different tabs: the block, or every member of its group,
+// joins the group at the target in the target tab. Processes keep running because only the layout and the tab lists change.
+func moveAcrossTabs(ctx context.Context, data wshrpc.CommandStackBlockData, fromTab string, toTab string) error {
+	layoutId, err := wcore.GetLayoutIdForTab(ctx, fromTab)
+	if err != nil {
+		return err
+	}
+	layoutObj, err := wstore.DBGet[*waveobj.LayoutState](ctx, layoutId)
+	if err != nil {
+		return err
+	}
+	members := stackMembersOf(layoutObj.RootNode, data.BlockId)
+	return wcore.MoveBlocksToTab(ctx, fromTab, toTab, members, data.TargetBlockId, data.Focused)
+}
+
 func (ws *WshServer) StackBlockCommand(ctx context.Context, data wshrpc.CommandStackBlockData) error {
 	ctx = waveobj.ContextWithUpdates(ctx)
+	if data.Action == wshrpc.StackBlockAction_Move && data.BlockId != "" && data.TargetBlockId != "" {
+		fromTab, fromErr := wstore.DBFindTabForBlockId(ctx, data.BlockId)
+		toTab, toErr := wstore.DBFindTabForBlockId(ctx, data.TargetBlockId)
+		if fromErr == nil && toErr == nil && fromTab != toTab {
+			if err := moveAcrossTabs(ctx, data, fromTab, toTab); err != nil {
+				return err
+			}
+			wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx))
+			return nil
+		}
+	}
 	tabId, action, err := planStackBlock(data, func(blockId string) (string, error) {
 		return wstore.DBFindTabForBlockId(ctx, blockId)
 	}, func(tabId string, blockId string) (bool, error) {

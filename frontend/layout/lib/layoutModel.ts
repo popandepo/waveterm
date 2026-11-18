@@ -10,9 +10,9 @@ import { Atom, atom, Getter, PrimitiveAtom, Setter } from "jotai";
 import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
-import { insertedBlockIds, treeActionForBackendAction } from "./backendaction";
-import { discardEphemeralBlock, DiscardLedger, replaceEphemeral } from "./ephemeralreplace";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
+import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
+import { insertedBlockIds, treeActionForBackendAction } from "./backendaction";
 import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
 import {
     activateStackMember,
@@ -24,11 +24,11 @@ import {
     insertNode,
     insertNodeAtIndex,
     insertNodeIntoStack,
+    placeholderTargetId,
+    reorderStackMember,
     magnifyNodeToggle,
     moveIntoStack,
     moveNode,
-    placeholderTargetId,
-    reorderStackMember,
     replaceNode,
     resizeNode,
     splitHorizontal,
@@ -441,7 +441,7 @@ export class LayoutModel {
         }
     }
 
-    private blockIdsInsertedLater: Set<string> = new Set();
+    blockIdsInsertedLater: Set<string> = new Set();
 
     private async processPendingBackendActions() {
         const waveObj = this.getter(this.waveObjectAtom);
@@ -1045,8 +1045,9 @@ export class LayoutModel {
             return resizeAction?.resizeOperations.find((op) => op.nodeId === node.id)?.size ?? node.size;
         }
 
-        const additionalProps: LayoutNodeAdditionalProps =
-            node.id in additionalPropsMap ? additionalPropsMap[node.id] : { treeKey: "0" };
+        const additionalProps: LayoutNodeAdditionalProps = node.id in additionalPropsMap
+            ? additionalPropsMap[node.id]
+            : { treeKey: "0" };
 
         const nodeRect: Dimensions = node.id === this.treeState.rootNode.id ? boundingRect : additionalProps.rect;
         const nodeIsRow = node.flexDirection === FlexDirection.Row;

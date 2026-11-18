@@ -49,13 +49,10 @@ export function treeActionForBackendAction(
         }
         case LayoutTreeActionType.SplitHorizontal:
         case LayoutTreeActionType.SplitVertical: {
-            const name =
-                action.actiontype === LayoutTreeActionType.SplitHorizontal ? "SplitHorizontal" : "SplitVertical";
+            const name = action.actiontype === LayoutTreeActionType.SplitHorizontal ? "SplitHorizontal" : "SplitVertical";
             const targetNode = nodeByBlockId(action.targetblockid);
             if (!targetNode) {
-                return {
-                    error: `Cannot apply eventbus layout action ${name}, could not find target node with blockId ${action.targetblockid}`,
-                };
+                return { error: `Cannot apply eventbus layout action ${name}, could not find target node with blockId ${action.targetblockid}` };
             }
             if (action.position != "before" && action.position != "after") {
                 return { error: `Cannot apply eventbus layout action ${name}, invalid position ${action.position}` };

@@ -460,6 +460,11 @@ declare global {
         oref: ORef;
     };
 
+    // wshrpc.CommandGetTabLayoutData
+    type CommandGetTabLayoutData = {
+        tabid: string;
+    };
+
     // wshrpc.CommandGetTempDirData
     type CommandGetTempDirData = {
         filename?: string;
@@ -1815,6 +1820,19 @@ declare global {
         name: string;
         layoutstate: string;
         blockids: string[];
+    };
+
+    // wshrpc.TabLayoutData
+    type TabLayoutData = {
+        tabid: string;
+        tiles: TabLayoutTile[];
+        pendingactions: number;
+    };
+
+    // wshrpc.TabLayoutTile
+    type TabLayoutTile = {
+        blockids: string[];
+        active?: string;
     };
 
     // waveobj.TermSize

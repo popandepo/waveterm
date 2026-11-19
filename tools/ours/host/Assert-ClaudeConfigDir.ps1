@@ -87,14 +87,17 @@ function Resolve-AllowedConfigDir([string]$dir, [bool]$throwaway) {
 # The usage-file mod that belongs to a resolved config folder: account 2 (.claude-personal2) writes its own limits file, account 1 the other.
 # 17 Oct 2026: every Wave-opened session got the account-1 mod, so sessions on account 2 wrote account 2's figures into account 1's file.
 # A throwaway folder (a test) gets no mod, so it never writes a real limits file. '' when the mod folder is missing.
-function Get-UsageModDir([string]$ResolvedConfig, [string]$ModsRoot = 'C:\Projects\Personal\MalfestioMaster\tools\mods') {
+# The plugin folders (--plugin-dir) of a session: MalfestioMaster's Get-SessionPluginDirs decides, there is no list here (usage mod of the account, tool-rows,
+# run-suggest, and context-feed for the manager only). The account comes from the resolved config folder; a folder of no personal account (a throwaway) gets none.
+# A missing Session-Plugins.ps1 is an error, never a shorter list.
+function Get-WavePluginDirs([string]$ResolvedConfig, [string]$SessionId, [string]$Name, [string]$SessionPluginsScript = 'C:\Projects\Personal\MalfestioMaster\tools\Session-Plugins.ps1') {
     $homeFinal = Get-FinalPath $env:USERPROFILE
-    if (-not $ResolvedConfig -or -not $homeFinal) { return '' }
-    $name = if (Test-Under $ResolvedConfig "$homeFinal\.claude-personal2") { 'usage-file-2' } elseif (Test-Under $ResolvedConfig "$homeFinal\.claude-personal") { 'usage-file' } else { '' }
-    if (-not $name) { return '' }
-    $p = Join-Path $ModsRoot $name
-    if (Test-Path -LiteralPath $p -PathType Container) { return $p }
-    return ''
+    if (-not $ResolvedConfig -or -not $homeFinal) { return @() }
+    $account = if (Test-Under $ResolvedConfig "$homeFinal\.claude-personal2") { '2' } elseif (Test-Under $ResolvedConfig "$homeFinal\.claude-personal") { '1' } else { '' }
+    if (-not $account) { return @() }
+    if (-not (Test-Path -LiteralPath $SessionPluginsScript)) { throw "the plugin list script was not found: $SessionPluginsScript" }
+    . $SessionPluginsScript
+    return @(Get-SessionPluginDirs -Account $account -SessionId $SessionId -Name $Name)
 }
 function Test-ClaudeConfigDir([string]$Dir, [switch]$Throwaway) { return [bool](Resolve-AllowedConfigDir $Dir $Throwaway.IsPresent) }
 function Assert-ClaudeConfigDir([string]$Dir, [switch]$Throwaway) {

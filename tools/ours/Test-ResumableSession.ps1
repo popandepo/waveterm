@@ -169,8 +169,6 @@ if ($ExtraPromptFile) { $extra.PromptFile = $ExtraPromptFile }
 if ($env:RESUMABLE_TEST_PROMPTROOT) { $extra.PromptRoot = $env:RESUMABLE_TEST_PROMPTROOT }
 if ($ExtraName) { $extra.Name = $ExtraName }
 if ($env:RESUMABLE_TEST_CLICKROWS) { $extra.ClickRows = $true }
-if ($env:RESUMABLE_TEST_TOOLROWS) { $extra.ToolRowsDir = $env:RESUMABLE_TEST_TOOLROWS }
-if ($env:RESUMABLE_TEST_TOOLROWS_ALLOWED) { $extra.ToolRowsAllowed = $env:RESUMABLE_TEST_TOOLROWS_ALLOWED }
 if ($env:RESUMABLE_TEST_SWAPTIMEOUT) { $extra.SwapTimeoutSeconds = [int]$env:RESUMABLE_TEST_SWAPTIMEOUT }
 & $Script -SessionId $Id -ConfigDir $Cfg -Command $Stub -Model m1 @extra
 exit $LASTEXITCODE
@@ -210,27 +208,6 @@ exit $LASTEXITCODE
     Check 'without -ClickRows the launched program gets neither CLAUDE_CODE_NO_FLICKER nor the full-repaint variable' (-not ($r.Text -match 'ENV: CLAUDE_CODE_NO_FLICKER=') -and -not ($r.Text -match 'ENV: CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=')) $r.Text
     $env:RESUMABLE_TEST_CLICKROWS = '1'; $rc = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_CLICKROWS
     Check 'with -ClickRows the launched program gets CLAUDE_CODE_NO_FLICKER=1 and the full-repaint fix' ($rc.Lines -contains 'ENV: CLAUDE_CODE_NO_FLICKER=1' -and $rc.Lines -contains 'ENV: CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=1') $rc.Text
-    $trDir = Join-Path $root 'tool-rows-folder'; Make-Dir $trDir
-    # only the one trusted folder is accepted, compared after links are resolved (the seam -ToolRowsAllowed stands for the real MalfestioMaster folder)
-    $env:RESUMABLE_TEST_TOOLROWS_ALLOWED = $trDir
-    $env:RESUMABLE_TEST_TOOLROWS = $trDir; $rt = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'the trusted -ToolRowsDir is started as a --plugin-dir' ($rt.Code -eq 0 -and $rt.Text -match '--plugin-dir [^|]*tool-rows-folder') $rt.Text
-    $sibling = Join-Path $root 'tool-rows-sibling'; Make-Dir $sibling
-    $env:RESUMABLE_TEST_TOOLROWS = $sibling; $rs = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a sibling folder is refused as -ToolRowsDir (exit 2, nothing started)' ($rs.Code -eq 2 -and -not ($rs.Text -match 'ARGS:')) $rs.Text
-    $junction = Join-Path $root 'tool-rows-junction'
-    New-Item -ItemType Junction -Path $junction -Target $sibling | Out-Null
-    $env:RESUMABLE_TEST_TOOLROWS = $junction; $rj = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a junction to another folder is refused as -ToolRowsDir (exit 2, nothing started)' ($rj.Code -eq 2 -and -not ($rj.Text -match 'ARGS:')) $rj.Text
-    [IO.Directory]::Delete($junction)
-    $junction2 = Join-Path $root 'tool-rows-junction-to-trusted'
-    New-Item -ItemType Junction -Path $junction2 -Target $trDir | Out-Null
-    $env:RESUMABLE_TEST_TOOLROWS = $junction2; $rj2 = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a junction to the trusted folder resolves to it and is accepted' ($rj2.Code -eq 0 -and $rj2.Text -match '--plugin-dir') $rj2.Text
-    [IO.Directory]::Delete($junction2)
-    $env:RESUMABLE_TEST_TOOLROWS = 'relative-tool-rows'; $rb = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a -ToolRowsDir that is not a fully qualified existing folder refuses the start (exit 2)' ($rb.Code -eq 2) $rb.Text
-    Remove-Item Env:RESUMABLE_TEST_TOOLROWS_ALLOWED -ErrorAction SilentlyContinue
     Check 'the launched program gets the resume arguments' ($r.Text -match "ARGS: --resume $id") $r.Text
     Check 'the folder of wsh is put AFTER the existing PATH entries' ($r.Lines -contains "PATHLAST: $wshDir") $r.Text
     Check 'wsh can be run from there and the stub prints what wsh printed' ($r.Lines -contains 'WSHOUT: wsh-from-wave') $r.Text
@@ -262,20 +239,48 @@ exit $LASTEXITCODE
     Check 'the dry run prints the status key and tab' ($dryName[2] -match '^status=n1-[0-9a-f]{8} tab=n1$') ($dryName -join ' | ')
 
     # ---- plugin folders ----
+    $PSDefaultParameterValues['*:PluginRoots'] = @($root)
     $plug = Join-Path $root 'plugin one'; Make-Dir $plug
     $d = & $script -SessionId $id -ConfigDir $cfg -PluginDir $plug -Model m1 -DryRun
     Check 'a plugin folder is passed as --plugin-dir, ahead of the other arguments, as its resolved path' ($d[0].StartsWith("--plugin-dir $plug ")) $d[0]
     $d2 = & $script -SessionId $id -ConfigDir $cfg -PluginDir $plug, $throw -DryRun
     Check 'two plugin folders are both passed' (([regex]::Matches($d2[0], '--plugin-dir')).Count -eq 2) $d2[0]
+    # a stored restart command goes through pwsh -File, which binds an array only as its first element: the list is ONE comma-joined argument (as -Items)
+    $d3 = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir "$plug,$throw" -PluginRoots $root -DryRun
+    Check 'a comma-joined -PluginDir over -File is passed as one --plugin-dir each' (([regex]::Matches($d3[0], '--plugin-dir')).Count -eq 2 -and $d3[0].StartsWith("--plugin-dir $plug ")) $d3[0]
+    # the allowed roots (-PluginRoots; the real default is MalfestioMaster\tools\mods and MalfestioMaster\mods): every entry must end up under one of them after links are resolved
+    $okRoot = Join-Path $root 'allowed-mods'; Make-Dir $okRoot
+    $okA = Join-Path $okRoot 'usage-file'; Make-Dir $okA
+    $okB = Join-Path $okRoot 'context-feed'; Make-Dir $okB
+    $okRoot2 = Join-Path $root 'allowed-mods-two'; Make-Dir $okRoot2
+    $okC = Join-Path $okRoot2 'tool-rows'; Make-Dir $okC
+    $sib = Join-Path $root 'allowed-mods-sibling'; Make-Dir $sib
+    $elsewhere = Join-Path $root 'elsewhere'; Make-Dir $elsewhere
+    $juncOut = Join-Path $okRoot 'junction-out'; $null = New-Item -ItemType Junction -Path $juncOut -Target $elsewhere; $made.Add($juncOut)
+    $juncIn = Join-Path $elsewhere 'junction-in'; $null = New-Item -ItemType Junction -Path $juncIn -Target $okA; $made.Add($juncIn)
+    $okList = "$okA,$okB,$okC"
+    $dr = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $okList -PluginRoots "$okRoot,$okRoot2" -DryRun
+    Check 'entries under either allowed root pass, one --plugin-dir each' (([regex]::Matches($dr[0], '--plugin-dir')).Count -eq 3) ($dr -join ' | ')
+    $dj = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $juncIn -PluginRoots "$okRoot,$okRoot2" -DryRun
+    Check 'a junction from outside to a folder under the root is accepted as that resolved folder' ($dj[0].StartsWith("--plugin-dir $okA ")) ($dj -join ' | ')
+    foreach ($pc2 in @(@('a sibling folder of the root', $sib), @('a folder elsewhere', $elsewhere), @('a junction from inside the root to outside', $juncOut), @('one bad entry among good ones', "$okA,$sib"))) {
+        $rerr = Join-Path $root 'plugin-root-error.txt'
+        $ro = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pc2[1] -PluginRoots "$okRoot,$okRoot2" -DryRun 2>$rerr
+        $rtext = Get-Content -LiteralPath $rerr -Raw
+        Remove-Item -LiteralPath $rerr -ErrorAction SilentlyContinue
+        Check ("plugin folder outside the allowed roots (" + $pc2[0] + ") is refused with exit 2, naming it, nothing started") (($LASTEXITCODE -eq 2) -and ($rtext -match 'allowed plugin roots') -and -not ($ro -match 'plugin-dir')) ("exit=$LASTEXITCODE $rtext")
+    }
+    $rn = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $okA -PluginRoots (Join-Path $root 'no-such-root') -DryRun 2>$null
+    Check 'a root that does not exist allows nothing' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     $plugFile = Join-Path $root 'plugin-file.txt'; Make-File $plugFile 'x'
     $juncP = Join-Path $root 'plugin-junction'; $null = New-Item -ItemType Junction -Path $juncP -Target $oldDir; $made.Add($juncP)
     foreach ($pc in @(@('relative', 'plugin one'), @('a folder that does not exist', ($root + '\nope')), @('a file', $plugFile), @('.claude', $oldDir), @('below .claude-work', $workDir), @('a junction that leads to .claude', $juncP))) {
-        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pc[1] -DryRun 2>$null | Out-Null
+        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pc[1] -PluginRoots $root -DryRun 2>$null | Out-Null
         Check ("plugin folder '" + $pc[0] + "' is refused with exit code 2") ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     }
     foreach ($pp2 in @($oldDir, (Join-Path $workDir 'x'), ($personal + '\..\.claude'))) {
         $perr = Join-Path $root 'plugin-error.txt'
-        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pp2 -DryRun 2>$perr | Out-Null
+        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pp2 -PluginRoots $root -DryRun 2>$perr | Out-Null
         $ptext = Get-Content -LiteralPath $perr -Raw
         Remove-Item -LiteralPath $perr -ErrorAction SilentlyContinue
         Check ("plugin folder '" + $pp2.Replace($root, '<root>') + "' is refused by its plain spelling, before anything is opened") (($LASTEXITCODE -eq 2) -and ($ptext -match 'plain spelling \(nothing was opened\)')) "exit=$LASTEXITCODE $ptext"
@@ -629,12 +634,12 @@ $env:RESUMABLE_TEST_LOGROOT = $root
         Check ($tc[0] + ' is refused by its text alone, with exit 2 and nothing is started') (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec) -and ($ttext -match 'plain spelling \(nothing was opened\)')) "exit=$LASTEXITCODE $ttext"
     }
     foreach ($tp in @(@('a plugin folder with a tilde', ($plug + '~1')), @('a drive-relative plugin folder', 'C:plugin'))) {
-        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $tp[1] -DryRun 2>$null | Out-Null
+        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $tp[1] -PluginRoots $root -DryRun 2>$null | Out-Null
         Check ($tp[0] + ' is refused with exit code 2') ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     }
     $juncWork = Join-Path $root 'plugin-to-work'
     $null = New-Item -ItemType Junction -Path $juncWork -Target $workDir; $made.Add($juncWork)
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $juncWork -DryRun 2>$null | Out-Null
+    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $juncWork -PluginRoots $root -DryRun 2>$null | Out-Null
     Check 'a plugin folder that is a junction into .claude-work is refused after the link is resolved' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     $dotted = ($plug + '\..\plugin one')
     $dd = & $script -SessionId $id -ConfigDir $cfg -PluginDir $dotted -DryRun

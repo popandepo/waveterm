@@ -20,6 +20,9 @@ param(
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
     [string[]]$PluginDir = @(),
+    # Every --plugin-dir entry must, after its final path is resolved, sit under one of these folders (plugin content is code). The default is the two MalfestioMaster
+    # mod roots; only a test names others (a comma-joined list is split like -PluginDir).
+    [string[]]$PluginRoots = @('C:\Projects\Personal\MalfestioMaster\tools\mods', 'C:\Projects\Personal\MalfestioMaster\mods'),
     # Start in the fullscreen renderer so mouse clicks reach mods (off by default: it changes mouse capture and text selection in Wave).
     [switch]$ClickRows,
     [string]$Command = 'claude',
@@ -146,6 +149,7 @@ $ConfigDir = $resolvedConfig
 $pluginPaths = @()
 # -PluginDir arrives as ONE comma-joined argument over pwsh -File (a restart stores the command; -File binds an array only as its first element), like -Items.
 $PluginDir = @($PluginDir | ForEach-Object { "$_" -split ',' } | Where-Object { $_ })
+$allowedRoots = @(@($PluginRoots | ForEach-Object { "$_" -split ',' } | Where-Object { $_ }) | ForEach-Object { if ($_ -match '^[A-Za-z]:[\\/]' -and (Test-Path -LiteralPath $_ -PathType Container)) { Get-FinalPath $_ } } | Where-Object { $_ })
 foreach ($pd in @($PluginDir | Where-Object { $_ })) {
     $okPlugin = $null
     if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-PlainlyForbidden $pd)) {
@@ -156,6 +160,10 @@ foreach ($pd in @($PluginDir | Where-Object { $_ })) {
         $pf = Get-FinalPath $pd
         $hf = Get-FinalPath $env:USERPROFILE
         if ($pf -and $hf -and -not (Test-Under $pf "$hf\.claude") -and -not (Test-Under $pf "$hf\.claude-work")) { $okPlugin = $pf }
+    }
+    if ($okPlugin -and -not (@($allowedRoots | Where-Object { Test-Under $okPlugin $_ }).Count -gt 0)) {
+        [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is not under the allowed plugin roots (nothing was opened).")
+        exit 2
     }
     if (-not $okPlugin) {
         [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is not a fully qualified existing folder, or is at or below .claude or .claude-work.")

@@ -460,6 +460,10 @@ export function deleteNode(layoutState: LayoutTreeState, action: LayoutTreeDelet
             if (layoutState.focusedNodeId === node.id) {
                 layoutState.focusedNodeId = undefined;
             }
+            // an empty parent is an invalid node, and a tab that was never drawn is not balanced between actions
+            if (parent.children.length === 0) {
+                deleteNode(layoutState, { type: LayoutTreeActionType.DeleteNode, nodeId: parent.id });
+            }
         } else {
             console.error("unable to delete node, not found in tree");
         }

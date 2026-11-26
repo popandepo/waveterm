@@ -90,7 +90,7 @@ func TestMovingABlockToAnotherTabKeepsTheBlockAndMovesItsMembership(t *testing.T
 	f := insertMoveFixture(t, ctx, 2, 1)
 	moved := f.blocksA[0]
 
-	if err := MoveBlocksToTab(ctx, f.tabA, f.tabB, []string{moved}, f.blocksB[0], false); err != nil {
+	if err := MoveBlocksToTab(ctx, f.tabA, f.tabB, []string{moved}, f.blocksB[0], ""); err != nil {
 		t.Fatalf("move: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestMovingABlockQueuesALeafOnlyRemovalInTheSourceAndAnInsertInTheTarget(t *
 	f := insertMoveFixture(t, ctx, 2, 1)
 	moved := f.blocksA[0]
 
-	if err := MoveBlocksToTab(ctx, f.tabA, f.tabB, []string{moved}, f.blocksB[0], true); err != nil {
+	if err := MoveBlocksToTab(ctx, f.tabA, f.tabB, []string{moved}, f.blocksB[0], moved); err != nil {
 		t.Fatalf("move: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func TestMovingAGroupInsertsEachMemberIntoTheGroupOfTheFirst(t *testing.T) {
 	f := insertMoveFixture(t, ctx, 3, 1)
 	members := []string{f.blocksA[0], f.blocksA[1]}
 
-	if err := MoveBlocksToTab(ctx, f.tabA, f.tabB, members, f.blocksB[0], false); err != nil {
+	if err := MoveBlocksToTab(ctx, f.tabA, f.tabB, members, f.blocksB[0], ""); err != nil {
 		t.Fatalf("move: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestAMoveThatCannotBeDoneChangesNothing(t *testing.T) {
 		{"no target", f.tabA, f.tabB, []string{f.blocksA[0]}, "", "target block"},
 	}
 	for _, c := range cases {
-		err := MoveBlocksToTab(ctx, c.from, c.to, c.blocks, c.target, false)
+		err := MoveBlocksToTab(ctx, c.from, c.to, c.blocks, c.target, "")
 		if err == nil || !strings.Contains(err.Error(), c.message) {
 			t.Errorf("%s: want an error containing %q, got %v", c.name, c.message, err)
 		}
@@ -208,7 +208,7 @@ func TestAMoveThatFailsAfterTheInsertWasQueuedChangesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := MoveBlocksToTab(ctx, f.tabA, f.tabB, []string{f.blocksA[0], ghost}, f.blocksB[0], false)
+	err := MoveBlocksToTab(ctx, f.tabA, f.tabB, []string{f.blocksA[0], ghost}, f.blocksB[0], "")
 	if err == nil {
 		t.Fatalf("a block without a row cannot be moved")
 	}

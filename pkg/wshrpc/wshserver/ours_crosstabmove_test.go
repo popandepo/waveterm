@@ -27,13 +27,17 @@ func TestStackMembersOfReturnsTheGroupInOrderOrTheBlockAlone(t *testing.T) {
 	tree := decodeTree(t, `{"id":"root","children":[
 		{"id":"s1","kind":"stack","children":[{"id":"l1","data":{"blockId":"a"}},{"id":"l2","data":{"blockId":"b"}}]},
 		{"id":"l3","data":{"blockId":"c"}}]}`)
-	if got := strings.Join(stackMembersOf(tree, "b"), ","); got != "a,b" {
+	members := func(node any, blockId string) string {
+		ids, _ := stackMembersOf(node, blockId)
+		return strings.Join(ids, ",")
+	}
+	if got := members(tree, "b"); got != "a,b" {
 		t.Fatalf("members of the group of b = %q, want a,b", got)
 	}
-	if got := strings.Join(stackMembersOf(tree, "c"), ","); got != "c" {
+	if got := members(tree, "c"); got != "c" {
 		t.Fatalf("a block outside a group moves alone, got %q", got)
 	}
-	if got := strings.Join(stackMembersOf(nil, "z"), ","); got != "z" {
+	if got := members(nil, "z"); got != "z" {
 		t.Fatalf("an unreadable tree moves the block alone, got %q", got)
 	}
 }

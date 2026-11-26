@@ -29,11 +29,10 @@ var stackBlockRPC = func(data wshrpc.CommandStackBlockData) error {
 	return wshclient.StackBlockCommand(RpcClient, data, nil)
 }
 
-// Only blocks can be moved or stacked. A tab or workspace reference is refused here with a plain message:
-// moving into another tab is not supported yet.
+// Only blocks can be moved or stacked. A tab or workspace reference is refused here with a plain message.
 func blockIdOfORef(oref waveobj.ORef) (string, error) {
 	if oref.OType != waveobj.OType_Block {
-		return "", fmt.Errorf("%s:%s is not a block; groups work between blocks of the same tab (a tab as target is not supported yet)", oref.OType, oref.OID)
+		return "", fmt.Errorf("%s:%s is not a block; name a block (a tab or workspace is not supported as a target)", oref.OType, oref.OID)
 	}
 	return oref.OID, nil
 }

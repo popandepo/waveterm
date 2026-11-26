@@ -647,7 +647,11 @@ export class LayoutModel {
                 break;
             }
             case LayoutTreeActionType.StackInsert: {
-                const target = this?.getNodeByBlockId(action.targetblockid);
+                // an overlay is not in the tree, so nothing can join it
+                const target =
+                    this.getter(this.ephemeralNode)?.data?.blockId === action.targetblockid
+                        ? undefined
+                        : this?.getNodeByBlockId(action.targetblockid);
                 if (!target) {
                     // not dropped: a block that was moved here is listed by this tab, and a listed block without a leaf is deleted by the clean-up
                     console.error(
@@ -704,6 +708,15 @@ export class LayoutModel {
                 break;
             }
             case "detach": {
+                const overlay = this.getter(this.ephemeralNode);
+                if (overlay?.data?.blockId === action.blockid) {
+                    // an overlay left behind would delete the moved block when it is closed
+                    this.setter(this.ephemeralNode, undefined);
+                    if (this.treeState.focusedNodeId === overlay.id) {
+                        this.treeState.focusedNodeId = undefined;
+                    }
+                    break;
+                }
                 const leaf = this?.getNodeByBlockId(action.blockid);
                 if (!leaf) {
                     console.error(

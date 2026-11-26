@@ -18,13 +18,14 @@ import (
 // The check and all writes are one transaction. A failed move changes nothing, a second move of the same block finds
 // it gone, and no reader sees a tab list the block without its queued insert (the clean-up of orphaned blocks deletes
 // a block that its tab lists but its layout lacks).
-func MoveBlocksToTab(ctx context.Context, fromTabId string, toTabId string, blockIds []string, targetBlockId string, focused bool) error {
+// focusBlockId names the moved block that the target tab shows and focuses, or "" to leave the focus where it is.
+func MoveBlocksToTab(ctx context.Context, fromTabId string, toTabId string, blockIds []string, targetBlockId string, focusBlockId string) error {
 	return wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
-		return moveBlocksToTabTx(tx.Context(), fromTabId, toTabId, blockIds, targetBlockId, focused)
+		return moveBlocksToTabTx(tx.Context(), fromTabId, toTabId, blockIds, targetBlockId, focusBlockId)
 	})
 }
 
-func moveBlocksToTabTx(ctx context.Context, fromTabId string, toTabId string, blockIds []string, targetBlockId string, focused bool) error {
+func moveBlocksToTabTx(ctx context.Context, fromTabId string, toTabId string, blockIds []string, targetBlockId string, focusBlockId string) error {
 	if err := checkMoveBlocksToTab(ctx, fromTabId, toTabId, blockIds, targetBlockId); err != nil {
 		return err
 	}
@@ -36,7 +37,7 @@ func moveBlocksToTabTx(ctx context.Context, fromTabId string, toTabId string, bl
 			ActionType:    LayoutActionDataType_StackInsert,
 			BlockId:       blockId,
 			TargetBlockId: target,
-			Focused:       focused && i == 0,
+			Focused:       blockId == focusBlockId,
 		}
 		removals[i] = waveobj.LayoutActionData{ActionType: LayoutActionDataType_Detach, BlockId: blockId}
 		target = blockId

@@ -51,7 +51,7 @@ is not covered is listed at the end.
 
 `wsh run -- cmd args` and `wsh session start -- cmd args` (cmd:shell false) now run `cmd` itself with no shell in between: no cmdlets, functions, aliases or `.ps1` files by bare name (name `pwsh -File x.ps1`), and a name that is not on the PATH, or only in the current folder, fails to start with an error naming it. `wsh run -c "line"` still goes through the shell.
 
-`wsh run` and `wsh term` target the tab of the calling block (`WAVETERM_TABID`). A block cannot be created
+`wsh run` and `wsh term` target the tab the calling block is in now (`getCallerTabId`, asked from the server). A block cannot be created
 in another tab from `wsh` as shipped. READ (`createblock` RPC takes a `TabId`, but the `run`/`term` commands
 fill it from the environment).
 
@@ -739,7 +739,7 @@ function is used only in `BlockMask`, assigned only to `style.borderColor`; the 
 ## 33. `--tab <ref>` on createblock, term, run and web open
 
 `wsh createblock|term|run|web open --tab <ref>` creates the block in another tab than the calling block's: `<ref>` is a full tab id (with or without `tab:`), `tab:<n>` (the n-th tab of the caller's workspace) or `tab` (the caller's own); an id prefix and every other form is refused, and a `--tab` that is
-given but empty is refused (it is never taken as absent). The reference is then resolved by the same resolver as `wsh tab switch`. Without `--tab` nothing changes (the tab of the calling block, `WAVETERM_TABID`). With `--tab` the command also works from a place that has no tab of its own.
+given but empty is refused (it is never taken as absent). The reference is then resolved by the same resolver as `wsh tab switch`. Without `--tab` nothing changes (the tab the calling block is in now, `getCallerTabId`). With `--tab` the command also works from a place that has no tab of its own.
 `--stack` and `--replace` need their target block to be in that tab: the command looks the target's tab up and refuses with a message that names both tabs (it does not send the request), and the SERVER makes the same check when it handles the request, for stack and for replace (`createTargetNeedsSameTab`), so a target that moved after the command looked is still caught. Tiles cannot be moved between tabs today; a future move between tabs must keep that check in the server.
 - **RAN:** Go tests: the choice (no flag uses the environment, a blank flag is not given, the flag wins, the flag works without an environment, an unknown tab is refused and says `--tab`); the target check
   (same tab, other tab, no target, unknown block); the four commands have the flag, default empty, use only the shared choice and check the target after applying it; red when the flag choice, the target

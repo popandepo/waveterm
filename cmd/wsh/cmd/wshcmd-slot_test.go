@@ -310,6 +310,7 @@ func TestMiddleRefusedWhenOnlyATwoBlockColumnIsThere(t *testing.T) {
 }
 
 func TestSlotOpenCommandSendsNoFocusPayload(t *testing.T) {
+	t.Setenv("WAVETERM_BLOCKID", "")
 	t.Setenv("WAVETERM_TABID", "tab-1")
 	var created []wshrpc.CommandCreateBlockData
 	oldC, oldL, oldNF, oldTab, oldFile := createBlockRPC, blocksListRPC, noFocus, slotTab, slotLayoutFile

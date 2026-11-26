@@ -286,10 +286,10 @@ func myCommandRun(cmd *cobra.Command, args []string) (rtnErr error) {
 **Alternative: Manual Block Resolution**
 
 ```go
-// Get tab ID from environment
-tabId := os.Getenv("WAVETERM_TABID")
-if tabId == "" {
-    return fmt.Errorf("WAVETERM_TABID not set")
+// the tab the calling block is in now (never read WAVETERM_TABID directly: a moved block keeps its old value)
+tabId, err := getCallerTabId()
+if err != nil {
+    return err
 }
 
 // Create route for tab-level operations
@@ -781,10 +781,10 @@ func myCommandRun(cmd *cobra.Command, args []string) (rtnErr error) {
         return fmt.Errorf("WAVETERM_BLOCKID not set")
     }
     
-    // Get tab ID from environment
-    tabId := os.Getenv("WAVETERM_TABID")
-    if tabId == "" {
-        return fmt.Errorf("WAVETERM_TABID not set")
+    // the tab the block is in now, asked from the server
+    tabId, err := getCallerTabId()
+    if err != nil {
+        return err
     }
     
     fmt.Printf("Block: %s, Tab: %s\n", blockId, tabId)

@@ -225,11 +225,15 @@ func resolveSimpleId(id string) (*waveobj.ORef, error) {
 }
 
 // getCallerTabId is the tab the calling block is in now. WAVETERM_TABID is not it: a block can be moved to another tab while its process
-// keeps the environment it was started with.
+// keeps the environment it was started with. The environment's tab is used only by a caller that is not in a block.
 func getCallerTabId() (string, error) {
 	blockId := os.Getenv("WAVETERM_BLOCKID")
 	if blockId == "" {
-		return "", fmt.Errorf("no WAVETERM_BLOCKID env var set")
+		envTab := os.Getenv("WAVETERM_TABID")
+		if envTab == "" {
+			return "", fmt.Errorf("no WAVETERM_BLOCKID or WAVETERM_TABID env var set")
+		}
+		return envTab, nil
 	}
 	tabId, err := blockTabFn(blockId)
 	if err != nil {

@@ -38,7 +38,7 @@ Not covered: a seam whose declaration is unchanged but whose behaviour changed. 
 |---|---|---|---|
 | client setup | `cmd/wsh/cmd/wshcmd-root.go` | `preRunSetupRpcClient`, `rootCmd` | every new command uses it |
 | token model | `pkg/wavebase/wavebase.go` | `WAVETERM_JWT`, `WAVETERM_SWAPTOKEN` | controllers run inside a block |
-| caller tab | `cmd/wsh/cmd/wshcmd-tabindicator.go` | `WAVETERM_TABID` | "the tab the caller runs in" |
+| caller tab | `cmd/wsh/cmd/wshcmd-root.go` | `getCallerTabId` | "the tab the calling block is in now" (asked from the server; `WAVETERM_TABID` only without a block) |
 | reference resolution | `pkg/wshrpc/wshserver/resolvers.go` | `resolveSimpleId` | `tab:<id>`, `tab:N`, uuid, 8 chars |
 | setmeta and badge | `cmd/wsh/cmd/wshcmd-setmeta.go`, `wshcmd-badge.go` | `setMetaCmd`, tab oref accepted | colour and symbol from outside |
 | tab command group | `cmd/wsh/cmd/wshcmd-tab.go` | `tabCommand` | rename, new, switch, close join it |

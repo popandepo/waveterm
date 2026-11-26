@@ -50,6 +50,7 @@ func TestOnlyAWebTileIsNavigated(t *testing.T) {
 }
 
 func TestTheFourCommandsExistAndSendTheirAction(t *testing.T) {
+	t.Setenv("WAVETERM_BLOCKID", "")
 	t.Setenv("WAVETERM_TABID", "caller-tab")
 	oldAuth, oldInfo, oldRPC, oldBlockArg := webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg
 	defer func() { webNavAuthorize, webNavBlockInfo, webNavRPC, blockArg = oldAuth, oldInfo, oldRPC, oldBlockArg }()

@@ -117,6 +117,8 @@ export interface LayoutTreeComputeMoveNodeAction extends LayoutTreeAction {
     nodeId: string;
     nodeToMoveId: string;
     direction: DropDirection;
+    /** The swap modifier is held: the middle of the target means "change places" instead of "stack". */
+    swap?: boolean;
 }
 
 /**

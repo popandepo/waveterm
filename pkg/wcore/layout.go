@@ -29,6 +29,7 @@ const (
 	LayoutActionDataType_StackMove       = "stackmove"
 	LayoutActionDataType_Activate        = "activate"
 	LayoutActionDataType_Detach          = "detach"
+	LayoutActionDataType_Swap            = "swap"
 )
 
 type PortableLayout []struct {

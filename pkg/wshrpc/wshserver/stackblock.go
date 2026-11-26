@@ -33,6 +33,32 @@ func planStackBlock(
 		return "", none, fmt.Errorf("block %s: %w", data.BlockId, err)
 	}
 	switch data.Action {
+	case wshrpc.StackBlockAction_Swap:
+		if data.TargetBlockId == "" {
+			return "", none, fmt.Errorf("a second block is required to swap")
+		}
+		if data.TargetBlockId == data.BlockId {
+			return "", none, fmt.Errorf("a block cannot be swapped with itself")
+		}
+		targetTab, err := findTab(data.TargetBlockId)
+		if err != nil {
+			return "", none, fmt.Errorf("second block %s: %w", data.TargetBlockId, err)
+		}
+		if targetTab != tabId {
+			return "", none, fmt.Errorf("both blocks must be in the same tab to swap them")
+		}
+		same, err := sameStack(tabId, data.BlockId, data.TargetBlockId)
+		if err != nil {
+			return "", none, fmt.Errorf("looking up the groups: %w", err)
+		}
+		if same {
+			return "", none, fmt.Errorf("both blocks are in the same group: members of one group cannot be swapped")
+		}
+		return tabId, waveobj.LayoutActionData{
+			ActionType:    wcore.LayoutActionDataType_Swap,
+			BlockId:       data.BlockId,
+			TargetBlockId: data.TargetBlockId,
+		}, nil
 	case wshrpc.StackBlockAction_Stack, wshrpc.StackBlockAction_Move:
 		if data.TargetBlockId == "" {
 			return "", none, fmt.Errorf("a target block is required to stack")

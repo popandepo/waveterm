@@ -19,11 +19,12 @@ param(
     [string]$PromptRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\prompts' } else { '' }),
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
-    [string[]]$PluginDir = @(),
-    # The tool-rows mod (MalfestioMaster tools\mods\tool-rows): added to the plugin folders below, but only when it is the one trusted folder
-    # (-ToolRowsAllowed, compared after links and junctions are resolved). Any other folder refuses the start.
-    [string]$ToolRowsDir = '',
-    [string]$ToolRowsAllowed = 'C:\Projects\Personal\MalfestioMaster\tools\mods\tool-rows',
+    # The plugin folders (--plugin-dir) are not part of a block's command: this MalfestioMaster script names them at EVERY start, so a resume gets today's list.
+    # It is code that runs here; only a test names another one.
+    [string]$SessionPluginsScript = 'C:\Projects\Personal\MalfestioMaster\tools\Session-Plugins.ps1',
+    # Every plugin folder it names must, after its final path is resolved, sit under one of these folders (plugin content is code). The default is the two
+    # MalfestioMaster mod roots; only a test names others (one comma-joined argument over pwsh -File).
+    [string[]]$PluginRoots = @('C:\Projects\Personal\MalfestioMaster\tools\mods', 'C:\Projects\Personal\MalfestioMaster\mods'),
     # Start in the fullscreen renderer so mouse clicks reach mods (off by default: it changes mouse capture and text selection in Wave).
     [switch]$ClickRows,
     [string]$Command = 'claude',
@@ -145,24 +146,23 @@ if (-not $resolvedConfig) {
 }
 $ConfigDir = $resolvedConfig
 
-# Plugin folders (--plugin-dir): each must be fully qualified, an existing folder, and (after links are resolved) never at or below .claude or .claude-work.
-# What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
-$pluginPaths = @()
-if ($ToolRowsDir) {
-    $trOk = $false
-    if ($ToolRowsDir -match '^[A-Za-z]:[\\/]' -and $ToolRowsAllowed -match '^[A-Za-z]:[\\/]' -and
-        (Test-Path -LiteralPath $ToolRowsDir -PathType Container) -and (Test-Path -LiteralPath $ToolRowsAllowed -PathType Container)) {
-        $trGiven = Get-FinalPath $ToolRowsDir
-        $trTrusted = Get-FinalPath $ToolRowsAllowed
-        $trOk = [bool]($trGiven -and $trTrusted -and ($trGiven -ieq $trTrusted))
-    }
-    if (-not $trOk) {
-        [Console]::Error.WriteLine("Refusing to start Claude: -ToolRowsDir '$ToolRowsDir' is not the trusted tool-rows folder (nothing was opened).")
+# Plugin folders (--plugin-dir): a personal account (.claude-personal is 1, .claude-personal2 is 2) gets the list of $SessionPluginsScript, any other config
+# folder (a throwaway one) gets none. A missing script is a refusal, never a shorter list. Each folder must be fully qualified, existing, and (after links are
+# resolved) never at or below .claude or .claude-work. What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
+$pluginDirs = @()
+$homeFinal = Get-FinalPath $env:USERPROFILE
+$pluginAccount = if (Test-Under $ConfigDir "$homeFinal\.claude-personal2") { '2' } elseif (Test-Under $ConfigDir "$homeFinal\.claude-personal") { '1' } else { '' }
+if ($pluginAccount) {
+    if ($SessionPluginsScript -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $SessionPluginsScript) -or -not (Test-Path -LiteralPath $SessionPluginsScript -PathType Leaf)) {
+        [Console]::Error.WriteLine("Refusing to start Claude: the plugin list script was not found: $SessionPluginsScript")
         exit 2
     }
-    $PluginDir = @($PluginDir) + $ToolRowsDir
+    . $SessionPluginsScript
+    $pluginDirs = @(Get-SessionPluginDirs -Account $pluginAccount -SessionId $SessionId -Name $Name)
 }
-foreach ($pd in @($PluginDir | Where-Object { $_ })) {
+$pluginPaths = @()
+$allowedRoots = @(@($PluginRoots | ForEach-Object { "$_" -split ',' } | Where-Object { $_ }) | ForEach-Object { if ($_ -match '^[A-Za-z]:[\\/]' -and (Test-Path -LiteralPath $_ -PathType Container)) { Get-FinalPath $_ } } | Where-Object { $_ })
+foreach ($pd in @($pluginDirs | Where-Object { $_ })) {
     $okPlugin = $null
     if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-PlainlyForbidden $pd)) {
         [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is at or below .claude or .claude-work by its plain spelling (nothing was opened).")
@@ -172,6 +172,10 @@ foreach ($pd in @($PluginDir | Where-Object { $_ })) {
         $pf = Get-FinalPath $pd
         $hf = Get-FinalPath $env:USERPROFILE
         if ($pf -and $hf -and -not (Test-Under $pf "$hf\.claude") -and -not (Test-Under $pf "$hf\.claude-work")) { $okPlugin = $pf }
+    }
+    if ($okPlugin -and -not (@($allowedRoots | Where-Object { Test-Under $okPlugin $_ }).Count -gt 0)) {
+        [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is not under the allowed plugin roots (nothing was opened).")
+        exit 2
     }
     if (-not $okPlugin) {
         [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is not a fully qualified existing folder, or is at or below .claude or .claude-work.")

@@ -131,6 +131,28 @@ export function placeholderTargetId(action: LayoutTreeAction): string | undefine
     return undefined;
 }
 
+/**
+ * The action that makes two tiles change places, or nothing. A member of a stack means its whole stack (the same rule as
+ * a drop), so two members of one stack, the root, and a tile that contains the other give nothing.
+ */
+export function swapAction(
+    rootNode: LayoutNode,
+    firstId: string,
+    secondId: string
+): LayoutTreeSwapNodeAction | undefined {
+    const node1Id = placementTargetId(rootNode, firstId);
+    const node2Id = placementTargetId(rootNode, secondId);
+    if (!node1Id || !node2Id || node1Id === node2Id || node1Id === rootNode.id || node2Id === rootNode.id) {
+        return undefined;
+    }
+    const node1 = findNode(rootNode, node1Id);
+    const node2 = findNode(rootNode, node2Id);
+    if (!node1 || !node2 || findNode(node1, node2Id) || findNode(node2, node1Id)) {
+        return undefined;
+    }
+    return { type: LayoutTreeActionType.Swap, node1Id, node2Id };
+}
+
 export function computeMoveNode(layoutState: LayoutTreeState, computeInsertAction: LayoutTreeComputeMoveNodeAction) {
     const rootNode = layoutState.rootNode;
     const { nodeToMoveId, direction } = computeInsertAction;
@@ -293,7 +315,10 @@ export function computeMoveNode(layoutState: LayoutTreeState, computeInsertActio
             }
             break;
         case DropDirection.Center:
-            // Fork rule: the middle of a tile means "stack with it", not "swap". swapNode stays in the code, unused.
+            // Fork rule: the middle of a tile means "stack with it"; with the swap modifier held it means "change places".
+            if (computeInsertAction.swap) {
+                return swapAction(rootNode, nodeId, nodeToMoveId);
+            }
             if (nodeId !== rootNode.id && nodeToMoveId !== rootNode.id) {
                 return centreDropAction(rootNode, nodeId, nodeToMoveId);
             } else {

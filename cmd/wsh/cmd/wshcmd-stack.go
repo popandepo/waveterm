@@ -226,3 +226,48 @@ func stackMoveRun(cmd *cobra.Command, args []string) error {
 		Focused:       stackMoveFocus,
 	})
 }
+
+var (
+	stackSwapA string
+	stackSwapB string
+)
+
+var stackSwapCmd = &cobra.Command{
+	Use:   "swap --a <block> --b <block>",
+	Short: "Make two tiles change places",
+	Long: `A and B are blocks of the same tab. The two tiles change places and sizes; a block that is a member of a group means
+its whole group (the group moves as one tile). Nothing is restarted: the processes keep running. Two members of the same
+group cannot be swapped. The change is queued for the page of that tab and is not confirmed. A swap never takes keyboard
+focus. With the mouse: hold Alt while dropping a tile on the middle of another one.`,
+	Args:    cobra.NoArgs,
+	RunE:    stackSwapRun,
+	PreRunE: preRunSetupRpcClient,
+}
+
+func init() {
+	stackSwapCmd.Flags().StringVar(&stackSwapA, "a", "", "first block (block id or number)")
+	stackSwapCmd.Flags().StringVar(&stackSwapB, "b", "", "second block (block id or number)")
+	stackCmd.AddCommand(stackSwapCmd)
+}
+
+func stackSwapRun(cmd *cobra.Command, args []string) error {
+	if stackSwapA == "" || stackSwapB == "" {
+		return fmt.Errorf("both --a and --b are required")
+	}
+	aId, err := resolveBlockRef(stackSwapA)
+	if err != nil {
+		return fmt.Errorf("resolving --a: %w", err)
+	}
+	bId, err := resolveBlockRef(stackSwapB)
+	if err != nil {
+		return fmt.Errorf("resolving --b: %w", err)
+	}
+	if aId == bId {
+		return fmt.Errorf("--a and --b are the same block")
+	}
+	return sendStack(wshrpc.CommandStackBlockData{
+		BlockId:       aId,
+		TargetBlockId: bId,
+		Action:        wshrpc.StackBlockAction_Swap,
+	})
+}

@@ -325,8 +325,9 @@ left out) and adds the chosen block type to the stack as a new tab, so a stack c
 ## 19. Drop on the middle makes a stack (step B)
 
 Dragging a tile over the middle of another tile now outlines the target and, on drop, puts the dragged tile into the
-target's stack, or makes a stack of the two; dropping on a member means its stack. The upstream swap action and its
-code are unchanged but no longer reachable from the mouse (the owner never uses swap). Edge zones still move tiles
+target's stack, or makes a stack of the two; dropping on a member means its stack. Holding Alt while dropping on the
+middle swaps the two tiles instead (section 52; the swap was unreachable from the mouse before, which was wrong: he
+does want it). Edge zones still move tiles
 as before. Leaving a stack: drag the active member's header to an edge zone (the move takes it out), or "Take out of
 stack" in its menu.
 - **RAN:** vitest (centre = stack action, member target = its stack, root refused, edge zones still move).
@@ -346,7 +347,7 @@ confirmed; keyboard focus moves only with `--focus`.
 - **Not handled, for the window check:** audio or video in a web block of a hidden tab keeps playing.
 
 Review notes on step C: a **tab as `--to` is refused with a message** (only blocks resolve; "a target stack or a target
-window" as a tab is not supported and the help says so; a block of another tab of the same workspace as `--to` IS supported, see section 40); naming two members of the same group is an error
+window" as a tab is not supported and the help says so; a block of another tab of the same workspace as `--to` IS supported, see section 53); naming two members of the same group is an error
 from the server; a move is validated as a whole before the first member moves, so a failing member changes nothing.
 
 ## 20a. `wsh deleteblock` refuses a block with a running program unless `--force`
@@ -739,7 +740,7 @@ function is used only in `BlockMask`, assigned only to `style.borderColor`; the 
 
 `wsh createblock|term|run|web open --tab <ref>` creates the block in another tab than the calling block's: `<ref>` is a full tab id (with or without `tab:`), `tab:<n>` (the n-th tab of the caller's workspace) or `tab` (the caller's own); an id prefix and every other form is refused, and a `--tab` that is
 given but empty is refused (it is never taken as absent). The reference is then resolved by the same resolver as `wsh tab switch`. Without `--tab` nothing changes (the tab of the calling block, `WAVETERM_TABID`). With `--tab` the command also works from a place that has no tab of its own.
-`--stack` and `--replace` need their target block to be in that tab: the command looks the target's tab up and refuses with a message that names both tabs (it does not send the request), and the SERVER makes the same check when it handles the request, for stack and for replace (`createTargetNeedsSameTab`), so a target that moved after the command looked is still caught. A move between tabs (`wsh stack move`, section 40) does not create a block, so these checks do not apply to it; it has its own (same workspace, target in the target tab, every block in the source tab).
+`--stack` and `--replace` need their target block to be in that tab: the command looks the target's tab up and refuses with a message that names both tabs (it does not send the request), and the SERVER makes the same check when it handles the request, for stack and for replace (`createTargetNeedsSameTab`), so a target that moved after the command looked is still caught. A move between tabs (`wsh stack move`, section 53) does not create a block, so these checks do not apply to it; it has its own (same workspace, target in the target tab, every block in the source tab).
 - **RAN:** Go tests: the choice (no flag uses the environment, a blank flag is not given, the flag wins, the flag works without an environment, an unknown tab is refused and says `--tab`); the target check
   (same tab, other tab, no target, unknown block); the four commands have the flag, default empty, use only the shared choice and check the target after applying it; red when the flag choice, the target
   check and one command's flag are removed.
@@ -1003,7 +1004,16 @@ How: emain looks up the block's rectangle in the tab's page (`.block[data-blocki
 - **Found only by the live run, each fixed with a test:** the command had no RPC client set up; a parked view gives an empty picture; the first rectangle was the strip tab's; blocks of a never-shown tab are at the layout minimum.
 - **NOT run:** whether the move behind the active view is invisible to the owner (the check compares only before and after; a pixel check of the trial window by PrintWindow does not work, it returns only the Electron window frame, and a screen copy needs the trial window uncovered, which is not done while he is at the PC); a stacked block that is not the front member (expected: an error); a block in a tab of a window that is minimised; a second capture at the same moment from two callers on real Wave (the lock is tested with fakes); mutation checks; the live Wave 82eec4b4 (this needs a new build there).
 
-## 40. Move blocks between tabs
+## 52. Swap two tiles
+
+Two tiles change places and sizes, with no process restarted. Mouse: hold Alt while dropping a tile on the middle of another (without Alt the middle still stacks; the edge zones still move). The outline is drawn over the tile under the pointer. CLI: `wsh stack swap --a <block> --b <block>`, same tab only. A block that is a member of a group means its whole group; two members of one group cannot be swapped (refused by the server, left alone by the page). Like every layout change from the CLI it is queued and not confirmed, and it never takes keyboard focus.
+
+- **How:** `swapAction` (layoutTree.ts) builds the action for the drop and for the queued `swap` the server sends; `swapNode` is the upstream reducer, unchanged. The Alt state comes from native `dragover` events (`swapmodifier.ts`), because the drag library's hover callback has no event.
+- **Read-back:** `wsh tab layout [--tab <tabid>]` prints the SAVED layout of a tab as JSON: `tiles` in layout order (a group is one tile with `blockids` in order and `active`), and `pendingactions`, the number of queued changes the page has not applied yet (above 0 the tiles are not final). Read-only (RPC `GetTabLayoutCommand`), never touches focus or the shown tab. The page saves about 100 ms after a change; a tab that was never shown has no tiles.
+- **Tests:** page (`swap.test.ts`, `swapmodifier.test.ts`, `swapaction.model.test.ts`), Go (`ours_swap_test.go`, `ours_tablayout_test.go`, `wshcmd-stack_test.go`, `wshcmd-tablayout_test.go`).
+- **Live checkpoint:** the CLI swap was run on 26 Nov 2026 in an isolated instance on a hidden desktop and passed; the mouse Alt-drop has not been run. Script and output in PR 117.
+
+## 53. Move blocks between tabs
 
 `wsh stack move --from <block> --to <block>` works when the two blocks are in different tabs of the same workspace. The block, or every member of its group in order, joins the group at TO in the tab of TO. Only the tab lists, the block parent and the layouts change: the block row and its controller stay, so a running process is not restarted. A tab as TO is refused; name a block of that tab.
 

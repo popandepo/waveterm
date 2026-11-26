@@ -215,6 +215,39 @@ func TestStackMoveNeedsBothEnds(t *testing.T) {
 	}
 }
 
+func TestStackSwapSendsBothBlocksAndNeverAsksForFocus(t *testing.T) {
+	_, stacks := stubStackEnv(t)
+	stackSwapA, stackSwapB = "term", "block-b"
+	defer func() { stackSwapA, stackSwapB = "", "" }()
+	if err := stackSwapCmd.RunE(stackSwapCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := (*stacks)[0]
+	if got.Action != wshrpc.StackBlockAction_Swap || got.BlockId != stackTargetFull || got.TargetBlockId != "block-b" || got.Focused {
+		t.Fatalf("request %+v", got)
+	}
+}
+
+func TestStackSwapNeedsTwoDifferentBlocks(t *testing.T) {
+	_, stacks := stubStackEnv(t)
+	for _, c := range [][2]string{{"", "x"}, {"x", ""}, {"", ""}, {"x", "x"}} {
+		stackSwapA, stackSwapB = c[0], c[1]
+		if err := stackSwapCmd.RunE(stackSwapCmd, nil); err == nil {
+			t.Fatalf("a=%q b=%q should be refused", c[0], c[1])
+		}
+	}
+	stackSwapA, stackSwapB = "", ""
+	if len(*stacks) != 0 {
+		t.Fatalf("a refused command sent a request")
+	}
+}
+
+func TestStackSwapHelpNamesTheMouseWay(t *testing.T) {
+	if !strings.Contains(stackSwapCmd.Long, "Alt") {
+		t.Fatalf("the help must say how to swap with the mouse")
+	}
+}
+
 func TestBlockRefMustBeABlock(t *testing.T) {
 	good := waveobj.ORef{OType: waveobj.OType_Block, OID: stackTargetFull}
 	if id, err := blockIdOfORef(good); err != nil || id != stackTargetFull {

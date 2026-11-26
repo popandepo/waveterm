@@ -11,6 +11,7 @@ import { splitAtom } from "jotai/utils";
 import { createRef, CSSProperties } from "react";
 import { debounce } from "throttle-debounce";
 import { getLayoutStateAtomFromTab } from "./layoutAtom";
+import type { SwapModifierTracker } from "./swapmodifier";
 import { DiscardLedger, discardEphemeralBlock, replaceEphemeral } from "./ephemeralreplace";
 import { insertedBlockIds, treeActionForBackendAction } from "./backendaction";
 import { balanceNode, findNode, newLayoutNode, orphanLeafIds, walkNodes } from "./layoutNode";
@@ -25,6 +26,7 @@ import {
     insertNodeAtIndex,
     insertNodeIntoStack,
     placeholderTargetId,
+    swapAction,
     reorderStackMember,
     magnifyNodeToggle,
     moveIntoStack,
@@ -172,6 +174,9 @@ export class LayoutModel {
      * Callback that is invoked when a node is closed.
      */
     onNodeDelete?: (data: TabLayoutData) => Promise<void>;
+
+    /** Reads the swap modifier during a drag; set by the TileLayout that shows this model. */
+    swapModifier?: SwapModifierTracker;
     /**
      * The size of the gap between nodes in CSS pixels.
      */
@@ -733,6 +738,29 @@ export class LayoutModel {
                     { type: LayoutTreeActionType.DeleteNode, nodeId: leaf.id } as LayoutTreeDeleteNodeAction,
                     false
                 );
+                break;
+            }
+            case LayoutTreeActionType.Swap: {
+                const first = this?.getNodeByBlockId(action.blockid);
+                const second = this?.getNodeByBlockId(action.targetblockid);
+                if (!first || !second) {
+                    console.error(
+                        "Cannot apply eventbus layout action Swap, block not found",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                const swap = swapAction(this.treeState.rootNode, first.id, second.id);
+                if (swap == null) {
+                    console.error(
+                        "Cannot apply eventbus layout action Swap, nothing to swap",
+                        action.blockid,
+                        action.targetblockid
+                    );
+                    break;
+                }
+                this.treeReducer(swap, false);
                 break;
             }
             case "cleanuporphaned": {

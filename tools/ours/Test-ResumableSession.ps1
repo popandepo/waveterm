@@ -47,6 +47,13 @@ $env:RESUMABLE_TEST_WSHROOT = $root
 foreach ($v in @(Get-ChildItem env: | Where-Object { $_.Name -like 'WAVETERM*' -or $_.Name -eq 'TERM_PROGRAM' })) { Remove-Item -LiteralPath ('Env:' + $v.Name) }
 function Test-HasWsh([string]$dir) { try { (Test-Path -LiteralPath (Join-Path $dir 'wsh.exe')) -or (Test-Path -LiteralPath (Join-Path $dir 'wsh.cmd')) } catch { $false } }
 $env:PATH = (@($env:PATH -split ';' | Where-Object { $_ -and -not (Test-HasWsh $_) }) -join ';')
+# The starter asks a list script for the plugin folders at every start. Here a stand-in names what a check puts in RESUMABLE_TEST_PLUGINS (comma separated):
+# every start of this test is handed it, so none loads the real MalfestioMaster script.
+$fakeList = Join-Path $root 'session-plugins.ps1'
+Make-File $fakeList 'function Get-SessionPluginDirs { param($Account, $SessionId, $Name) @("$env:RESUMABLE_TEST_PLUGINS" -split '','' | Where-Object { $_ }) }'
+$PSDefaultParameterValues['*:SessionPluginsScript'] = $fakeList
+$env:RESUMABLE_TEST_LIST = $fakeList
+Remove-Item Env:RESUMABLE_TEST_PLUGINS -ErrorAction SilentlyContinue
 try {
     # ---- the choice between create and resume ----
     $firstOut = & $script -SessionId $id -ConfigDir $cfg -Model m1 -Effort low -PermissionMode auto -Name n1 -Prompt 'hello' -DryRun
@@ -89,13 +96,13 @@ try {
     # a real held start, up to the point of starting claude: the command does not exist, so the starter ends with exit 3 right after the hold
     $gateClaude = Join-Path $root 'no-such-claude.exe'
     $t0 = Get-Date
-    $h = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Name n1 -GateDir $gateDir -GateGiveUpSeconds 2 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
+    $h = & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -Name n1 -GateDir $gateDir -GateGiveUpSeconds 2 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
     $took = ((Get-Date) - $t0).TotalSeconds
     Check 'a held start nobody releases waits, then goes on to start claude by itself' ($LASTEXITCODE -eq 3 -and $took -ge 2 -and ($h -join ' ') -match 'Held by the start gate' -and ([string](Get-Content -LiteralPath $swapLog -Raw)) -match ' start=gave-up') "$LASTEXITCODE $took $h"
     $relFile = Join-Path $gateDir 'n4'
     $job = Start-ThreadJob -ArgumentList $relFile -ScriptBlock { param($f) Start-Sleep -Seconds 3; Set-Content -LiteralPath $f -Value 'x' }
     $t0 = Get-Date
-    $h = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Name n4 -GateDir $gateDir -GateGiveUpSeconds 60 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
+    $h = & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -Name n4 -GateDir $gateDir -GateGiveUpSeconds 60 -Command $gateClaude -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$null
     $took = ((Get-Date) - $t0).TotalSeconds; $null = $job | Wait-Job | Remove-Job
     Check 'a release during the hold starts claude at once' ($LASTEXITCODE -eq 3 -and $took -ge 3 -and $took -lt 40 -and ([string](Get-Content -LiteralPath $swapLog -Raw)) -match ' start=released') "$LASTEXITCODE $took"
     Make-Dir (Join-Path $gateDir 'n5'); (Get-Item (Join-Path $gateDir 'n5')).LastWriteTime = (Get-Date).AddMinutes(1)
@@ -167,10 +174,9 @@ if ($env:RESUMABLE_TEST_DECOYDIR) { $env:PATH = $env:RESUMABLE_TEST_DECOYDIR + $
 if ($ExtraPrompt) { $extra.Prompt = $ExtraPrompt }
 if ($ExtraPromptFile) { $extra.PromptFile = $ExtraPromptFile }
 if ($env:RESUMABLE_TEST_PROMPTROOT) { $extra.PromptRoot = $env:RESUMABLE_TEST_PROMPTROOT }
+if ($env:RESUMABLE_TEST_LIST) { $extra.SessionPluginsScript = $env:RESUMABLE_TEST_LIST }
 if ($ExtraName) { $extra.Name = $ExtraName }
 if ($env:RESUMABLE_TEST_CLICKROWS) { $extra.ClickRows = $true }
-if ($env:RESUMABLE_TEST_TOOLROWS) { $extra.ToolRowsDir = $env:RESUMABLE_TEST_TOOLROWS }
-if ($env:RESUMABLE_TEST_TOOLROWS_ALLOWED) { $extra.ToolRowsAllowed = $env:RESUMABLE_TEST_TOOLROWS_ALLOWED }
 if ($env:RESUMABLE_TEST_SWAPTIMEOUT) { $extra.SwapTimeoutSeconds = [int]$env:RESUMABLE_TEST_SWAPTIMEOUT }
 & $Script -SessionId $Id -ConfigDir $Cfg -Command $Stub -Model m1 @extra
 exit $LASTEXITCODE
@@ -210,27 +216,6 @@ exit $LASTEXITCODE
     Check 'without -ClickRows the launched program gets neither CLAUDE_CODE_NO_FLICKER nor the full-repaint variable' (-not ($r.Text -match 'ENV: CLAUDE_CODE_NO_FLICKER=') -and -not ($r.Text -match 'ENV: CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=')) $r.Text
     $env:RESUMABLE_TEST_CLICKROWS = '1'; $rc = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_CLICKROWS
     Check 'with -ClickRows the launched program gets CLAUDE_CODE_NO_FLICKER=1 and the full-repaint fix' ($rc.Lines -contains 'ENV: CLAUDE_CODE_NO_FLICKER=1' -and $rc.Lines -contains 'ENV: CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=1') $rc.Text
-    $trDir = Join-Path $root 'tool-rows-folder'; Make-Dir $trDir
-    # only the one trusted folder is accepted, compared after links are resolved (the seam -ToolRowsAllowed stands for the real MalfestioMaster folder)
-    $env:RESUMABLE_TEST_TOOLROWS_ALLOWED = $trDir
-    $env:RESUMABLE_TEST_TOOLROWS = $trDir; $rt = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'the trusted -ToolRowsDir is started as a --plugin-dir' ($rt.Code -eq 0 -and $rt.Text -match '--plugin-dir [^|]*tool-rows-folder') $rt.Text
-    $sibling = Join-Path $root 'tool-rows-sibling'; Make-Dir $sibling
-    $env:RESUMABLE_TEST_TOOLROWS = $sibling; $rs = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a sibling folder is refused as -ToolRowsDir (exit 2, nothing started)' ($rs.Code -eq 2 -and -not ($rs.Text -match 'ARGS:')) $rs.Text
-    $junction = Join-Path $root 'tool-rows-junction'
-    New-Item -ItemType Junction -Path $junction -Target $sibling | Out-Null
-    $env:RESUMABLE_TEST_TOOLROWS = $junction; $rj = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a junction to another folder is refused as -ToolRowsDir (exit 2, nothing started)' ($rj.Code -eq 2 -and -not ($rj.Text -match 'ARGS:')) $rj.Text
-    [IO.Directory]::Delete($junction)
-    $junction2 = Join-Path $root 'tool-rows-junction-to-trusted'
-    New-Item -ItemType Junction -Path $junction2 -Target $trDir | Out-Null
-    $env:RESUMABLE_TEST_TOOLROWS = $junction2; $rj2 = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a junction to the trusted folder resolves to it and is accepted' ($rj2.Code -eq 0 -and $rj2.Text -match '--plugin-dir') $rj2.Text
-    [IO.Directory]::Delete($junction2)
-    $env:RESUMABLE_TEST_TOOLROWS = 'relative-tool-rows'; $rb = Run-Child 'set'; Remove-Item Env:RESUMABLE_TEST_TOOLROWS
-    Check 'a -ToolRowsDir that is not a fully qualified existing folder refuses the start (exit 2)' ($rb.Code -eq 2) $rb.Text
-    Remove-Item Env:RESUMABLE_TEST_TOOLROWS_ALLOWED -ErrorAction SilentlyContinue
     Check 'the launched program gets the resume arguments' ($r.Text -match "ARGS: --resume $id") $r.Text
     Check 'the folder of wsh is put AFTER the existing PATH entries' ($r.Lines -contains "PATHLAST: $wshDir") $r.Text
     Check 'wsh can be run from there and the stub prints what wsh printed' ($r.Lines -contains 'WSHOUT: wsh-from-wave') $r.Text
@@ -261,25 +246,60 @@ exit $LASTEXITCODE
     $dryName = & $script -SessionId $id -ConfigDir $cfg -Name n1 -DryRun
     Check 'the dry run prints the status key and tab' ($dryName[2] -match '^status=n1-[0-9a-f]{8} tab=n1$') ($dryName -join ' | ')
 
-    # ---- plugin folders ----
+    # ---- plugin folders: named by the list script at every start, then judged by the starter ----
+    $PSDefaultParameterValues['*:PluginRoots'] = @($root)
     $plug = Join-Path $root 'plugin one'; Make-Dir $plug
-    $d = & $script -SessionId $id -ConfigDir $cfg -PluginDir $plug -Model m1 -DryRun
+    $env:RESUMABLE_TEST_PLUGINS = $plug
+    $d = & $script -SessionId $id -ConfigDir $cfg -Model m1 -DryRun
     Check 'a plugin folder is passed as --plugin-dir, ahead of the other arguments, as its resolved path' ($d[0].StartsWith("--plugin-dir $plug ")) $d[0]
-    $d2 = & $script -SessionId $id -ConfigDir $cfg -PluginDir $plug, $throw -DryRun
-    Check 'two plugin folders are both passed' (([regex]::Matches($d2[0], '--plugin-dir')).Count -eq 2) $d2[0]
+    $env:RESUMABLE_TEST_PLUGINS = "$plug,$throw"
+    $d2 = & $script -SessionId $id -ConfigDir $cfg -DryRun
+    Check 'a resume carries the list as it is at that start, every folder of it' (($d2[0] -match "--resume $id") -and $d2[0].StartsWith("--plugin-dir $plug --plugin-dir $throw ")) $d2[0]
+    $goneOut = & pwsh -NoProfile -File $script -SessionPluginsScript (Join-Path $root 'no-such-list.ps1') -SessionId $id -ConfigDir $cfg -DryRun 2>$null
+    Check 'a missing list script refuses the start with exit 2, never a shorter list' (($LASTEXITCODE -eq 2) -and -not ($goneOut -match '--resume')) "exit=$LASTEXITCODE $goneOut"
+    # the allowed roots (-PluginRoots; the real default is MalfestioMaster\tools\mods and MalfestioMaster\mods): every entry must end up under one of them after links are resolved
+    $okRoot = Join-Path $root 'allowed-mods'; Make-Dir $okRoot
+    $okA = Join-Path $okRoot 'usage-file'; Make-Dir $okA
+    $okB = Join-Path $okRoot 'context-feed'; Make-Dir $okB
+    $okRoot2 = Join-Path $root 'allowed-mods-two'; Make-Dir $okRoot2
+    $okC = Join-Path $okRoot2 'tool-rows'; Make-Dir $okC
+    $sib = Join-Path $root 'allowed-mods-sibling'; Make-Dir $sib
+    $elsewhere = Join-Path $root 'elsewhere'; Make-Dir $elsewhere
+    $juncOut = Join-Path $okRoot 'junction-out'; $null = New-Item -ItemType Junction -Path $juncOut -Target $elsewhere; $made.Add($juncOut)
+    $juncIn = Join-Path $elsewhere 'junction-in'; $null = New-Item -ItemType Junction -Path $juncIn -Target $okA; $made.Add($juncIn)
+    $env:RESUMABLE_TEST_PLUGINS = "$okA,$okB,$okC"
+    $dr = & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots "$okRoot,$okRoot2" -DryRun
+    Check 'entries under either allowed root pass, one --plugin-dir each' (([regex]::Matches($dr[0], '--plugin-dir')).Count -eq 3) ($dr -join ' | ')
+    $env:RESUMABLE_TEST_PLUGINS = $juncIn
+    $dj = & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots "$okRoot,$okRoot2" -DryRun
+    Check 'a junction from outside to a folder under the root is accepted as that resolved folder' ($dj[0].StartsWith("--plugin-dir $okA ")) ($dj -join ' | ')
+    foreach ($pc2 in @(@('a sibling folder of the root', $sib), @('a folder elsewhere', $elsewhere), @('a junction from inside the root to outside', $juncOut), @('one bad entry among good ones', "$okA,$sib"))) {
+        $rerr = Join-Path $root 'plugin-root-error.txt'
+        $env:RESUMABLE_TEST_PLUGINS = $pc2[1]
+        $ro = & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots "$okRoot,$okRoot2" -DryRun 2>$rerr
+        $rtext = Get-Content -LiteralPath $rerr -Raw
+        Remove-Item -LiteralPath $rerr -ErrorAction SilentlyContinue
+        Check ("plugin folder outside the allowed roots (" + $pc2[0] + ") is refused with exit 2, naming it, nothing started") (($LASTEXITCODE -eq 2) -and ($rtext -match 'allowed plugin roots') -and -not ($ro -match 'plugin-dir')) ("exit=$LASTEXITCODE $rtext")
+    }
+    $env:RESUMABLE_TEST_PLUGINS = $okA
+    $rn = & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots (Join-Path $root 'no-such-root') -DryRun 2>$null
+    Check 'a root that does not exist allows nothing' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     $plugFile = Join-Path $root 'plugin-file.txt'; Make-File $plugFile 'x'
     $juncP = Join-Path $root 'plugin-junction'; $null = New-Item -ItemType Junction -Path $juncP -Target $oldDir; $made.Add($juncP)
     foreach ($pc in @(@('relative', 'plugin one'), @('a folder that does not exist', ($root + '\nope')), @('a file', $plugFile), @('.claude', $oldDir), @('below .claude-work', $workDir), @('a junction that leads to .claude', $juncP))) {
-        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pc[1] -DryRun 2>$null | Out-Null
+        $env:RESUMABLE_TEST_PLUGINS = $pc[1]
+        & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots $root -DryRun 2>$null | Out-Null
         Check ("plugin folder '" + $pc[0] + "' is refused with exit code 2") ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     }
     foreach ($pp2 in @($oldDir, (Join-Path $workDir 'x'), ($personal + '\..\.claude'))) {
         $perr = Join-Path $root 'plugin-error.txt'
-        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $pp2 -DryRun 2>$perr | Out-Null
+        $env:RESUMABLE_TEST_PLUGINS = $pp2
+        & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots $root -DryRun 2>$perr | Out-Null
         $ptext = Get-Content -LiteralPath $perr -Raw
         Remove-Item -LiteralPath $perr -ErrorAction SilentlyContinue
         Check ("plugin folder '" + $pp2.Replace($root, '<root>') + "' is refused by its plain spelling, before anything is opened") (($LASTEXITCODE -eq 2) -and ($ptext -match 'plain spelling \(nothing was opened\)')) "exit=$LASTEXITCODE $ptext"
     }
+    Remove-Item Env:RESUMABLE_TEST_PLUGINS -ErrorAction SilentlyContinue
 
     # ---- the token swap: what wsh prints is parsed, never run ----
     $swapDir = Join-Path $root 'swapbin'
@@ -614,7 +634,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Remove-Item Env:SWAP_OUTPUT, Env:SWAP_ARGS, Env:RESUMABLE_TEST_NOWSH -ErrorAction SilentlyContinue
     $starterText = Get-Content -LiteralPath $script -Raw
     Check 'the token goes to wsh as an argument list element, never joined into an argument string (a second layer behind the shape check)' (($starterText -match 'ArgumentList.Add') -and ($starterText -notmatch '$psi.Argumentss*=')) ''
-    $stray = & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -DryRun stray-positional-piece 2>&1
+    $stray = & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -DryRun stray-positional-piece 2>&1
     Check 'a stray positional argument is an error, not a model or an effort' (($LASTEXITCODE -ne 0) -and ($stray -join ' ') -match 'positional') ($stray -join ' ')
 
     # ---- follow-up: tilde paths, a missing LOCALAPPDATA, listed names cleared, the plugin folder gaps ----
@@ -623,22 +643,26 @@ $env:RESUMABLE_TEST_LOGROOT = $root
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
         $env:RESUMABLE_TEST_RECORD = $rec
         $terr = Join-Path $root 'tilde-error.txt'
-        & pwsh -NoProfile -File $script -SessionId $id -Command $stub @($tc[1]) 2>$terr | Out-Null
+        & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -Command $stub @($tc[1]) 2>$terr | Out-Null
         $ttext = Get-Content -LiteralPath $terr -Raw
         Remove-Item -LiteralPath $terr -ErrorAction SilentlyContinue
         Check ($tc[0] + ' is refused by its text alone, with exit 2 and nothing is started') (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec) -and ($ttext -match 'plain spelling \(nothing was opened\)')) "exit=$LASTEXITCODE $ttext"
     }
     foreach ($tp in @(@('a plugin folder with a tilde', ($plug + '~1')), @('a drive-relative plugin folder', 'C:plugin'))) {
-        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $tp[1] -DryRun 2>$null | Out-Null
+        $env:RESUMABLE_TEST_PLUGINS = $tp[1]
+        & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots $root -DryRun 2>$null | Out-Null
         Check ($tp[0] + ' is refused with exit code 2') ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     }
     $juncWork = Join-Path $root 'plugin-to-work'
     $null = New-Item -ItemType Junction -Path $juncWork -Target $workDir; $made.Add($juncWork)
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -PluginDir $juncWork -DryRun 2>$null | Out-Null
+    $env:RESUMABLE_TEST_PLUGINS = $juncWork
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -PluginRoots $root -DryRun 2>$null | Out-Null
     Check 'a plugin folder that is a junction into .claude-work is refused after the link is resolved' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     $dotted = ($plug + '\..\plugin one')
-    $dd = & $script -SessionId $id -ConfigDir $cfg -PluginDir $dotted -DryRun
+    $env:RESUMABLE_TEST_PLUGINS = $dotted
+    $dd = & $script -SessionId $id -ConfigDir $cfg -DryRun
     Check 'a plugin folder is handed on as its resolved full path, not as it was written' ($dd[0].StartsWith("--plugin-dir $plug ")) $dd[0]
+    Remove-Item Env:RESUMABLE_TEST_PLUGINS -ErrorAction SilentlyContinue
     # a name that wsh did not print does not keep what was inherited, after a success
     $env:RESUMABLE_TEST_INHERIT = '1'
     $env:SWAP_OUTPUT = $swapOut; $env:SWAP_ARGS = $swapArgs; $env:RESUMABLE_TEST_NOWSH = '1'
@@ -733,7 +757,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
 
     # ---- the session id ----
     Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
-    & pwsh -NoProfile -File $script -SessionId ($id + "`n") -ConfigDir $cfg -Command $stub 2>$null | Out-Null
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId ($id + "`n") -ConfigDir $cfg -Command $stub 2>$null | Out-Null
     Check 'a session id with a trailing newline is refused' (($LASTEXITCODE -ne 0) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE"
     $threw = $false; try { & $script -SessionId ($id + "`n") -ConfigDir $cfg -DryRun | Out-Null } catch { $threw = $true }
     Check 'a session id with a trailing newline is refused (in process, so that the newline arrives)' $threw ''
@@ -768,7 +792,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     $plainCases = @('.claude', '.claude with the switch', 'below .claude', '.CLAUDE in capitals', '.claude-work', 'below .claude-work', 'dot dot out of .claude-personal into .claude', 'forward slashes into .claude', '8.3 name of the profile into .claude')
     foreach ($c in $cases) {
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
-        $a = @('-NoProfile', '-File', $script, '-SessionId', $id, '-Command', $stub)
+        $a = @('-NoProfile', '-File', $script, '-SessionPluginsScript', $fakeList, '-SessionId', $id, '-Command', $stub)
         if ($null -ne $c[1]) { $a += '-ConfigDir', $c[1] }
         if ($c[2]) { $a += '-ThrowawayConfig' }
         $env:RESUMABLE_TEST_RECORD = $rec
@@ -785,7 +809,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     }
     $env:CLAUDE_CONFIG_DIR = $oldDir
     Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
-    & pwsh -NoProfile -File $script -SessionId $id -Command $stub 2>$null | Out-Null
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -Command $stub 2>$null | Out-Null
     Check 'a CLAUDE_CONFIG_DIR of .claude in the environment is refused with exit code 2' (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE"
     Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
 
@@ -795,7 +819,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     $env:USERPROFILE = $bareProfile
     foreach ($spelling in '.CLAUDE', '.Claude-Work', '.claude') {
         Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
-        & pwsh -NoProfile -File $script -SessionId $id -ConfigDir ($bareProfile + '\' + $spelling + '\x') -ThrowawayConfig -Command $stub 2>$null | Out-Null
+        & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir ($bareProfile + '\' + $spelling + '\x') -ThrowawayConfig -Command $stub 2>$null | Out-Null
         Check ("a folder that does not exist yet below '$spelling' is refused with exit code 2") (($LASTEXITCODE -eq 2) -and -not (Test-Path -LiteralPath $rec)) "exit=$LASTEXITCODE"
     }
     $env:USERPROFILE = $profileDir
@@ -808,14 +832,14 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     # account 2 keeps no CLAUDE.md or settings.json of its own: both are copied from account 1 at every start (a stale copy once missed a hook)
     Make-File (Join-Path $personal 'CLAUDE.md') 'rules one'
     Make-File (Join-Path $personal 'settings.json') '{"hooks":"one"}'
-    $dry = @(& pwsh -NoProfile -File $script -SessionId $id -ConfigDir $acct2 -DryRun 2>&1)
+    $dry = @(& pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $acct2 -DryRun 2>&1)
     Check 'account 2: .claude-personal2 is accepted without the throwaway switch' ($dry.Count -ge 2 -and $dry[1] -eq "config=$acct2") ($dry -join ' | ')
     $look = Join-Path $profileDir '.claude-personal2x'; Make-Dir $look
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $look -DryRun 2>$null | Out-Null
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $look -DryRun 2>$null | Out-Null
     Check '.claude-personal2x is refused with exit code 2' ($LASTEXITCODE -eq 2) "exit=$LASTEXITCODE"
     # a missing file reads as '<missing>' so a check that fails says so (a read of a missing file would stop the whole test run)
     function Text-Of([string]$p) { if (Test-Path -LiteralPath $p -PathType Leaf) { return (Get-Content -LiteralPath $p -Raw).Trim() } else { return '<missing>' } }
-    $dry = @(& pwsh -NoProfile -File $script -SessionId $id -ConfigDir $acct2 -DryRun 2>&1)
+    $dry = @(& pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $acct2 -DryRun 2>&1)
     Check 'account 2 copy: a dry run names both files and writes neither' ($dry.Count -ge 5 -and $dry[4] -eq 'copy=CLAUDE.md,settings.json' -and -not (Test-Path -LiteralPath (Join-Path $acct2 'CLAUDE.md')) -and -not (Test-Path -LiteralPath (Join-Path $acct2 'settings.json'))) ($dry -join ' | ')
     $r = Run-Child 'unset' $acct2
     Check 'account 2 copy: a start copies CLAUDE.md and settings.json from account 1 and the session starts' ($r.Code -eq 0 -and $r.Lines.Count -gt 0 -and (Text-Of (Join-Path $acct2 'CLAUDE.md')) -eq 'rules one' -and (Text-Of (Join-Path $acct2 'settings.json')) -eq '{"hooks":"one"}') $r.Text
@@ -897,7 +921,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     $p2a1 = Join-Path $prof2 '.claude-personal'; $p2a2 = Join-Path $prof2 '.claude-personal2'; Make-Dir $p2a2
     $null = New-Item -ItemType Junction -Path $p2a1 -Target $elsewhere; $made.Add($p2a1)
     $env:USERPROFILE = $prof2
-    $dry = @(& pwsh -NoProfile -File $script -SessionId $id -ConfigDir $p2a2 -DryRun 2>&1)
+    $dry = @(& pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $p2a2 -DryRun 2>&1)
     $env:USERPROFILE = $profileDir
     Check 'account 2 copy: account 1 folder that is a link gives no copy and a warning' ($dry -contains 'copy=' -and ($dry -join ' | ') -match 'not a real folder' -and -not (Test-Path -LiteralPath (Join-Path $p2a2 'CLAUDE.md'))) ($dry -join ' | ')
     [IO.Directory]::Delete($p2a1); $made.Remove($p2a1) | Out-Null
@@ -934,7 +958,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     foreach ($round in 0..4) {
         foreach ($k in 0..5) {
             $sid = $parIds[$round * 6 + $k]
-            $procs += Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', ('"' + $script + '"'), '-SessionId', $sid, '-ConfigDir', ('"' + $cfg + '"'), '-Command', ('"' + $parStub + '"'), '-AccountDir', ('"' + $parDir + '"'), '-LogRoot', ('"' + $root + '"'), '-LogPath', ('"' + (Join-Path $logDir 'par-starter.log') + '"')) -PassThru -WindowStyle Hidden
+            $procs += Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', ('"' + $script + '"'), '-SessionPluginsScript', ('"' + $fakeList + '"'), '-SessionId', $sid, '-ConfigDir', ('"' + $cfg + '"'), '-Command', ('"' + $parStub + '"'), '-AccountDir', ('"' + $parDir + '"'), '-LogRoot', ('"' + $root + '"'), '-LogPath', ('"' + (Join-Path $logDir 'par-starter.log') + '"')) -PassThru -WindowStyle Hidden
         }
         foreach ($pr in $procs[($round * 6)..($round * 6 + 5)]) { $null = $pr.WaitForExit(120000) }
     }
@@ -973,7 +997,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     $sameStub = Join-Path $root 'same-stub.ps1'; Make-File $sameStub 'exit 0'
     $sameId = [guid]::NewGuid().ToString()
     $sameProcs = @(1..6 | ForEach-Object {
-        Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', ('"' + $script + '"'), '-SessionId', $sameId, '-ConfigDir', ('"' + $cfg + '"'), '-Command', ('"' + $sameStub + '"'), '-AccountDir', ('"' + $sameDir + '"'), '-AccountAt', '2026-10-18T12:00:00.123Z', '-LogRoot', ('"' + $root + '"'), '-LogPath', ('"' + (Join-Path $logDir 'same-starter.log') + '"')) -PassThru -WindowStyle Hidden })
+        Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', ('"' + $script + '"'), '-SessionPluginsScript', ('"' + $fakeList + '"'), '-SessionId', $sameId, '-ConfigDir', ('"' + $cfg + '"'), '-Command', ('"' + $sameStub + '"'), '-AccountDir', ('"' + $sameDir + '"'), '-AccountAt', '2026-10-18T12:00:00.123Z', '-LogRoot', ('"' + $root + '"'), '-LogPath', ('"' + (Join-Path $logDir 'same-starter.log') + '"')) -PassThru -WindowStyle Hidden })
     foreach ($pr in $sameProcs) { $null = $pr.WaitForExit(120000) }
     $sameFiles = @(Acct-Files $sameDir)
     Check 'account record: 6 starts of ONE session on ONE account in the same millisecond keep all 6 records (names differ by a random 32-hex suffix), every start exits 0' ($sameFiles.Count -eq 6 -and @($sameFiles | Where-Object { $_.Name -notmatch ('^' + [regex]::Escape($sameId) + '-20261018120000123-1-[0-9a-f]{32}\.json$') }).Count -eq 0 -and @($sameProcs | Where-Object { $_.ExitCode -ne 0 }).Count -eq 0) "files=$($sameFiles.Count): $(($sameFiles | ForEach-Object { $_.Name }) -join ', ') exits=$(($sameProcs | ForEach-Object { $_.ExitCode }) -join ',')"
@@ -1014,7 +1038,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     Make-File $swapLog ''
     Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
     $t0 = Get-Date
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 2 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 2 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
     $code = $LASTEXITCODE; $took = ((Get-Date) - $t0).TotalSeconds
     $errText = if (Test-Path -LiteralPath $missErr) { Get-Content -LiteralPath $missErr -Raw } else { '' }
     $logText = [string](Get-Content -LiteralPath $swapLog -Raw)
@@ -1031,7 +1055,7 @@ $env:RESUMABLE_TEST_LOGROOT = $root
         # copied beside it under another name, then renamed into place: the starter never sees a half-written stub
         $part = $to + '.part'; Copy-Item -LiteralPath $from -Destination $part; [IO.File]::Move($part, $to)
     }
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 20 -LookupSignal $signal -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -Command $missing -CommandWaitSeconds 20 -LookupSignal $signal -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
     $code = $LASTEXITCODE
     $null = $job | Wait-Job | Remove-Job
     $made.Add($missing); if (Test-Path -LiteralPath $signal) { $made.Add($signal) }
@@ -1041,18 +1065,18 @@ $env:RESUMABLE_TEST_LOGROOT = $root
     # found at once: no start line at all (the log stays quiet on the normal path)
     Make-File $swapLog ''
     Remove-Item -LiteralPath $rec -ErrorAction SilentlyContinue
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command $missing -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -Command $missing -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
     $ranNow = (Test-Path -LiteralPath $rec) -and ((Get-Content -LiteralPath $rec -Raw) -match '--(resume|session-id)')
     Check 'claude found at once: it is started (a fresh record) and starter.log has no start= line' ($LASTEXITCODE -eq 0 -and $ranNow -and -not ([string](Get-Content -LiteralPath $swapLog -Raw) -match ' start=')) "ran=$ranNow log=$([string](Get-Content -LiteralPath $swapLog -Raw))"
     # a function of that name is not a file: it is never taken for claude (Clear-Host is a function in every pwsh)
     Make-File $swapLog ''
-    & pwsh -NoProfile -File $script -SessionId $id -ConfigDir $cfg -Command 'Clear-Host' -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
+    & pwsh -NoProfile -File $script -SessionPluginsScript $fakeList -SessionId $id -ConfigDir $cfg -Command 'Clear-Host' -CommandWaitSeconds 1 -LogPath $swapLog -LogRoot $root 2>$missErr | Out-Null
     Check 'a function named as the command is not taken for claude: exit 3 and start=claude-missing' ($LASTEXITCODE -eq 3 -and ([string](Get-Content -LiteralPath $swapLog -Raw) -match ' start=claude-missing')) "exit=$LASTEXITCODE log=$([string](Get-Content -LiteralPath $swapLog -Raw))"
     Remove-Item -LiteralPath $missErr -ErrorAction SilentlyContinue
 } finally {
     $env:USERPROFILE = $realProfile
     $env:LOCALAPPDATA = $realLocal
-    Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED -ErrorAction SilentlyContinue
+    Remove-Item Env:RESUMABLE_TEST_LOG, Env:RESUMABLE_TEST_LOGROOT, Env:RESUMABLE_TEST_PACKED, Env:RESUMABLE_TEST_LIST, Env:RESUMABLE_TEST_PLUGINS -ErrorAction SilentlyContinue
     Remove-Item Env:RESUMABLE_TEST_OTHERDIR -ErrorAction SilentlyContinue
     Remove-Item Env:RESUMABLE_TEST_RECORD -ErrorAction SilentlyContinue
     Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue

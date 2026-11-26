@@ -14,8 +14,7 @@ import (
 // payloadFor runs a command's RunE with the create-block call replaced and returns the request it sent.
 func payloadFor(t *testing.T, c *cobra.Command, noFocusValue bool, args ...string) wshrpc.CommandCreateBlockData {
 	t.Helper()
-	t.Setenv("WAVETERM_BLOCKID", "")
-	t.Setenv("WAVETERM_TABID", "tab-1")
+	stubCallerTab(t, "tab-1")
 	var got []wshrpc.CommandCreateBlockData
 	oldRPC := createBlockRPC
 	createBlockRPC = func(d wshrpc.CommandCreateBlockData) (waveobj.ORef, error) {

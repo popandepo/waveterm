@@ -16,8 +16,7 @@ const stackTargetFull = "11111111-1111-1111-1111-111111111111"
 
 func stubStackEnv(t *testing.T) (*[]wshrpc.CommandCreateBlockData, *[]wshrpc.CommandStackBlockData) {
 	t.Helper()
-	t.Setenv("WAVETERM_BLOCKID", "")
-	t.Setenv("WAVETERM_TABID", "tab-1")
+	stubCallerTab(t, "tab-1")
 	var creates []wshrpc.CommandCreateBlockData
 	var stacks []wshrpc.CommandStackBlockData
 	oldCreate, oldStack, oldResolve, oldTarget, oldFocus := createBlockRPC, stackBlockRPC, resolveBlockRef, stackTarget, noFocus

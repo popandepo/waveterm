@@ -28,6 +28,21 @@ func callerTab(tabId string) func() (string, error) {
 	}
 }
 
+// stubCallerTab makes the calling block "caller-block" and puts it in tabId; other blocks are asked of the blockTabFn already set.
+// Call it after any other change to blockTabFn and its t.Cleanup, so its own cleanup runs first.
+func stubCallerTab(t *testing.T, tabId string) {
+	t.Helper()
+	t.Setenv("WAVETERM_BLOCKID", "caller-block")
+	old := blockTabFn
+	blockTabFn = func(blockId string) (string, error) {
+		if blockId == "caller-block" {
+			return tabId, nil
+		}
+		return old(blockId)
+	}
+	t.Cleanup(func() { blockTabFn = old })
+}
+
 func TestChooseCreateTab(t *testing.T) {
 	resolve := func(ref string) (string, error) {
 		switch ref {
@@ -112,8 +127,6 @@ func TestATargetBlockMustBeInTheTabOfTheNewBlock(t *testing.T) {
 // The command path: with the create request replaced, a command with --tab and a stack or replace target in ANOTHER tab sends nothing.
 func stubTabEnv(t *testing.T, blockTab string) *[]wshrpc.CommandCreateBlockData {
 	t.Helper()
-	t.Setenv("WAVETERM_BLOCKID", "")
-	t.Setenv("WAVETERM_TABID", "caller-tab")
 	var creates []wshrpc.CommandCreateBlockData
 	oldCreate, oldBlockRef, oldResolveTab, oldBlockTab, oldTarget, oldFocus, oldTabRef := createBlockRPC, resolveBlockRef, resolveTabFn, blockTabFn, stackTarget, noFocus, createTabRef
 	createBlockRPC = func(d wshrpc.CommandCreateBlockData) (waveobj.ORef, error) {
@@ -127,6 +140,7 @@ func stubTabEnv(t *testing.T, blockTab string) *[]wshrpc.CommandCreateBlockData 
 	t.Cleanup(func() {
 		createBlockRPC, resolveBlockRef, resolveTabFn, blockTabFn, stackTarget, noFocus, createTabRef = oldCreate, oldBlockRef, oldResolveTab, oldBlockTab, oldTarget, oldFocus, oldTabRef
 	})
+	stubCallerTab(t, "caller-tab")
 	return &creates
 }
 

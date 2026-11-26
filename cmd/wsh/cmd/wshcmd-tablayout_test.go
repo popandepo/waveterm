@@ -38,8 +38,7 @@ func TestTabLayoutPrintsTheTilesAsJsonAndAsksOnlyForThatTab(t *testing.T) {
 }
 
 func TestTabLayoutDefaultsToTheTabOfTheCaller(t *testing.T) {
-	t.Setenv("WAVETERM_BLOCKID", "")
-	t.Setenv("WAVETERM_TABID", "tab-from-env")
+	stubCallerTab(t, "tab-from-env")
 	old := tabLayoutRPC
 	t.Cleanup(func() { tabLayoutRPC = old; tabLayoutTab = "" })
 	var asked string
@@ -58,7 +57,6 @@ func TestTabLayoutDefaultsToTheTabOfTheCaller(t *testing.T) {
 
 func TestTabLayoutWithoutATabSaysHowToGiveOne(t *testing.T) {
 	t.Setenv("WAVETERM_BLOCKID", "")
-	t.Setenv("WAVETERM_TABID", "")
 	tabLayoutTab = ""
 	if _, err := tabLayoutText(); err == nil || !strings.Contains(err.Error(), "--tab") {
 		t.Fatalf("want a message naming --tab, got %v", err)

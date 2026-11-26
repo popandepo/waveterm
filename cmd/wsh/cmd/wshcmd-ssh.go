@@ -64,9 +64,9 @@ func sshRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	wshclient.ConnConnectCommand(RpcClient, connOpts, &wshrpc.RpcOpts{Timeout: 60000})
 
 	if newBlock {
-		tabId := getTabIdFromEnv()
-		if tabId == "" {
-			return fmt.Errorf("no WAVETERM_TABID env var set")
+		tabId, err := getCallerTabId()
+		if err != nil {
+			return err
 		}
 
 		// Create a new block with the SSH connection

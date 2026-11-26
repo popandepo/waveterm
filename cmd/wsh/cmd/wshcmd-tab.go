@@ -63,10 +63,11 @@ var tabLayoutRPC = func(data wshrpc.CommandGetTabLayoutData) (wshrpc.TabLayoutDa
 func tabLayoutText() (string, error) {
 	tabId := tabLayoutTab
 	if tabId == "" {
-		tabId = os.Getenv("WAVETERM_TABID")
-	}
-	if tabId == "" {
-		return "", fmt.Errorf("no tab id: give --tab <tabid> (wsh tab list shows them)")
+		callerTab, err := getCallerTabId()
+		if err != nil {
+			return "", fmt.Errorf("%w: give --tab <tabid> (wsh tab list shows them)", err)
+		}
+		tabId = callerTab
 	}
 	layout, err := tabLayoutRPC(wshrpc.CommandGetTabLayoutData{TabId: tabId})
 	if err != nil {
@@ -102,7 +103,7 @@ func init() {
 	tabListCmd.Flags().BoolVar(&tabListJSON, "json", false, "output as JSON")
 	tabCommand.AddCommand(tabListCmd)
 
-	tabLayoutCmd.Flags().StringVar(&tabLayoutTab, "tab", "", "tab id (defaults to WAVETERM_TABID)")
+	tabLayoutCmd.Flags().StringVar(&tabLayoutTab, "tab", "", "tab id (default: the tab this command runs in)")
 	tabCommand.AddCommand(tabLayoutCmd)
 
 	tabMoveCmd.Flags().StringVar(&tabWorkspaceId, "workspace", "", "workspace id (defaults to WAVETERM_WORKSPACEID)")

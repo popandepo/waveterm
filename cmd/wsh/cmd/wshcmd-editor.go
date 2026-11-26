@@ -1,4 +1,4 @@
-// Copyright 2025, Command Line Inc.
+// Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -55,9 +55,9 @@ func editorRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("getting file info: %w", err)
 	}
 
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
+	tabId, err := getCallerTabId()
+	if err != nil {
+		return err
 	}
 
 	wshCmd := wshrpc.CommandCreateBlockData{

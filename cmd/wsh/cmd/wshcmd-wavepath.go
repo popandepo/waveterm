@@ -1,4 +1,4 @@
-// Copyright 2025, Command Line Inc.
+// Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -56,9 +56,9 @@ func wavepathRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	open, _ := cmd.Flags().GetBool("open")
 	openExternal, _ := cmd.Flags().GetBool("open-external")
 
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
+	tabId, err := getCallerTabId()
+	if err != nil {
+		return err
 	}
 
 	path, err := wshclient.PathCommand(RpcClient, wshrpc.PathCommandData{

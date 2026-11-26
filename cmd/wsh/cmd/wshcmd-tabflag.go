@@ -38,13 +38,10 @@ func addTabFlag(c *cobra.Command) {
 }
 
 // chooseCreateTab decides the tab of a new block. given says whether --tab was on the command line (its presence counts, not its value: an
-// empty value is an error, never "not given"); flag is its value, envTab the tab of the calling block.
-func chooseCreateTab(given bool, flag string, envTab string, resolve func(ref string) (string, error)) (string, error) {
+// empty value is an error, never "not given"); flag is its value, callerTab asks for the tab of the calling block.
+func chooseCreateTab(given bool, flag string, callerTab func() (string, error), resolve func(ref string) (string, error)) (string, error) {
 	if !given {
-		if envTab == "" {
-			return "", fmt.Errorf("no WAVETERM_TABID env var set")
-		}
-		return envTab, nil
+		return callerTab()
 	}
 	ref := strings.TrimSpace(flag)
 	if ref == "" {
@@ -62,7 +59,7 @@ func chooseCreateTab(given bool, flag string, envTab string, resolve func(ref st
 
 // createTabId is the tab for a new block: --tab when given, else the tab of the calling block.
 func createTabId(cmd *cobra.Command) (string, error) {
-	return chooseCreateTab(cmd.Flags().Changed(tabFlagName), createTabRef, getTabIdFromEnv(), resolveTabFn)
+	return chooseCreateTab(cmd.Flags().Changed(tabFlagName), createTabRef, getCallerTabId, resolveTabFn)
 }
 
 // checkTargetInTab refuses a request whose target block (--stack, --replace) is in another tab than the new block: the layout of the tab

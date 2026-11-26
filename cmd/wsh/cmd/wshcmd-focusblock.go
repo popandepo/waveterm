@@ -1,11 +1,10 @@
-// Copyright 2025, Command Line Inc.
+// Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -29,9 +28,9 @@ func focusBlockRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		sendActivity("focusblock", rtnErr == nil)
 	}()
 
-	tabId := os.Getenv("WAVETERM_TABID")
-	if tabId == "" {
-		return fmt.Errorf("no tab id specified (set WAVETERM_TABID environment variable)")
+	tabId, err := getCallerTabId()
+	if err != nil {
+		return err
 	}
 
 	fullORef, err := resolveBlockArg()

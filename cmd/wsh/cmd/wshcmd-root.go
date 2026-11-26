@@ -224,8 +224,21 @@ func resolveSimpleId(id string) (*waveobj.ORef, error) {
 	return &oref, nil
 }
 
-func getTabIdFromEnv() string {
-	return os.Getenv("WAVETERM_TABID")
+// getCallerTabId is the tab the calling block is in now. WAVETERM_TABID is not it: a block can be moved to another tab while its process
+// keeps the environment it was started with.
+func getCallerTabId() (string, error) {
+	blockId := os.Getenv("WAVETERM_BLOCKID")
+	if blockId == "" {
+		return "", fmt.Errorf("no WAVETERM_BLOCKID env var set")
+	}
+	tabId, err := blockTabFn(blockId)
+	if err != nil {
+		return "", fmt.Errorf("looking up the tab of the calling block: %w", err)
+	}
+	if tabId == "" {
+		return "", fmt.Errorf("block %s is in no tab", blockId)
+	}
+	return tabId, nil
 }
 
 // this will send wsh activity to the client running on *your* local machine (it does not contact any wave cloud infrastructure)

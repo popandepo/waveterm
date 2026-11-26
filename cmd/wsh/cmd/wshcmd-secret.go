@@ -1,4 +1,4 @@
-// Copyright 2025, Command Line Inc.
+// Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -176,9 +176,9 @@ func secretUiRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		sendActivity("secret", rtnErr == nil)
 	}()
 
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
+	tabId, err := getCallerTabId()
+	if err != nil {
+		return err
 	}
 
 	wshCmd := &wshrpc.CommandCreateBlockData{
@@ -193,7 +193,7 @@ func secretUiRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		Focused:   true,
 	}
 
-	_, err := wshclient.CreateBlockCommand(RpcClient, *wshCmd, &wshrpc.RpcOpts{Timeout: 2000})
+	_, err = wshclient.CreateBlockCommand(RpcClient, *wshCmd, &wshrpc.RpcOpts{Timeout: 2000})
 	if err != nil {
 		return fmt.Errorf("opening secrets UI: %w", err)
 	}

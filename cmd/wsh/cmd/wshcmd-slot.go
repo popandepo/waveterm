@@ -226,9 +226,9 @@ func slotTabId() (string, error) {
 	if slotTab != "" {
 		return resolveTabId(slotTab)
 	}
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return "", fmt.Errorf("no WAVETERM_TABID env var set (use --tab)")
+	tabId, err := getCallerTabId()
+	if err != nil {
+		return "", fmt.Errorf("%w (use --tab)", err)
 	}
 	return tabId, nil
 }

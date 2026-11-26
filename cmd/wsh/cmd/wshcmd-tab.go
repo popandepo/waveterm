@@ -42,6 +42,55 @@ the same (no adding or dropping tabs).`,
 	PreRunE: preRunSetupRpcClient,
 }
 
+var tabLayoutCmd = &cobra.Command{
+	Use:   "layout [--tab <tabid>]",
+	Short: "Print the tiles of a tab in layout order, and its groups, as JSON (read-only)",
+	Long: `Prints the saved layout of a tab: its tiles in layout order, a group as one tile with its members and the shown one,
+and "pendingactions", the number of queued changes the page has not applied yet (above 0 the tiles are not final).
+The page saves about 100 ms after a change, and a tab that was never shown has no saved layout. Read-only: it
+changes nothing and never touches focus or the shown tab. The tab defaults to the tab this command runs in.`,
+	Args:    cobra.NoArgs,
+	RunE:    tabLayoutRun,
+	PreRunE: preRunSetupRpcClient,
+}
+
+var tabLayoutTab string
+
+var tabLayoutRPC = func(data wshrpc.CommandGetTabLayoutData) (wshrpc.TabLayoutData, error) {
+	return wshclient.GetTabLayoutCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 5000})
+}
+
+func tabLayoutText() (string, error) {
+	tabId := tabLayoutTab
+	if tabId == "" {
+		tabId = os.Getenv("WAVETERM_TABID")
+	}
+	if tabId == "" {
+		return "", fmt.Errorf("no tab id: give --tab <tabid> (wsh tab list shows them)")
+	}
+	layout, err := tabLayoutRPC(wshrpc.CommandGetTabLayoutData{TabId: tabId})
+	if err != nil {
+		return "", fmt.Errorf("reading the layout of tab %s: %w", tabId, err)
+	}
+	bytes, err := json.MarshalIndent(layout, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON: %v", err)
+	}
+	return string(bytes), nil
+}
+
+func tabLayoutRun(cmd *cobra.Command, args []string) (rtnErr error) {
+	defer func() {
+		sendActivity("tab-layout", rtnErr == nil)
+	}()
+	text, err := tabLayoutText()
+	if err != nil {
+		return err
+	}
+	WriteStdout("%s\n", text)
+	return nil
+}
+
 var (
 	tabWorkspaceId string
 	tabListJSON    bool
@@ -52,6 +101,9 @@ func init() {
 	tabListCmd.Flags().StringVar(&tabWorkspaceId, "workspace", "", "workspace id (defaults to WAVETERM_WORKSPACEID)")
 	tabListCmd.Flags().BoolVar(&tabListJSON, "json", false, "output as JSON")
 	tabCommand.AddCommand(tabListCmd)
+
+	tabLayoutCmd.Flags().StringVar(&tabLayoutTab, "tab", "", "tab id (defaults to WAVETERM_TABID)")
+	tabCommand.AddCommand(tabLayoutCmd)
 
 	tabMoveCmd.Flags().StringVar(&tabWorkspaceId, "workspace", "", "workspace id (defaults to WAVETERM_WORKSPACEID)")
 	tabMoveCmd.Flags().IntVar(&tabMoveIndex, "index", -1, "0-based target position (required)")

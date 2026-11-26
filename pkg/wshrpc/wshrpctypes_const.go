@@ -55,6 +55,7 @@ const (
 	StackBlockAction_Unstack  = "unstack"
 	StackBlockAction_Activate = "activate"
 	StackBlockAction_Move     = "move"
+	StackBlockAction_Swap     = "swap"
 )
 
 const (

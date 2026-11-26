@@ -61,6 +61,7 @@ type WshRpcInterface interface {
 	CreateSubBlockCommand(ctx context.Context, data CommandCreateSubBlockData) (waveobj.ORef, error)
 	DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error
 	StackBlockCommand(ctx context.Context, data CommandStackBlockData) error
+	GetTabLayoutCommand(ctx context.Context, data CommandGetTabLayoutData) (TabLayoutData, error)
 	DeleteSubBlockCommand(ctx context.Context, data CommandDeleteBlockData) error
 	WaitForRouteCommand(ctx context.Context, data CommandWaitForRouteData) (bool, error)
 
@@ -332,6 +333,24 @@ type CommandStackBlockData struct {
 	TargetBlockId string `json:"targetblockid,omitempty"`
 	Action        string `json:"action"`
 	Focused       bool   `json:"focused,omitempty"`
+}
+
+type CommandGetTabLayoutData struct {
+	TabId string `json:"tabid"`
+}
+
+// TabLayoutTile is one tile of a tab: a block, or a group of blocks that share the tile (Active is the shown member).
+type TabLayoutTile struct {
+	BlockIds []string `json:"blockids"`
+	Active   string   `json:"active,omitempty"`
+}
+
+// TabLayoutData is the SAVED layout of a tab (the page saves about 100 ms after a change; a tab that was never shown has none).
+// Tiles are in layout order. PendingActions counts queued changes the page has not applied yet: while it is above 0 the tiles are not final.
+type TabLayoutData struct {
+	TabId          string          `json:"tabid"`
+	Tiles          []TabLayoutTile `json:"tiles"`
+	PendingActions int             `json:"pendingactions"`
 }
 
 type CommandCreateSubBlockData struct {

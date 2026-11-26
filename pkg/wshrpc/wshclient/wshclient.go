@@ -520,6 +520,12 @@ func GetTabCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*waveo
 	return resp, err
 }
 
+// command "gettablayout", wshserver.GetTabLayoutCommand
+func GetTabLayoutCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTabLayoutData, opts *wshrpc.RpcOpts) (wshrpc.TabLayoutData, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.TabLayoutData](w, "gettablayout", data, opts)
+	return resp, err
+}
+
 // command "gettempdir", wshserver.GetTempDirCommand
 func GetTempDirCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTempDirData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "gettempdir", data, opts)

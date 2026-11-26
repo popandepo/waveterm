@@ -1797,12 +1797,19 @@ export class LayoutModel {
      * @returns The node containing the specified blockId, null if not found.
      */
     getNodeByBlockId(blockId: string): LayoutNode {
-        for (const leaf of this.getter(this.leafs)) {
-            if (leaf.data.blockId === blockId) {
-                return leaf;
+        // Reads the tree, not the leafs atom: that atom is only as new as the last updateTree(), which a batch of
+        // backend actions calls after its last action and which does nothing until the tab has been drawn.
+        let found: LayoutNode = null;
+        walkNodes(this.treeState.rootNode, (node) => {
+            if (!node.children?.length && node.data?.blockId === blockId) {
+                found = node;
             }
+        });
+        if (found) {
+            return found;
         }
-        return null;
+        const ephemeralNode = this.getter(this.ephemeralNode);
+        return ephemeralNode?.data?.blockId === blockId ? ephemeralNode : null;
     }
 
     /**

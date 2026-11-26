@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -16,7 +17,7 @@ import (
 
 // planStackBlock checks a stack request and turns it into the layout action that is queued for the tab. Nothing
 // is changed here, so every refusal leaves the layout as it was. The two blocks of a "stack" request must be in
-// the same tab: moving a block between tabs is a different job.
+// the same tab; a "move" between tabs is handled before this by moveAcrossTabs.
 func planStackBlock(
 	data wshrpc.CommandStackBlockData,
 	findTab func(blockId string) (string, error),
@@ -163,6 +164,46 @@ func stackIdOf(node any, blockId string) string {
 	return ""
 }
 
+// stackMembersOf returns the block ids of the stack that holds blockId, in order, and the one the stack shows.
+// A block that is not in a stack is its only member and the shown one.
+func stackMembersOf(node any, blockId string) (members []string, shown string) {
+	stackId := stackIdOf(node, blockId)
+	if stackId == "" {
+		return []string{blockId}, blockId
+	}
+	var walk func(n any)
+	walk = func(n any) {
+		m, ok := n.(map[string]any)
+		if !ok {
+			return
+		}
+		children, _ := m["children"].([]any)
+		if m["id"] == stackId {
+			for _, c := range children {
+				if cm, ok := c.(map[string]any); ok {
+					if data, ok := cm["data"].(map[string]any); ok {
+						if id, ok := data["blockId"].(string); ok {
+							members = append(members, id)
+							if cm["id"] == m["activeChildId"] {
+								shown = id
+							}
+						}
+					}
+				}
+			}
+			return
+		}
+		for _, c := range children {
+			walk(c)
+		}
+	}
+	walk(node)
+	if len(members) == 0 {
+		return []string{blockId}, blockId
+	}
+	return members, shown
+}
+
 func blockInStack(node any, blockId string) bool {
 	return stackIdOf(node, blockId) != ""
 }
@@ -179,8 +220,86 @@ func planCreateInStack(newBlockId string, targetBlockId string, focused bool) (*
 	}, nil
 }
 
+func changesGroups(actionType string) bool {
+	switch actionType {
+	case wcore.LayoutActionDataType_Stack, wcore.LayoutActionDataType_StackInsert, wcore.LayoutActionDataType_StackMove,
+		wcore.LayoutActionDataType_Unstack, wcore.LayoutActionDataType_Replace:
+		return true
+	}
+	return false
+}
+
+// groupToMove names what a move of blockId out of a tab takes along: the block and the rest of its group, and the
+// member the group shows. The group is only known from the tree the tab's page saved. While a change of that group is
+// still queued the saved tree is out of date, so the move is refused. A member the tab no longer holds stays out.
+func groupToMove(ctx context.Context, tabId string, blockId string) ([]string, string, error) {
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
+	if err != nil {
+		return nil, "", fmt.Errorf("source tab: %w", err)
+	}
+	layoutId, err := wcore.GetLayoutIdForTab(ctx, tabId)
+	if err != nil {
+		return nil, "", err
+	}
+	layout, err := wstore.DBMustGet[*waveobj.LayoutState](ctx, layoutId)
+	if err != nil {
+		return nil, "", fmt.Errorf("source layout: %w", err)
+	}
+	saved, shown := stackMembersOf(layout.RootNode, blockId)
+	var queued []waveobj.LayoutActionData
+	if layout.PendingBackendActions != nil {
+		queued = *layout.PendingBackendActions
+	}
+	for _, action := range queued {
+		named := slices.Contains(saved, action.BlockId) || slices.Contains(saved, action.TargetBlockId)
+		if named && changesGroups(action.ActionType) {
+			return nil, "", fmt.Errorf("the page of tab %s has not applied a queued %q of this group yet, so the group cannot be read; try again once it has", tabId, action.ActionType)
+		}
+		if named && action.ActionType == wcore.LayoutActionDataType_Activate {
+			shown = action.BlockId
+		}
+	}
+	var members []string
+	for _, member := range saved {
+		if member == blockId || slices.Contains(tab.BlockIds, member) {
+			members = append(members, member)
+		}
+	}
+	if !slices.Contains(members, shown) {
+		shown = blockId
+	}
+	return members, shown, nil
+}
+
+// moveAcrossTabs handles a stack move whose two blocks are in different tabs: the block, or every member of its group,
+// joins the group at the target in the target tab. Processes keep running because only the layout and the tab lists change.
+// The group is read in the transaction that moves it.
+func moveAcrossTabs(ctx context.Context, data wshrpc.CommandStackBlockData, fromTab string, toTab string) error {
+	return wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
+		members, shown, err := groupToMove(tx.Context(), fromTab, data.BlockId)
+		if err != nil {
+			return err
+		}
+		if !data.Focused {
+			shown = ""
+		}
+		return wcore.MoveBlocksToTab(tx.Context(), fromTab, toTab, members, data.TargetBlockId, shown)
+	})
+}
+
 func (ws *WshServer) StackBlockCommand(ctx context.Context, data wshrpc.CommandStackBlockData) error {
 	ctx = waveobj.ContextWithUpdates(ctx)
+	if data.Action == wshrpc.StackBlockAction_Move && data.BlockId != "" && data.TargetBlockId != "" {
+		fromTab, fromErr := wstore.DBFindTabForBlockId(ctx, data.BlockId)
+		toTab, toErr := wstore.DBFindTabForBlockId(ctx, data.TargetBlockId)
+		if fromErr == nil && toErr == nil && fromTab != toTab {
+			if err := moveAcrossTabs(ctx, data, fromTab, toTab); err != nil {
+				return err
+			}
+			wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx))
+			return nil
+		}
+	}
 	tabId, action, err := planStackBlock(data, func(blockId string) (string, error) {
 		return wstore.DBFindTabForBlockId(ctx, blockId)
 	}, func(tabId string, blockId string) (bool, error) {

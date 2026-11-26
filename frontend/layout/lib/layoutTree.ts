@@ -485,6 +485,10 @@ export function deleteNode(layoutState: LayoutTreeState, action: LayoutTreeDelet
             if (layoutState.focusedNodeId === node.id) {
                 layoutState.focusedNodeId = undefined;
             }
+            // an empty parent is an invalid node, and a tab that was never drawn is not balanced between actions
+            if (parent.children.length === 0) {
+                deleteNode(layoutState, { type: LayoutTreeActionType.DeleteNode, nodeId: parent.id });
+            }
         } else {
             console.error("unable to delete node, not found in tree");
         }
@@ -775,7 +779,7 @@ export function insertNodeIntoStack(layoutState: LayoutTreeState, action: Layout
     const targetParent = findParent(root, targetNodeId);
     const stack = isStackNode(target) ? target : targetParent && isStackNode(targetParent) ? targetParent : null;
     if (stack) {
-        const after = stack.children.findIndex((c) => c.id === targetNodeId);
+        const after = action.atEnd ? -1 : stack.children.findIndex((c) => c.id === targetNodeId);
         addStackMember(stack, after >= 0 ? after + 1 : stack.children.length, node, wantFocus);
     } else {
         const newStack = newStackNode([target, node], wantFocus ? node.id : target.id, target.size);

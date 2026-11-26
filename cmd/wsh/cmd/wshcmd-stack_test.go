@@ -255,14 +255,8 @@ func TestBlockRefMustBeABlock(t *testing.T) {
 	}
 	for _, otype := range []string{waveobj.OType_Tab, waveobj.OType_Workspace, waveobj.OType_Window} {
 		_, err := blockIdOfORef(waveobj.ORef{OType: otype, OID: stackTargetFull})
-		if err == nil || !strings.Contains(err.Error(), "not a block") || !strings.Contains(err.Error(), "same tab") {
+		if err == nil || !strings.Contains(err.Error(), "not a block") {
 			t.Fatalf("a %s target must be refused with a clear message, got %v", otype, err)
 		}
-	}
-}
-
-func TestStackMoveHelpSaysSameTabOnly(t *testing.T) {
-	if !strings.Contains(stackMoveCmd.Long, "same tab") || !strings.Contains(stackMoveCmd.Long, "not supported") {
-		t.Fatalf("the help must say that another tab is not supported yet")
 	}
 }

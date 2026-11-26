@@ -13,11 +13,18 @@ import (
 )
 
 // MoveBlocksToTab moves existing blocks from one tab to another without touching the blocks themselves: the block
-// rows and their controllers stay, so a running process keeps running. Everything is checked before anything is
-// written. The layout changes are queued for the pages of the two tabs: the target gets the inserts first, then the
-// membership changes, then the source gets a leaf-only removal. The order matters: the clean-up of orphaned blocks
-// deletes a block that its tab lists but its layout lacks, so the insert must be queued before the tab lists the block.
+// rows and their controllers stay, so a running process keeps running. The layout changes are queued for the pages of
+// the two tabs: inserts for the target, a leaf-only removal for the source.
+// The check and all writes are one transaction. A failed move changes nothing, a second move of the same block finds
+// it gone, and no reader sees a tab list the block without its queued insert (the clean-up of orphaned blocks deletes
+// a block that its tab lists but its layout lacks).
 func MoveBlocksToTab(ctx context.Context, fromTabId string, toTabId string, blockIds []string, targetBlockId string, focused bool) error {
+	return wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
+		return moveBlocksToTabTx(tx.Context(), fromTabId, toTabId, blockIds, targetBlockId, focused)
+	})
+}
+
+func moveBlocksToTabTx(ctx context.Context, fromTabId string, toTabId string, blockIds []string, targetBlockId string, focused bool) error {
 	if err := checkMoveBlocksToTab(ctx, fromTabId, toTabId, blockIds, targetBlockId); err != nil {
 		return err
 	}
@@ -38,14 +45,6 @@ func MoveBlocksToTab(ctx context.Context, fromTabId string, toTabId string, bloc
 		return fmt.Errorf("queuing the insert in the target tab: %w", err)
 	}
 	if err := moveBlockMembership(ctx, fromTabId, toTabId, blockIds); err != nil {
-		// the inserts are already queued: take the leaves back out so the block is not shown in two tabs
-		undo := make([]waveobj.LayoutActionData, len(blockIds))
-		for i, blockId := range blockIds {
-			undo[i] = waveobj.LayoutActionData{ActionType: LayoutActionDataType_Detach, BlockId: blockId}
-		}
-		if undoErr := QueueLayoutActionForTab(ctx, toTabId, undo...); undoErr != nil {
-			return fmt.Errorf("%w (and the queued inserts could not be taken back: %v)", err, undoErr)
-		}
 		return err
 	}
 	if err := QueueLayoutActionForTab(ctx, fromTabId, removals...); err != nil {

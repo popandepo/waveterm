@@ -712,6 +712,9 @@ export class LayoutModel {
                     );
                     break;
                 }
+                if (this.treeState.magnifiedNodeId === leaf.id) {
+                    this.treeState.magnifiedNodeId = undefined;
+                }
                 // not closeNode: the block moved to another tab and must not be deleted
                 this.treeReducer(
                     { type: LayoutTreeActionType.DeleteNode, nodeId: leaf.id } as LayoutTreeDeleteNodeAction,

@@ -300,6 +300,8 @@ export interface LayoutTreeStackInsertAction extends LayoutTreeAction {
     node: LayoutNode;
     targetNodeId: string;
     focused?: boolean;
+    // last in the target's group instead of right after the target
+    atEnd?: boolean;
 }
 
 /**

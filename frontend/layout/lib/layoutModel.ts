@@ -679,6 +679,7 @@ export class LayoutModel {
                         node: newLayoutNode(undefined, undefined, undefined, { blockId: action.blockid }),
                         targetNodeId: target.id,
                         focused: action.focused,
+                        atEnd: action.position === "end",
                     } as LayoutTreeStackInsertAction,
                     false
                 );

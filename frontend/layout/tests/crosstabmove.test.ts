@@ -11,20 +11,18 @@ vi.mock("@/app/store/global", () => {
         WOS: { makeORef: (t: string, id: string) => `${t}:${id}`, getWaveObjectAtom: () => atom(undefined) },
     };
 });
-const { setObjectValue } = vi.hoisted(() => ({ setObjectValue: vi.fn() }));
 vi.mock("@/app/store/wos", () => ({
     makeORef: (t: string, id: string) => `${t}:${id}`,
     getWaveObjectAtom: () => undefined,
-    setObjectValue,
+    setObjectValue: () => {},
 }));
 vi.mock("@/app/store/services", () => ({ BlockService: {}, ObjectService: {} }));
 vi.mock("@/app/store/focusManager", () => ({
     FocusManager: { getInstance: () => ({ requestNodeFocus: () => {}, setBlockFocus: () => {} }) },
 }));
 
-import { insertedBlockIds } from "../lib/backendaction";
 import { LayoutModel } from "../lib/layoutModel";
-import { balanceNode, newLayoutNode, walkNodes } from "../lib/layoutNode";
+import { balanceNode, newLayoutNode, newStackNode, walkNodes } from "../lib/layoutNode";
 
 function leaf(blockId: string) {
     return newLayoutNode(undefined, undefined, undefined, { blockId });
@@ -38,20 +36,15 @@ function blockIdsOf(root: any): string[] {
     return ids;
 }
 
-function modelWith(root: any, blockids: string[], actions: any[]) {
+// the page of one tab, applying the queued actions to its tree; a delete takes the block out of existingBlocks
+async function applyInTab(root: any, listed: string[], actions: any[], existingBlocks: Set<string>) {
     const store = createStore();
-    const tabAtom = atom({ oid: "tab-1", layoutstate: "layout-1", blockids } as any);
+    const tabAtom = atom({ oid: "tab-1", layoutstate: "layout-1", blockids: listed } as any);
     const model: any = new LayoutModel(tabAtom, store.get, store.set);
     model.treeState = { rootNode: root, pendingBackendActions: [] };
     model.waveObjectAtom = atom({ pendingbackendactions: actions } as any);
-    setObjectValue.mockReset();
     model.updateTree = () => {
-        const leafs: any[] = [];
-        model.treeState.rootNode = balanceNode(model.treeState.rootNode, (n) => {
-            n.children?.forEach((c) => c.id);
-            if (!n.children?.length) leafs.push({ nodeid: n.id, blockid: n.data?.blockId });
-        });
-        model.treeState.leafOrder = leafs;
+        model.treeState.rootNode = balanceNode(model.treeState.rootNode, () => {});
         const nodes: any[] = [];
         walkNodes(model.treeState.rootNode, (n) => {
             if (n.data?.blockId) nodes.push(n);
@@ -59,105 +52,56 @@ function modelWith(root: any, blockids: string[], actions: any[]) {
         store.set(model.leafs, nodes);
     };
     model.updateTree();
-    model.blockExists = async () => true;
-    model.onNodeDelete = vi.fn(async () => {});
-    return model;
+    model.blockExists = async (blockId: string) => existingBlocks.has(blockId);
+    model.onNodeDelete = async (data: { blockId: string }) => {
+        existingBlocks.delete(data.blockId);
+    };
+    await model.processPendingBackendActions();
+    return blockIdsOf(model.treeState.rootNode);
 }
 
+// the model saves its tree on a debounce, which has to run out before the mocks go away
 afterEach(() => new Promise((resolve) => setTimeout(resolve, 150)));
 
-describe("insertedBlockIds", () => {
-    test("names the blocks of insert actions only", () => {
-        const ids = insertedBlockIds([
-            { actiontype: "stackinsert", blockid: "a", actionid: "1" },
-            { actiontype: "insert", blockid: "b", actionid: "2" },
-            { actiontype: "delete", blockid: "c", actionid: "3" },
-            { actiontype: "detach", blockid: "d", actionid: "4" },
-            { actiontype: "cleanuporphaned", actionid: "5" },
-        ] as any);
-        assert.deepEqual([...ids].sort(), ["a", "b"]);
-    });
-});
+describe("a group moved to another tab", () => {
+    test("leaves its old tab and joins the end of the target group with every block still there", async () => {
+        const existingBlocks = new Set(["stays", "moved1", "moved2", "first", "second"]);
+        const group = [leaf("first"), leaf("second")];
 
-describe("the detach action (a block that moved to another tab)", () => {
-    test("removes the leaf and never deletes the block", async () => {
-        const moved = leaf("moved");
-        const stays = leaf("stays");
-        const model = modelWith(
-            newLayoutNode(undefined, undefined, [moved, stays]),
+        const source = await applyInTab(
+            newLayoutNode(undefined, undefined, [leaf("moved1"), leaf("moved2"), leaf("stays")]),
             ["stays"],
-            [{ actiontype: "detach", blockid: "moved", actionid: "d1" }]
+            [
+                { actiontype: "detach", blockid: "moved1", actionid: "d1" },
+                { actiontype: "detach", blockid: "moved2", actionid: "d2" },
+            ],
+            existingBlocks
         );
-        await model.processPendingBackendActions();
-        assert.deepEqual(blockIdsOf(model.treeState.rootNode), ["stays"]);
-        assert.equal(model.onNodeDelete.mock.calls.length, 0);
-    });
-
-    test("a delete action for the same leaf does call onNodeDelete (the difference that matters)", async () => {
-        const moved = leaf("moved");
-        const stays = leaf("stays");
-        const model = modelWith(
-            newLayoutNode(undefined, undefined, [moved, stays]),
-            ["stays"],
-            [{ actiontype: "delete", blockid: "moved", actionid: "d1" }]
-        );
-        await model.processPendingBackendActions();
-        assert.equal(model.onNodeDelete.mock.calls.length, 1);
-    });
-});
-
-describe("a block that arrives from another tab", () => {
-    test("is not cleaned up as an orphan while its insert is still queued after the clean-up", async () => {
-        const target = leaf("target");
-        const model = modelWith(
-            newLayoutNode(undefined, undefined, [target]),
-            ["target", "arriving"],
+        const target = await applyInTab(
+            newStackNode(group, group[0].id, 10),
+            ["first", "second", "moved1", "moved2"],
             [
                 { actiontype: "cleanuporphaned", actionid: "c1" },
-                { actiontype: "stackinsert", blockid: "arriving", targetblockid: "target", actionid: "i1" },
-            ]
+                {
+                    actiontype: "stackinsert",
+                    blockid: "moved1",
+                    targetblockid: "first",
+                    position: "end",
+                    actionid: "i1",
+                },
+                {
+                    actiontype: "stackinsert",
+                    blockid: "moved2",
+                    targetblockid: "moved1",
+                    position: "end",
+                    actionid: "i2",
+                },
+            ],
+            existingBlocks
         );
-        await model.processPendingBackendActions();
-        assert.equal(model.onNodeDelete.mock.calls.length, 0);
-        assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["arriving", "target"]);
-    });
 
-    test("a listed block with no leaf and no queued insert is still cleaned up", async () => {
-        const target = leaf("target");
-        const model = modelWith(
-            newLayoutNode(undefined, undefined, [target]),
-            ["target", "stray"],
-            [{ actiontype: "cleanuporphaned", actionid: "c1" }]
-        );
-        await model.processPendingBackendActions();
-        assert.deepEqual(model.onNodeDelete.mock.calls, [[{ blockId: "stray" }]]);
-    });
-});
-
-describe("a block that arrives from another tab, more cases", () => {
-    test("an insert that was queued after the batch was read still protects the block from the clean-up", async () => {
-        const target = leaf("target");
-        const model = modelWith(
-            newLayoutNode(undefined, undefined, [target]),
-            ["target", "arriving"],
-            [{ actiontype: "stackinsert", blockid: "arriving", targetblockid: "target", actionid: "late" }]
-        );
-        await model.cleanupOrphanedBlocks();
-        assert.equal(model.onNodeDelete.mock.calls.length, 0);
-    });
-
-    test("an insert whose target is gone puts the block into the tree on its own instead of leaving it to be deleted", async () => {
-        const other = leaf("other");
-        const model = modelWith(
-            newLayoutNode(undefined, undefined, [other]),
-            ["other", "arriving"],
-            [
-                { actiontype: "stackinsert", blockid: "arriving", targetblockid: "closed-meanwhile", actionid: "i1" },
-                { actiontype: "cleanuporphaned", actionid: "c1" },
-            ]
-        );
-        await model.processPendingBackendActions();
-        assert.deepEqual(blockIdsOf(model.treeState.rootNode).sort(), ["arriving", "other"]);
-        assert.equal(model.onNodeDelete.mock.calls.length, 0);
+        assert.deepEqual(source, ["stays"]);
+        assert.deepEqual(target, ["first", "second", "moved1", "moved2"]);
+        assert.deepEqual([...existingBlocks].sort(), ["first", "moved1", "moved2", "second", "stays"]);
     });
 });

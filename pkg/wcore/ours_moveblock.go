@@ -37,6 +37,7 @@ func moveBlocksToTabTx(ctx context.Context, fromTabId string, toTabId string, bl
 			ActionType:    LayoutActionDataType_StackInsert,
 			BlockId:       blockId,
 			TargetBlockId: target,
+			Position:      LayoutActionPosition_End,
 			Focused:       blockId == focusBlockId,
 		}
 		removals[i] = waveobj.LayoutActionData{ActionType: LayoutActionDataType_Detach, BlockId: blockId}

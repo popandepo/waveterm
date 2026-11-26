@@ -779,7 +779,7 @@ export function insertNodeIntoStack(layoutState: LayoutTreeState, action: Layout
     const targetParent = findParent(root, targetNodeId);
     const stack = isStackNode(target) ? target : targetParent && isStackNode(targetParent) ? targetParent : null;
     if (stack) {
-        const after = stack.children.findIndex((c) => c.id === targetNodeId);
+        const after = action.atEnd ? -1 : stack.children.findIndex((c) => c.id === targetNodeId);
         addStackMember(stack, after >= 0 ? after + 1 : stack.children.length, node, wantFocus);
     } else {
         const newStack = newStackNode([target, node], wantFocus ? node.id : target.id, target.size);

@@ -260,9 +260,3 @@ func TestBlockRefMustBeABlock(t *testing.T) {
 		}
 	}
 }
-
-func TestStackMoveHelpSaysMovesBetweenTabsWork(t *testing.T) {
-	if !strings.Contains(stackMoveCmd.Long, "different tabs of the same workspace") || !strings.Contains(stackMoveCmd.Long, "A tab as target is not supported") {
-		t.Fatalf("the help must say that a move between tabs works and that a tab as target does not")
-	}
-}

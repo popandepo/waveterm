@@ -30,6 +30,9 @@ const (
 	LayoutActionDataType_Activate        = "activate"
 	LayoutActionDataType_Detach          = "detach"
 	LayoutActionDataType_Swap            = "swap"
+
+	// on a stackinsert: the block goes last in the group, not right after the target
+	LayoutActionPosition_End = "end"
 )
 
 type PortableLayout []struct {

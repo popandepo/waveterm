@@ -1004,11 +1004,11 @@ How: emain looks up the block's rectangle in the tab's page (`.block[data-blocki
 - **Found only by the live run, each fixed with a test:** the command had no RPC client set up; a parked view gives an empty picture; the first rectangle was the strip tab's; blocks of a never-shown tab are at the layout minimum.
 - **NOT run:** whether the move behind the active view is invisible to the owner (the check compares only before and after; a pixel check of the trial window by PrintWindow does not work, it returns only the Electron window frame, and a screen copy needs the trial window uncovered, which is not done while he is at the PC); a stacked block that is not the front member (expected: an error); a block in a tab of a window that is minimised; a second capture at the same moment from two callers on real Wave (the lock is tested with fakes); mutation checks; the live Wave 82eec4b4 (this needs a new build there).
 
-## 41. Swap two tiles
+## 51. Swap two tiles
 
 Two tiles change places and sizes, with no process restarted. Mouse: hold Alt while dropping a tile on the middle of another (without Alt the middle still stacks; the edge zones still move). The outline is drawn over the tile under the pointer. CLI: `wsh stack swap --a <block> --b <block>`, same tab only. A block that is a member of a group means its whole group; two members of one group cannot be swapped (refused by the server, left alone by the page). Like every layout change from the CLI it is queued and not confirmed, and it never takes keyboard focus.
 
 - **How:** `swapAction` (layoutTree.ts) builds the action for the drop and for the queued `swap` the server sends; `swapNode` is the upstream reducer, unchanged. The Alt state comes from native `dragover` events (`swapmodifier.ts`), because the drag library's hover callback has no event.
 - **Read-back:** `wsh tab layout [--tab <tabid>]` prints the SAVED layout of a tab as JSON: `tiles` in layout order (a group is one tile with `blockids` in order and `active`), and `pendingactions`, the number of queued changes the page has not applied yet (above 0 the tiles are not final). Read-only (RPC `GetTabLayoutCommand`), never touches focus or the shown tab. The page saves about 100 ms after a change; a tab that was never shown has no tiles.
 - **Tests:** page (`swap.test.ts`, `swapmodifier.test.ts`, `swapaction.model.test.ts`), Go (`ours_swap_test.go`, `ours_tablayout_test.go`, `wshcmd-stack_test.go`, `wshcmd-tablayout_test.go`).
-- **Live checkpoint:** not run (needs a Wave window); see the PR.
+- **Live checkpoint:** the CLI swap was run on 26 Nov 2026 in an isolated instance on a hidden desktop and passed; the mouse Alt-drop has not been run. Script and output in PR 117.

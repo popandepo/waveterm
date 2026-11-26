@@ -14,17 +14,6 @@ foreach ($d in $fakeDirs) { $null = New-Item -ItemType Directory -Path $d -Force
 $env:USERPROFILE = $fakeProfile
 $env:CLAUDE_CONFIG_DIR = Join-Path $env:USERPROFILE '.claude-personal'
 $id = '11111111-2222-3333-4444-555555555555'
-# a made-up MalfestioMaster: Session-Plugins.ps1 (the one on origin/Master), manager.json naming one session, and the mod folders the list names
-$mm = Join-Path $env:TEMP ('openwave-test-mm-' + [guid]::NewGuid().ToString('N'))
-$mmDirs = @($mm, "$mm\tools", "$mm\tools\mods", "$mm\tools\mods\usage-file", "$mm\tools\mods\usage-file-2", "$mm\tools\mods\tool-rows", "$mm\tools\mods\run-suggest", "$mm\mods", "$mm\mods\context-feed", "$mm\mods\context-feed\hooks")
-foreach ($d in $mmDirs) { $null = New-Item -ItemType Directory -Path $d -Force }
-$spSrc = (& git -C 'C:\Projects\Personal\MalfestioMaster' show 'origin/Master:tools/Session-Plugins.ps1') -join "`n"
-Set-Content -LiteralPath "$mm\tools\Session-Plugins.ps1" -Value $spSrc
-$mgrId = '99999999-8888-7777-6666-555555555555'
-Set-Content -LiteralPath "$mm\tools\manager.json" -Value ('{"sessionId":"' + $mgrId + '","name":"mgr-test"}')
-Set-Content -LiteralPath "$mm\mods\context-feed\hooks\hooks.json" -Value '{}'
-$sp = "$mm\tools\Session-Plugins.ps1"
-$PSDefaultParameterValues['*:SessionPluginsScript'] = $sp
 
 $j = & $script -Cwd $cwd -Name tether-notes -SessionId $id -Model claude-sonnet-5-5 -Effort low -PermissionMode auto -Prompt 'a; b' -Items '20261115-M-6804a3f2 20261101-C-1f64d43a' -TabColor '#2D7DD2' -StarterSource $st -DryRun | ConvertFrom-Json
 $wsh = @($j.wshargs); $argv = @($j.argv)
@@ -73,40 +62,9 @@ foreach ($case in @(@('unset', ''), @('old', (Join-Path $env:USERPROFILE '.claud
 $ErrorActionPreference = 'Stop'
 $thr = & $script -Cwd $cwd -Name x -StarterSource $st -ConfigDir (Join-Path $env:TEMP 'throwaway') -ThrowawayConfig -DryRun | ConvertFrom-Json
 Check 'a throwaway folder needs -ThrowawayConfig and is then passed on with it' ((@($thr.argv) -contains '-ThrowawayConfig') -and (@($thr.argv) -contains (Join-Path $env:TEMP 'throwaway'))) ($thr | ConvertTo-Json -Compress)
-# the plugin list is Get-SessionPluginDirs' (Session-Plugins.ps1, 19 Nov 2026: the manager came back through Wave without context-feed at 18 Nov 23:00):
-# every folder travels in ONE comma-joined -PluginDir (a stored restart command goes through pwsh -File), the starter makes one --plugin-dir of each.
-function PluginOf($r) { $a = @($r.argv); $i = [array]::IndexOf($a, '-PluginDir'); if ($i -ge 0) { $a[$i + 1] } else { '' } }
-function ListOf($r) { $p = PluginOf $r; if ($p) { @($p -split ',') } else { @() } }
-function ArgOf($r, [string]$flag) { $a = @($r.argv); $i = [array]::IndexOf($a, $flag); if ($i -ge 0) { if ($i + 1 -lt $a.Count) { $a[$i + 1] } else { '' } } else { $null } }
-$cfg1 = Join-Path $env:USERPROFILE '.claude-personal'
-$cfg2 = Join-Path $env:USERPROFILE '.claude-personal2'
-$base1 = @("$mm\tools\mods\usage-file", "$mm\tools\mods\tool-rows", "$mm\tools\mods\run-suggest")
-$feed = "$mm\mods\context-feed"
-$mn = & $script -Cwd $cwd -Name mgr-test -StarterSource $st -ConfigDir $cfg1 -SessionPluginsScript $sp -DryRun | ConvertFrom-Json
-Check 'the manager (by name) gets usage-file, tool-rows, run-suggest and context-feed, each folder in the one -PluginDir list' (((ListOf $mn) -join '|') -eq (($base1 + $feed) -join '|')) (PluginOf $mn)
-$mi = & $script -Cwd $cwd -Name other-name -SessionId $mgrId -StarterSource $st -ConfigDir $cfg1 -SessionPluginsScript $sp -DryRun | ConvertFrom-Json
-Check 'the manager by session id gets context-feed too' ((ListOf $mi) -contains $feed) (PluginOf $mi)
-$u1 = & $script -Cwd $cwd -Name u1 -StarterSource $st -ConfigDir $cfg1 -SessionPluginsScript $sp -DryRun | ConvertFrom-Json
-Check 'a non-manager gets usage-file, tool-rows and run-suggest, and no context-feed' (((ListOf $u1) -join '|') -eq ($base1 -join '|')) (PluginOf $u1)
-$u2 = & $script -Cwd $cwd -Name u2 -StarterSource $st -ConfigDir $cfg2 -SessionPluginsScript $sp -DryRun | ConvertFrom-Json
-Check 'account 2 gets the usage-file-2 mod in place of usage-file' ((ListOf $u2)[0] -eq "$mm\tools\mods\usage-file-2" -and (ListOf $u2) -notcontains "$mm\tools\mods\usage-file") (PluginOf $u2)
-$thr = & $script -Cwd $cwd -Name x -StarterSource $st -ConfigDir (Join-Path $env:TEMP 'throwaway') -ThrowawayConfig -SessionPluginsScript $sp -DryRun | ConvertFrom-Json
-Check 'a throwaway folder gets no plugin folders' (-not (PluginOf $thr)) (PluginOf $thr)
-Check 'a throwaway folder gets no plugin folders when it is the manager either' ((& $script -Cwd $cwd -Name mgr-test -StarterSource $st -ConfigDir (Join-Path $env:TEMP 'throwaway') -ThrowawayConfig -SessionPluginsScript $sp -DryRun | ConvertFrom-Json | ForEach-Object { PluginOf $_ }) -eq '') 'plugins on a throwaway manager'
-$ux = & $script -Cwd $cwd -Name ux -StarterSource $st -ConfigDir $cfg2 -PluginDir $env:TEMP -SessionPluginsScript $sp -DryRun | ConvertFrom-Json
-Check 'a plugin folder given by the caller is kept, and replaces the list' ((PluginOf $ux) -eq $env:TEMP) (PluginOf $ux)
-Check 'the starter is not given -ToolRowsDir any more (tool-rows is in the list)' ($null -eq (ArgOf $u1 '-ToolRowsDir')) ($u1 | ConvertTo-Json -Compress)
-$errFile = Join-Path $env:TEMP ('plugins-stderr-' + [guid]::NewGuid().ToString('N') + '.txt')
-$null = & pwsh -NoProfile -File $script -Cwd $cwd -Name nf -StarterSource $st -ConfigDir $cfg1 -SessionPluginsScript (Join-Path $mm 'tools\no-such.ps1') -DryRun 2>$errFile
-$errText = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw } else { '' }
-Remove-Item -LiteralPath $errFile -ErrorAction SilentlyContinue
-Check 'a missing Session-Plugins.ps1 stops the open (nonzero exit), it does not start with a shorter list' (($LASTEXITCODE -ne 0) -and ($errText -match 'plugin list script was not found')) "exit=$LASTEXITCODE $errText"
 $tc = & $script -Cwd $cwd -Name tc -StarterSource $st -ConfigDir (Join-Path $env:USERPROFILE '.claude-personal') -ClickRows -DryRun | ConvertFrom-Json
 Check '-ClickRows is passed on to the starter' (@($tc.argv) -contains '-ClickRows') ($tc | ConvertTo-Json -Compress)
 Remove-Item $st -ErrorAction SilentlyContinue
-foreach ($f in @("$mm\mods\context-feed\hooks\hooks.json", "$mm\tools\Session-Plugins.ps1", "$mm\tools\manager.json")) { Remove-Item -LiteralPath $f -ErrorAction SilentlyContinue }
-[array]::Reverse($mmDirs)
-foreach ($d in $mmDirs) { try { [IO.Directory]::Delete($d) } catch { } }
 $env:USERPROFILE = $realProfile
 Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
 [array]::Reverse($fakeDirs)

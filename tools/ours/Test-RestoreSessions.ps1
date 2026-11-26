@@ -56,21 +56,12 @@ if ($args[0] -eq 'session' -and $args[1] -eq 'start') {
 }
 '@ | Set-Content -LiteralPath $stub
 
-# a made-up MalfestioMaster: Session-Plugins.ps1 (the one on origin/Master), manager.json naming the session 'aut', and the mod folders it lists
-$mm = Join-Path $dir 'mm'
-$mmDirs = @($mm, "$mm\tools", "$mm\tools\mods", "$mm\tools\mods\usage-file", "$mm\tools\mods\usage-file-2", "$mm\tools\mods\tool-rows", "$mm\tools\mods\run-suggest", "$mm\mods", "$mm\mods\context-feed", "$mm\mods\context-feed\hooks")
-foreach ($d in $mmDirs) { $null = New-Item -ItemType Directory -Path $d -Force }
-$spSrc = (& git -C 'C:\Projects\Personal\MalfestioMaster' show 'origin/Master:tools/Session-Plugins.ps1') -join "`n"
-Set-Content -LiteralPath "$mm\tools\Session-Plugins.ps1" -Value $spSrc
-Set-Content -LiteralPath "$mm\tools\manager.json" -Value '{"sessionId":"00000000-0000-0000-0000-00000000000a","name":"aut"}'
-Set-Content -LiteralPath "$mm\mods\context-feed\hooks\hooks.json" -Value '{}'
-
 function Run([string[]]$extra, [hashtable]$envVars = @{}) {
     if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log }
     $envVars.GetEnumerator() | ForEach-Object { [Environment]::SetEnvironmentVariable($_.Key, $_.Value) }
     [Environment]::SetEnvironmentVariable('RESTORE_TEST_LOG', $log)
     [Environment]::SetEnvironmentVariable('RESTORE_TEST_SESSIONS', $sess)
-    $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -RecordPath $recordPath -SessionsDir $sess -Wsh $stub -SessionPluginsScript "$mm\tools\Session-Plugins.ps1" @extra 2>&1 | Out-String
+    $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -RecordPath $recordPath -SessionsDir $sess -Wsh $stub @extra 2>&1 | Out-String
     $code = $LASTEXITCODE
     $envVars.GetEnumerator() | ForEach-Object { [Environment]::SetEnvironmentVariable($_.Key, $null) }
     $calls = if (Test-Path -LiteralPath $log) { @(Get-Content -LiteralPath $log) } else { @() }
@@ -103,21 +94,6 @@ Check 'execute starts exactly the sessions that are not running (7 here)' ($star
 Check 'execute never starts the running session' (-not (($starts -join "`n") -match $idRunning)) ($starts -join ' | ')
 Check 'every start is a --restart start with the session id in its meta' (@($starts | Where-Object { $_ -match '--restart' -and $_ -match 'session:id=' }).Count -eq $starts.Count) ($starts -join ' | ')
 Check 'no call carries a skip-permissions or bypass flag' (-not (($r.Calls -join "`n") -match 'SkipPermissions|dangerously|bypass')) ($r.Calls -join ' | ')
-$rp = Run @('-PluginDir', $env:TEMP)
-Check 'a given plugin folder is part of every planned start command' (([regex]::Matches($rp.Out, '-PluginDir ' + [regex]::Escape($env:TEMP))).Count -ge 7) $rp.Out
-# Without -PluginDir the list is Get-SessionPluginDirs' (the made-up Session-Plugins.ps1 above), per session: the manager by name gets context-feed, no other session does.
-function ListFor($calls, [string]$name) {
-    $c = @($calls | Where-Object { $_ -like 'session start*' -and $_ -match "--name $name\b" })
-    if ($c.Count -ne 1) { return $null }
-    $m = [regex]::Match($c[0], '-PluginDir (\S+)')
-    if ($m.Success) { return @($m.Groups[1].Value -split ',') } else { return @() }
-}
-$base = @("$mm\tools\mods\usage-file", "$mm\tools\mods\tool-rows", "$mm\tools\mods\run-suggest")
-$lAut = ListFor $r.Calls 'aut'; $lSt1 = ListFor $r.Calls 'st1'
-Check 'a non-manager session restores with usage-file, tool-rows and run-suggest as one comma-joined -PluginDir, and no context-feed' (($lSt1 -join '|') -eq ($base -join '|')) ($r.Calls -join ' | ')
-Check 'the manager (by name in manager.json) also gets context-feed' (($lAut -join '|') -eq (($base + "$mm\mods\context-feed") -join '|')) ($r.Calls -join ' | ')
-$r2 = Run @('-Execute', '-ConfigDir', (Join-Path $env:USERPROFILE '.claude-personal2'))
-Check 'with the account-2 folder the list starts with the usage-file-2 mod' ((ListFor $r2.Calls 'st1')[0] -eq "$mm\tools\mods\usage-file-2") ($r2.Calls -join ' | ')
 Check 'every start carries -ConfigDir with a full path in its stored command (Wave itself has no CLAUDE_CONFIG_DIR)' (@($starts | Where-Object { $_ -match '-ConfigDir [A-Za-z]:[\\/]' }).Count -eq $starts.Count) ($starts -join ' | ')
 $adds = @($r.Calls | Where-Object { $_ -like 'group add*' })
 Check 'both free members of the stack join the running anchor block' ($adds.Count -eq 2 -and @($adds | Where-Object { $_ -match '--to blk-run$' }).Count -eq 2) ($adds -join ' | ')
@@ -141,9 +117,6 @@ Remove-Item -LiteralPath (Join-Path $sess 'broken.json')
 # clean up, file by file
 foreach ($f in @(Get-ChildItem -LiteralPath $sess -File)) { Remove-Item -LiteralPath $f.FullName }
 Remove-Item -LiteralPath $sess
-foreach ($f in @("$mm\mods\context-feed\hooks\hooks.json", "$mm\tools\Session-Plugins.ps1", "$mm\tools\manager.json")) { Remove-Item -LiteralPath $f }
-[array]::Reverse($mmDirs)
-foreach ($d in $mmDirs) { [IO.Directory]::Delete($d) }
 foreach ($f in @(Get-ChildItem -LiteralPath $dir -File)) { Remove-Item -LiteralPath $f.FullName }
 Remove-Item -LiteralPath $dir
 if ($fail -gt 0) { exit 1 }

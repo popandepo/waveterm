@@ -37,10 +37,7 @@ param(
     [switch]$DryRun,
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
-    # Default: the list of Get-SessionPluginDirs (MalfestioMaster tools\Session-Plugins.ps1) for the account of the config folder, this session id and name.
-    [string[]]$PluginDir,
-    [string]$SessionPluginsScript = 'C:\Projects\Personal\MalfestioMaster\tools\Session-Plugins.ps1',
-    # -ClickRows starts the session in the fullscreen renderer (off by default). The tool-rows mod is part of the plugin list above.
+    # -ClickRows starts the session in the fullscreen renderer (off by default). The plugin folders are not on the stored command: the starter names them at every start.
     [switch]$ClickRows,
     [string]$StarterSource = (Join-Path (Split-Path $PSScriptRoot) 'Start-ResumableSession.ps1'),
     [string]$StarterDir = (Join-Path $env:LOCALAPPDATA 'WaveFork\tools'),
@@ -64,7 +61,6 @@ if (-not $NoRestart -and -not $ResolvedConfig) {
     [Console]::Error.WriteLine("Refusing: CLAUDE_CONFIG_DIR '$ConfigDir' is empty, is .claude or .claude-work, or is not under .claude-personal (use -ThrowawayConfig for a throwaway folder).")
     exit 2
 }
-if (-not $PSBoundParameters.ContainsKey('PluginDir')) { $PluginDir = @(Get-WavePluginDirs $ResolvedConfig $SessionId $Name $SessionPluginsScript) }
 
 # the starter: a copy outside any working folder, because Wave starts it again at every start and a working folder can be on another branch
 $starter = $null
@@ -86,7 +82,7 @@ $argv = if ($NoRestart) {
     if (-not $StartSession) { throw '-StartSession is needed with -NoRestart (the old way)' }
     @('pwsh', '-NoLogo', '-File', $StartSession, '-Name', $Name)
 } else {
-    @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($PluginDir) { @('-PluginDir', (@($PluginDir) -join ',')) } else { @() }) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
+    @('pwsh', '-NoLogo', '-File', $starter, '-SessionId', $SessionId, '-Name', $Name, '-ConfigDir', $ResolvedConfig) + $(if ($ThrowawayConfig) { @('-ThrowawayConfig') } else { @() })
 }
 if ($NoRestart -and $SessionId) { $argv += '-SessionId', $SessionId }
 if (-not $NoRestart -and $ClickRows) { $argv += '-ClickRows' }

@@ -19,9 +19,11 @@ param(
     [string]$PromptRoot = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'WaveFork\prompts' } else { '' }),
     [string]$ConfigDir = $env:CLAUDE_CONFIG_DIR,
     [switch]$ThrowawayConfig,
-    [string[]]$PluginDir = @(),
-    # Every --plugin-dir entry must, after its final path is resolved, sit under one of these folders (plugin content is code). The default is the two MalfestioMaster
-    # mod roots; only a test names others (a comma-joined list is split like -PluginDir).
+    # The plugin folders (--plugin-dir) are not part of a block's command: this MalfestioMaster script names them at EVERY start, so a resume gets today's list.
+    # It is code that runs here; only a test names another one.
+    [string]$SessionPluginsScript = 'C:\Projects\Personal\MalfestioMaster\tools\Session-Plugins.ps1',
+    # Every plugin folder it names must, after its final path is resolved, sit under one of these folders (plugin content is code). The default is the two
+    # MalfestioMaster mod roots; only a test names others (one comma-joined argument over pwsh -File).
     [string[]]$PluginRoots = @('C:\Projects\Personal\MalfestioMaster\tools\mods', 'C:\Projects\Personal\MalfestioMaster\mods'),
     # Start in the fullscreen renderer so mouse clicks reach mods (off by default: it changes mouse capture and text selection in Wave).
     [switch]$ClickRows,
@@ -144,13 +146,23 @@ if (-not $resolvedConfig) {
 }
 $ConfigDir = $resolvedConfig
 
-# Plugin folders (--plugin-dir): each must be fully qualified, an existing folder, and (after links are resolved) never at or below .claude or .claude-work.
-# What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
+# Plugin folders (--plugin-dir): a personal account (.claude-personal is 1, .claude-personal2 is 2) gets the list of $SessionPluginsScript, any other config
+# folder (a throwaway one) gets none. A missing script is a refusal, never a shorter list. Each folder must be fully qualified, existing, and (after links are
+# resolved) never at or below .claude or .claude-work. What is handed on is the resolved path. Refusal is exit code 2, before anything starts.
+$pluginDirs = @()
+$homeFinal = Get-FinalPath $env:USERPROFILE
+$pluginAccount = if (Test-Under $ConfigDir "$homeFinal\.claude-personal2") { '2' } elseif (Test-Under $ConfigDir "$homeFinal\.claude-personal") { '1' } else { '' }
+if ($pluginAccount) {
+    if ($SessionPluginsScript -notmatch '^[A-Za-z]:[\\/]' -or (Test-PlainlyForbidden $SessionPluginsScript) -or -not (Test-Path -LiteralPath $SessionPluginsScript -PathType Leaf)) {
+        [Console]::Error.WriteLine("Refusing to start Claude: the plugin list script was not found: $SessionPluginsScript")
+        exit 2
+    }
+    . $SessionPluginsScript
+    $pluginDirs = @(Get-SessionPluginDirs -Account $pluginAccount -SessionId $SessionId -Name $Name)
+}
 $pluginPaths = @()
-# -PluginDir arrives as ONE comma-joined argument over pwsh -File (a restart stores the command; -File binds an array only as its first element), like -Items.
-$PluginDir = @($PluginDir | ForEach-Object { "$_" -split ',' } | Where-Object { $_ })
 $allowedRoots = @(@($PluginRoots | ForEach-Object { "$_" -split ',' } | Where-Object { $_ }) | ForEach-Object { if ($_ -match '^[A-Za-z]:[\\/]' -and (Test-Path -LiteralPath $_ -PathType Container)) { Get-FinalPath $_ } } | Where-Object { $_ })
-foreach ($pd in @($PluginDir | Where-Object { $_ })) {
+foreach ($pd in @($pluginDirs | Where-Object { $_ })) {
     $okPlugin = $null
     if ($pd -match '^[A-Za-z]:[\\/]' -and (Test-PlainlyForbidden $pd)) {
         [Console]::Error.WriteLine("Refusing to start Claude: plugin folder '$pd' is at or below .claude or .claude-work by its plain spelling (nothing was opened).")
